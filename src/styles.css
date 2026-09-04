@@ -1,0 +1,96 @@
+@import 'tailwindcss';
+
+/*
+ * The theme is dowel's - the token vocabulary of the lacodda line, in dark and
+ * light, with the accent worked out from one colour.
+ */
+@import 'dowel-ui/theme.css';
+
+/*
+ * furca - terracotta #D9704A, the first colour of the mark's pair (terracotta
+ * -> olive). The gradient rides the mark itself; a single accent colour is
+ * what every other surface in the line derives its hover shade, soft fill,
+ * focus ring and on-accent text colour from, so only the first colour of the
+ * pair travels here.
+ *
+ * This lives inline rather than as `dowel-ui/accents/furca.css` because the
+ * installed dowel-ui (0.20.1) has not shipped that file yet — furca went
+ * through the brand-line ritual after that release. Swap this block for the
+ * import once a dowel-ui release carries `accents/furca.css`.
+ */
+:root {
+  --accent-base: #d9704a;
+}
+
+/*
+ * The window is a window, not a page.
+ *
+ * `height: 100%` alone leaves the document scrollable, and a laptop trackpad
+ * finds that. Sealing the document means the only thing that scrolls is the
+ * one box that means to.
+ */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  overscroll-behavior: none;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Scrollbars.
+ *
+ * WebView2 draws the full-width Windows scrollbar by default. These are the
+ * app's own: thin, in the palette, and drawn only where something scrolls. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--line-2);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--dim);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+}

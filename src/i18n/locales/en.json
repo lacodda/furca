@@ -1,0 +1,14 @@
+{
+  "app": {
+    "name": "Furca",
+    "tagline": "A fast git client that stays out of your way."
+  },
+  "shell": {
+    "openRepository": "Open repository",
+    "noRepository": "No repository open yet.",
+    "branch": "Branch",
+    "commit": "Commit",
+    "detached": "Detached HEAD",
+    "failed": "Could not open the repository: {{message}}"
+  }
+}

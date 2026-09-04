@@ -1,0 +1,26 @@
+[package]
+name = "furca"
+description = "furca: a headless CLI for the furca git client."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "furca"
+path = "src/main.rs"
+
+[dependencies]
+furca-core = { path = "../furca-core", version = "0.1.0" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# Decodes the PNG payloads embedded in assets/icon.ico for the release-gate
+# pixel probe. Pure Rust, no C toolchain, so it costs nothing on CI.
+png = "0.18"
+
+[lints]
+workspace = true

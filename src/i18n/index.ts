@@ -1,0 +1,21 @@
+import i18n from 'i18next'
+import { initReactI18next } from 'react-i18next'
+import en from './locales/en.json'
+
+// English is the source language, never a fallback for a missing translation.
+// `tools/check-locales.mjs` holds every locale to the same shape at build
+// time, so a gap fails the build instead of reaching a person as a stray
+// English line in a translated window.
+export const defaultNS = 'translation'
+export const resources = {
+  en: { translation: en },
+} as const
+
+void i18n.use(initReactI18next).init({
+  resources,
+  lng: 'en',
+  fallbackLng: false,
+  interpolation: { escapeValue: false },
+})
+
+export default i18n

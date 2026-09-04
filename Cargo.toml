@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["crates/furca-core", "crates/furca-cli", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
+repository = "https://github.com/lacodda/furca"
+# Raised only when a feature needs it; see the CI `msrv` job, which builds on
+# this number so it cannot silently rot.
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+# Line-table debug info keeps backtraces readable while cutting the .pdb weight
+# that dominates target/debug. Full debug info is a one-line revert when needed.
+[profile.dev]
+debug = 1

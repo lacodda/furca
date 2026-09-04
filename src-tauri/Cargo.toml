@@ -1,0 +1,35 @@
+[package]
+name = "furca-desktop"
+description = "Furca: a fast cross-platform git client (Tauri v2 desktop app)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+# Presentation rasters are for the README and the release page, not for anyone
+# building from the crate. icon.ico stays: build.rs needs it on Windows.
+exclude = [
+    "../assets/social-preview.png",
+    "../assets/logo-512.png",
+    "../assets/apple-touch-icon.png",
+    "../assets/favicon-32.png",
+]
+
+[lib]
+name = "furca_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+furca-core = { path = "../crates/furca-core", version = "0.1.0" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+
+[lints]
+workspace = true

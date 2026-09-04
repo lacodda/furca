@@ -1,0 +1,7 @@
+# Line endings are normalized in the repository, not left to whoever edits.
+* text=auto eol=lf
+
+# Windows shells need CRLF to run reliably.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf

@@ -1,0 +1,29 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Tauri
+/src-tauri/target/
+/src-tauri/gen/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Icon generator scratch output
+/icon-source.png
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+!.vscode/extensions.json

@@ -1,0 +1,20 @@
+[package]
+name = "furca-core"
+description = "The engine behind furca: reads through gitoxide, mutations through the system git."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gix = { version = "0.87", default-features = true }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
