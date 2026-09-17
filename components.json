@@ -15,5 +15,8 @@
     "utils": "@/lib/utils",
     "lib": "@/lib",
     "hooks": "@/hooks"
+  },
+  "registries": {
+    "@dowel": "https://lacodda.github.io/dowel/r/{name}.json"
   }
 }
