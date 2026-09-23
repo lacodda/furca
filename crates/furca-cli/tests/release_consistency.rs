@@ -298,3 +298,217 @@ fn every_size_carries_the_level_that_reads_at_it() {
         }
     }
 }
+
+/// `site`, `base` and the crates' `homepage` name the same place.
+///
+/// A docs site lives either on github.io under `/furca` (needs `base`) or on
+/// its own domain from the root (`docs/public/CNAME`, no `base`). A mix of the
+/// two builds fine and serves bare HTML with every asset 404 — it lived on a
+/// sibling project's production site for a month with no gate noticing.
+#[test]
+fn the_docs_site_agrees_with_itself_about_where_it_lives() {
+    let astro = read("docs/astro.config.mjs");
+    let site = astro
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("site:"))
+        .map(|value| value.trim().trim_matches(['\'', ',', '"']).to_owned())
+        .expect("`site` not found in docs/astro.config.mjs");
+    let has_base = astro
+        .lines()
+        .any(|line| !line.trim_start().starts_with("//") && line.trim().starts_with("base:"));
+    let cname = std::fs::read_to_string(repo_root().join("docs/public/CNAME"))
+        .ok()
+        .map(|text| text.trim().to_owned());
+
+    let expected_home = match &cname {
+        Some(domain) => {
+            assert_eq!(
+                site,
+                format!("https://{domain}"),
+                "docs/public/CNAME says `{domain}` but astro.config.mjs builds for `{site}`"
+            );
+            assert!(
+                !has_base,
+                "astro.config.mjs keeps `base` while {domain} serves from the root"
+            );
+            for (file, text) in docs_sources() {
+                assert!(
+                    !text.contains("/furca/"),
+                    "{file} links to `/furca/...`, a path {domain} does not serve"
+                );
+            }
+            format!("https://{domain}/")
+        }
+        None => {
+            assert_eq!(
+                site, "https://lacodda.github.io",
+                "no docs/public/CNAME, so the site must build for lacodda.github.io"
+            );
+            assert!(
+                has_base,
+                "a github.io project site needs `base`, or every asset resolves to the wrong path"
+            );
+            "https://lacodda.github.io/furca/".to_owned()
+        }
+    };
+
+    let workspace = read("Cargo.toml");
+    let homepage = workspace
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("homepage"))
+        .and_then(|rest| rest.trim().strip_prefix('='))
+        .map(|value| value.trim().trim_matches('"').to_owned())
+        .expect("[workspace.package] declares no homepage");
+    assert_eq!(
+        homepage, expected_home,
+        "crates.io would send readers somewhere other than where the docs are served"
+    );
+}
+
+/// Markdown and config sources of the docs site, with absolute URLs removed so
+/// only site-relative paths remain.
+fn docs_sources() -> Vec<(String, String)> {
+    fn walk(dir: &Path, out: &mut Vec<(String, String)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path
+                .file_name()
+                .is_some_and(|name| name == "node_modules" || name == "dist" || name == ".astro")
+            {
+                continue;
+            }
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path
+                .extension()
+                .is_some_and(|e| e == "md" || e == "mdx" || e == "mjs")
+            {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                let stripped = text
+                    .split_whitespace()
+                    .filter(|word| !word.contains("://"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                out.push((path.display().to_string(), stripped));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&repo_root().join("docs"), &mut out);
+    out
+}
+
+/// The subcommands the built CLI actually has, read from its own help.
+fn cli_commands() -> Vec<String> {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_furca"))
+        .arg("--help")
+        .output()
+        .expect("furca --help runs");
+    let help = String::from_utf8(output.stdout).expect("utf-8 help");
+    let commands: Vec<String> = help
+        .lines()
+        .skip_while(|line| !line.starts_with("Commands:"))
+        .skip(1)
+        .take_while(|line| line.starts_with("  "))
+        .filter_map(|line| line.split_whitespace().next().map(str::to_owned))
+        .filter(|name| name != "help")
+        .collect();
+    assert!(
+        !commands.is_empty(),
+        "no commands parsed from `furca --help` — the scanner went blind:\n{help}"
+    );
+    commands
+}
+
+/// A command without a reference page does not exist for anyone reading the
+/// docs; a page without a command documents something that is gone.
+#[test]
+fn every_command_has_a_reference_page_and_every_page_a_command() {
+    let commands = cli_commands();
+    let reference = repo_root().join("docs/src/content/docs/reference");
+    for command in &commands {
+        assert!(
+            reference.join(format!("{command}.md")).exists(),
+            "`furca {command}` has no page at docs/src/content/docs/reference/{command}.md"
+        );
+    }
+    for entry in std::fs::read_dir(&reference).expect("reference dir") {
+        let path = entry.expect("entry").path();
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        assert!(
+            commands.iter().any(|c| c == stem),
+            "{} documents `furca {stem}`, which the CLI does not have",
+            path.display()
+        );
+    }
+}
+
+/// Every `furca <command>` the README shows is one the CLI has.
+#[test]
+fn the_readme_shows_only_real_commands() {
+    let commands = cli_commands();
+    let readme = read("README.md");
+    let mut shown = 0;
+    for (at, _) in readme.match_indices("furca ") {
+        // Only invocations in code: after a backtick, a prompt, or at the
+        // start of a line in a shell block.
+        let before = &readme[..at];
+        let in_code = before.ends_with('`') || before.ends_with("$ ") || before.ends_with('\n');
+        if !in_code {
+            continue;
+        }
+        let word: String = readme[at + "furca ".len()..]
+            .chars()
+            .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+            .collect();
+        if word.is_empty() {
+            continue;
+        }
+        shown += 1;
+        assert!(
+            commands.contains(&word),
+            "README.md shows `furca {word}`, which the CLI does not have"
+        );
+    }
+    assert!(
+        shown > 0,
+        "README.md shows no furca command at all — the scanner went blind"
+    );
+}
+
+/// The installers unpack the folder the release workflow packs.
+#[test]
+fn the_installers_unpack_what_the_release_packs() {
+    let release = read(".github/workflows/release.yml");
+    assert!(
+        release.contains(r#"name="furca-${tag}-${{ matrix.target }}""#),
+        "release.yml no longer packs a `furca-<tag>-<target>` folder"
+    );
+    for target in [
+        "x86_64-pc-windows-msvc",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-apple-darwin",
+    ] {
+        assert!(
+            release.contains(target),
+            "release.yml does not build {target}"
+        );
+    }
+    let ps1 = read("tools/install.ps1");
+    assert!(
+        ps1.contains(r#"$name = "furca-$tag-x86_64-pc-windows-msvc""#)
+            && ps1.contains(r#"Join-Path $tmp "$name\furca.exe""#),
+        "install.ps1 does not look for furca-<tag>-<target>\\furca.exe"
+    );
+    let sh = read("tools/install.sh");
+    assert!(
+        sh.contains(r#"NAME="furca-$TAG-$TARGET""#) && sh.contains(r#""$TMP/$NAME/furca""#),
+        "install.sh does not look for furca-<tag>-<target>/furca"
+    );
+}
