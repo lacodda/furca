@@ -4,29 +4,49 @@
 
 <p align="center">
   <a href="https://github.com/lacodda/furca/actions"><img src="https://img.shields.io/github/actions/workflow/status/lacodda/furca/ci.yml?style=flat-square" alt="CI"></a>
+  <a href="https://crates.io/crates/furca"><img src="https://img.shields.io/crates/v/furca?style=flat-square" alt="crates.io"></a>
+  <a href="https://lacodda.github.io/furca/"><img src="https://img.shields.io/badge/docs-lacodda.github.io-blue?style=flat-square" alt="Docs"></a>
   <a href="https://github.com/lacodda/furca/blob/main/LICENSE"><img src="https://img.shields.io/github/license/lacodda/furca?style=flat-square" alt="License"></a>
 </p>
 
 ## Why
 
-Most git clients either reimplement git badly (breaking hooks, credential helpers, LFS, signing) or shell out to `git` for everything (paying a process-spawn cost on every read). Furca does neither: reads — log, status, diff, blame, refs — run through [gitoxide](https://github.com/GitoxideLabs/gitoxide) in-process, while mutations — commit, merge, rebase, push, pull, stash — go through the system `git` CLI, so your config, hooks and credentials work exactly as they do in a terminal. See [ADR 0001](https://github.com/lacodda/furca/blob/main/docs/adr/0001-hybrid-git-engine.md).
+Most git clients either reimplement git badly (breaking hooks, credential helpers, LFS, signing) or shell out to `git` for everything (paying a process-spawn cost on every read). Furca does neither: reads run through [gitoxide](https://github.com/GitoxideLabs/gitoxide) in-process, while mutations go through the system `git` CLI, so your config, hooks and credentials work exactly as they do in a terminal. See [ADR 0001](https://github.com/lacodda/furca/blob/main/docs/adr/0001-hybrid-git-engine.md).
 
-## What you get
+## In a terminal
 
-- **One engine, three doors.** `furca-core` holds the logic; a Tauri desktop app, a headless CLI, and — eventually — an MCP server are thin wrappers around it with no logic of their own. See [ADR 0002](https://github.com/lacodda/furca/blob/main/docs/adr/0002-one-core-three-doors.md).
-- **A hybrid engine, not a reimplementation.** Reads go through gitoxide in-process; every mutation shells out to your own `git`, so hooks, credential helpers, LFS and signing behave exactly as they do in a terminal.
-- **A scriptable core.** `furca status` prints the repository's `HEAD` — branch, commit, detached or not — as JSON, discovering the repository the way `git` itself would, by walking up through parent directories.
-- **A release engine, built in.** furca will drive its own versioning from a terminal rather than depending on an external release tool. See [ADR 0003](https://github.com/lacodda/furca/blob/main/docs/adr/0003-release-engine-inside-the-client.md).
+```console
+$ furca status
+On main at 171154d, tracking origin/main
+
+$ furca log --all -n 3
+171154d 2026-09-17 Ada Author  docs: fill the readme out as a shopfront
+d402e85 2026-09-17 Ada Author  chore: point components.json at the dowel registry
+c8292c5 2026-09-04 Ada Author  build: raise the MSRV to 1.88
+... more history; raise --limit (now 3)
+
+$ furca refs --json | jq '.branches[0]'
+{ "name": "main", "target": "171154d…", "upstream": "origin/main", "head": true }
+```
+
+- **Parents after children, always.** `furca log` orders by the graph and uses time only to break ties, so a machine with a slow clock cannot put a parent above its child - the list draws as a graph top to bottom.
+- **JSON for scripts and assistants.** Every command takes `--json`; the output is the engine's own types, not a second format kept in step by hand.
+- **One engine, three doors.** `furca-core` is a plain Rust library; the CLI, the desktop window and - later - an MCP server are thin wrappers around it. See [ADR 0002](https://github.com/lacodda/furca/blob/main/docs/adr/0002-one-core-three-doors.md).
 
 ## Install
 
-Not published as a binary yet. Builds for Windows, macOS and Linux, plus the `furca` CLI, will appear on the [Releases page](https://github.com/lacodda/furca/releases) with the first tagged version.
+```powershell
+irm https://raw.githubusercontent.com/lacodda/furca/main/tools/install.ps1 | iex   # Windows
+```
 
-Until then, build from source — see [CONTRIBUTING.md](https://github.com/lacodda/furca/blob/main/CONTRIBUTING.md).
+```bash
+curl -fsSL https://raw.githubusercontent.com/lacodda/furca/main/tools/install.sh | sh   # macOS, Linux
+cargo install furca                                                                   # anywhere with Rust
+```
 
 ## Status
 
-**Pre-release**, nothing tagged yet. What exists today: the repository scaffold, the engine's read path (`furca-core`, wrapping gitoxide), the `furca status` CLI command, and a desktop shell that proves the door from the window to the engine is wired end to end — by its own admission in the source, "scaffolding, not the product." The release engine and the rest of the client are not built.
+**v0.1.0** is the engine and the CLI: `status`, `refs` and `log`, with `furca-core` published as a library. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 

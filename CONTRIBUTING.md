@@ -2,16 +2,23 @@
 
 ## Development
 
-Requires Rust, Node 22+ and pnpm.
+The engine and the CLI need only Rust. The desktop shell also needs Node 22+
+and pnpm.
 
 ```sh
-pnpm install
-pnpm tauri dev            # run the desktop app
-cargo test                # engine and CLI tests
+cargo test --workspace                 # engine, CLI and the release gate
+cargo run -p furca -- log -n 5         # the CLI against this repository
+pnpm install && pnpm tauri dev         # the desktop shell
 ```
 
-To build only the CLI:
+Before a commit, all of these are green:
 
 ```sh
-cargo run -p furca -- status
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+pnpm lint
 ```
+
+Engine tests build their repositories with `git` in a temporary directory and
+never read a repository on your machine.

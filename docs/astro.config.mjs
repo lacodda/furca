@@ -9,6 +9,9 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'furca',
+			// The 404 page is a content page (src/content/docs/404.md): Starlight's own
+			// route looks for that entry and warns on every build when it is missing.
+			disable404Route: true,
 			description: 'A fast git client that stays out of your way.',
 			logo: {
 				src: './src/assets/logo.svg',
