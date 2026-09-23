@@ -1,7 +1,11 @@
 name: Publish
 
-# Tag trigger is held until trusted publishing exists (first publish is manual).
+# Both crates were published by hand at v0.1.0; from then on a tag publishes
+# them through crates.io trusted publishing (OIDC), one trusted publisher per
+# crate. workflow_dispatch re-runs a tag whose publish failed.
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -19,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Get a crates.io token (OIDC trusted publishing)
         uses: rust-lang/crates-io-auth-action@v1
