@@ -29,53 +29,17 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag_name: tag,
-              name: `Furca ${tag}`,
+              name: `furca ${tag}`,
               body: 'See CHANGELOG.md for what changed.',
               draft: true,
               prerelease: false,
             })
             return data.id
 
-  bundle:
-    name: desktop (${{ matrix.target }})
-    needs: draft
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            target: aarch64-apple-darwin
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install Linux build deps (webkit2gtk for Tauri)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-      - run: pnpm install --frozen-lockfile
-      - uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          releaseId: ${{ needs.draft.outputs.release_id }}
-          args: --target ${{ matrix.target }}
-
-  # The desktop bundle carries the GUI; this job builds and packages the
-  # headless `furca` CLI binary on its own, for the same three targets.
+  # The CLI is what ships until the window exists (v0.7): the desktop shell in
+  # src-tauri is scaffolding, and an installer of scaffolding would put a
+  # non-product on the release page under the product's name. CI still builds
+  # it on every push so it cannot rot in the meantime.
   cli:
     name: cli (${{ matrix.target }})
     needs: draft
@@ -102,19 +66,24 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
+          # One top-level folder per archive, named like the archive: the
+          # installers in tools/ unpack it by that name.
           tag="${GITHUB_REF#refs/tags/}"
-          out="furca-${tag}-${{ matrix.target }}.zip"
-          cd target/${{ matrix.target }}/release
-          7z a "../../../$out" furca.exe
-          echo "ASSET=$out" >> "$GITHUB_ENV"
+          name="furca-${tag}-${{ matrix.target }}"
+          mkdir "$name"
+          cp target/${{ matrix.target }}/release/furca.exe "$name/"
+          7z a "$name.zip" "$name"
+          echo "ASSET=$name.zip" >> "$GITHUB_ENV"
       - name: Package (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           tag="${GITHUB_REF#refs/tags/}"
-          out="furca-${tag}-${{ matrix.target }}.tar.gz"
-          tar -czf "$out" -C target/${{ matrix.target }}/release furca
-          echo "ASSET=$out" >> "$GITHUB_ENV"
+          name="furca-${tag}-${{ matrix.target }}"
+          mkdir "$name"
+          cp target/${{ matrix.target }}/release/furca "$name/"
+          tar -czf "$name.tar.gz" "$name"
+          echo "ASSET=$name.tar.gz" >> "$GITHUB_ENV"
       - name: Upload to the draft release
         uses: actions/github-script@v9
         with:
@@ -131,8 +100,8 @@ jobs:
 
   publish:
     name: publish
-    # All three: `bundle` and `cli` for the ordering, `draft` for the release id.
-    needs: [draft, bundle, cli]
+    # `cli` for the ordering, `draft` for the release id.
+    needs: [draft, cli]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v9
