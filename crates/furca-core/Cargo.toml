@@ -6,10 +6,17 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+homepage.workspace = true
 rust-version.workspace = true
+readme = "../../README.md"
+keywords = ["git", "gitoxide", "log", "refs"]
+categories = ["development-tools"]
 
 [dependencies]
-gix = { version = "0.87", default-features = true }
+# `sha1` is a feature of its own, outside `max-performance-safe`: without it
+# gix-hash fails with a cascade of type errors that hide the real cause.
+# `basic` brings objects and references, `revision` the history walk.
+gix = { version = "0.87.1", default-features = false, features = ["max-performance-safe", "sha1", "basic", "revision"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 

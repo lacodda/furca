@@ -8,6 +8,7 @@ interface HeadSummary {
   branch: string | null
   commit: string | null
   detached: boolean
+  upstream: string | null
 }
 
 /**

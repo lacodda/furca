@@ -8,6 +8,7 @@ edition = "2024"
 license = "MIT"
 authors = ["Kirill Lakhtachev <lahtachev@gmail.com>"]
 repository = "https://github.com/lacodda/furca"
+homepage = "https://lacodda.github.io/furca/"
 # Measured, not copied from the toolchain: 1.85 fails on let-chains in a gix
 # dependency (human_format), 1.88 is the first version that builds. Raised only
 # when a dependency or a feature needs it; see the CI `msrv` job, which builds on
