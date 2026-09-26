@@ -17,8 +17,13 @@ Before a commit, all of these are green:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo bench -p furca-core --bench budgets   # the speed budgets; red when one is broken
 pnpm lint
 ```
+
+The budgets are listed in `crates/furca-core/benches/budgets.json`, which
+the docs site reads as well. The first benchmark run generates a 100 000-commit
+fixture under `target/tmp` and takes a few minutes; later runs reuse it.
 
 Engine tests build their repositories with `git` in a temporary directory and
 never read a repository on your machine.

@@ -1,0 +1,44 @@
+{
+  "commits": 100000,
+  "budgets": [
+    {
+      "name": "graph-first-500",
+      "what": "Open a repository and read the first 500 commits of its graph, from every branch and tag",
+      "layout": "packed+commit-graph",
+      "limit_ms": 100,
+      "status": "measured"
+    },
+    {
+      "name": "graph-first-500",
+      "what": "The same, on a repository without a commit-graph file",
+      "layout": "packed",
+      "limit_ms": null,
+      "status": "measured",
+      "note": "Not promised. Without generation numbers the exact order needs the whole history walked first, and git itself takes as long. The desktop app closes this by having git write the commit-graph."
+    },
+    {
+      "name": "window-first-frame",
+      "what": "Start the desktop app to its first drawn frame",
+      "layout": "packed+commit-graph",
+      "limit_ms": 300,
+      "status": "planned",
+      "arrives": "v0.7.0"
+    },
+    {
+      "name": "status-after-save",
+      "what": "Working tree status after a file is saved, in a repository of up to 10 000 files",
+      "layout": "packed+commit-graph",
+      "limit_ms": 50,
+      "status": "planned",
+      "arrives": "v0.10.0"
+    },
+    {
+      "name": "diff-5000-lines",
+      "what": "Show a 5 000-line diff",
+      "layout": "packed+commit-graph",
+      "limit_ms": 30,
+      "status": "planned",
+      "arrives": "v0.9.0"
+    }
+  ]
+}

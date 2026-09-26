@@ -50,6 +50,29 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+  # The speed budgets are part of the gate: a red benchmark is a red build.
+  # The report is kept as an artifact so a regression can be read, not only
+  # seen.
+  budgets:
+    name: budgets (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Measure the budgets
+        run: cargo bench -p furca-core --bench budgets
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: budgets-${{ matrix.os }}
+          path: target/budgets.json
+          if-no-files-found: ignore
+
   # rust-version is a promise to anyone building this. Without a job that
   # actually builds on it, the number silently rots the first time a newer API
   # is used — so read it from the workspace manifest and hold the build to it.
