@@ -96,7 +96,7 @@ impl Repository {
             let packed = self.packed_refs()?;
             let packed = packed.as_ref().map(|buffer| &***buffer);
             for reference in platform.all().map_err(wrap(Error::References))? {
-                let mut reference = reference.map_err(Error::References)?;
+                let mut reference = reference.map_err(wrap(Error::References))?;
                 // A tag may point at a tree or a blob; the walk skips those.
                 if let Ok(id) = reference.peel_to_id_packed(packed) {
                     ids.push(id.detach());
@@ -113,17 +113,14 @@ impl Repository {
             id: id.to_string(),
             source,
         };
-        let commit = self
-            .inner
-            .find_commit(id)
-            .map_err(|e| failed(Box::new(e)))?;
-        let decoded = commit.decode().map_err(|e| failed(Box::new(e)))?;
+        let commit = self.inner.find_commit(id).map_err(|e| failed(e.into()))?;
+        let decoded = commit.decode().map_err(|e| failed(e.into()))?;
 
         Ok(Commit {
             id: id.to_string(),
             parents: decoded.parents().map(|parent| parent.to_string()).collect(),
-            author: person(decoded.author().map_err(|e| failed(Box::new(e)))?),
-            committer: person(decoded.committer().map_err(|e| failed(Box::new(e)))?),
+            author: person(decoded.author().map_err(|e| failed(e.into()))?),
+            committer: person(decoded.committer().map_err(|e| failed(e.into()))?),
             subject: decoded.message_summary().to_string(),
         })
     }

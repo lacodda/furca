@@ -216,6 +216,6 @@ impl<'repo> Walk<'repo> {
     }
 }
 
-fn walk_error(error: impl std::error::Error + Send + Sync + 'static) -> Error {
-    Error::Walk(Box::new(error) as Source)
+fn walk_error(error: impl Into<Source>) -> Error {
+    Error::Walk(error.into())
 }

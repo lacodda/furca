@@ -67,7 +67,7 @@ impl Repository {
 
         let mut branches = Vec::new();
         for reference in platform.local_branches().map_err(wrap(Error::References))? {
-            let mut reference = reference.map_err(Error::References)?;
+            let mut reference = reference.map_err(wrap(Error::References))?;
             let Ok(target) = reference.peel_to_id_packed(packed) else {
                 continue;
             };
@@ -91,7 +91,7 @@ impl Repository {
             .remote_branches()
             .map_err(wrap(Error::References))?
         {
-            let mut reference = reference.map_err(Error::References)?;
+            let mut reference = reference.map_err(wrap(Error::References))?;
             if matches!(reference.target(), gix::refs::TargetRef::Symbolic(_)) {
                 continue;
             }
@@ -108,7 +108,7 @@ impl Repository {
 
         let mut tags = Vec::new();
         for reference in platform.tags().map_err(wrap(Error::References))? {
-            let mut reference = reference.map_err(Error::References)?;
+            let mut reference = reference.map_err(wrap(Error::References))?;
             let annotated = match reference.target() {
                 gix::refs::TargetRef::Object(id) => self
                     .inner

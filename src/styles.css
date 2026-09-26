@@ -8,19 +8,10 @@
 
 /*
  * furca - terracotta #D9704A, the first colour of the mark's pair (terracotta
- * -> olive). The gradient rides the mark itself; a single accent colour is
- * what every other surface in the line derives its hover shade, soft fill,
- * focus ring and on-accent text colour from, so only the first colour of the
- * pair travels here.
- *
- * This lives inline rather than as `dowel-ui/accents/furca.css` because the
- * installed dowel-ui (0.20.1) has not shipped that file yet — furca went
- * through the brand-line ritual after that release. Swap this block for the
- * import once a dowel-ui release carries `accents/furca.css`.
+ * -> olive). The hover shade, soft fill, focus ring and on-accent text colour
+ * are all derived from it.
  */
-:root {
-  --accent-base: #d9704a;
-}
+@import 'dowel-ui/accents/furca.css';
 
 /*
  * The window is a window, not a page.

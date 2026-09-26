@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { open } from '@tauri-apps/plugin-dialog'
 import { invoke } from '@tauri-apps/api/core'
+import { Button } from '@/components/ui/button'
 
 /** The shape `open_repository` returns — mirrors furca-core's `HeadSummary`. */
 interface HeadSummary {
@@ -38,24 +39,20 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
+      <header className="flex items-center justify-between border-b border-line px-4 py-3">
         <span className="font-semibold">{t('app.name')}</span>
-        <button
-          type="button"
-          onClick={() => void openRepository()}
-          className="rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm text-[var(--accent-fg)]"
-        >
+        <Button variant="primary" onClick={() => void openRepository()}>
           {t('shell.openRepository')}
-        </button>
+        </Button>
       </header>
       <main className="flex flex-1 items-center justify-center p-6 text-sm">
-        {error && <p className="text-[var(--danger)]">{error}</p>}
-        {!error && !head && <p className="text-[var(--dim)]">{t('shell.noRepository')}</p>}
+        {error && <p className="text-bad">{error}</p>}
+        {!error && !head && <p className="text-dim">{t('shell.noRepository')}</p>}
         {!error && head && (
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-            <dt className="text-[var(--dim)]">{t('shell.branch')}</dt>
+            <dt className="text-dim">{t('shell.branch')}</dt>
             <dd>{head.detached ? t('shell.detached') : (head.branch ?? '—')}</dd>
-            <dt className="text-[var(--dim)]">{t('shell.commit')}</dt>
+            <dt className="text-dim">{t('shell.commit')}</dt>
             <dd className="font-mono">{head.commit ?? '—'}</dd>
           </dl>
         )}

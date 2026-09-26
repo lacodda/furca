@@ -35,7 +35,7 @@ impl Repository {
     /// Opens the repository containing `path`, discovering it the way `git`
     /// itself would — walking up through parent directories.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let mut inner = gix::discover(path.as_ref()).map_err(|e| Error::Open(Box::new(e)))?;
+        let mut inner = gix::discover(path.as_ref()).map_err(wrap(Error::Open))?;
         // A history walk reads every commit twice: once to order it, once to
         // describe it. Without a cache the second read decompresses again.
         inner.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
