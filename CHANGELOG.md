@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.0] - 2026-09-26
+
+### Performance
+- Walk the graph lazily over generation numbers
+
+### Testing
+- Gate the speed budgets with a benchmark
+
+### Documentation
+- Publish the budgets and what each release measured
+- Build the budgets page locally without the releases API
+
+### Build
+- Update the toolchain and dependencies
+
+### CI
+- Publish both crates on a tag again
+
+### Breaking Changes
+- `furca-core`'s `Error::Open` carries a boxed source instead of `gix::discover::Error`, which gix 0.88 removed.
+
 ## [0.1.0] - 2026-09-23
 
 ### Build

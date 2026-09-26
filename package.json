@@ -1,6 +1,6 @@
 {
   "name": "furca",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A fast git client that stays out of your way.",
   "license": "MIT",
   "private": true,
