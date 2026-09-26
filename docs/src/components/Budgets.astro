@@ -56,7 +56,19 @@ async function releaseReports(): Promise<Row[]> {
 	return rows;
 }
 
-const rows = await releaseReports();
+// The published page is built in CI only, and there a failed read fails the
+// build. A local build may be offline, or out of anonymous API calls - sixty
+// an hour per address, shared by everything on the machine - so it goes on
+// without the measurements and says so on the page and in its log.
+let rows: Row[] = [];
+let unread: string | null = null;
+try {
+	rows = await releaseReports();
+} catch (error) {
+	if (process.env.CI === 'true') throw error;
+	unread = error instanceof Error ? error.message : String(error);
+	console.warn(`${unread}; the page is built without the measurements, which a CI build would refuse`);
+}
 const measured = promises.budgets.filter((b) => b.status === 'measured');
 const planned = promises.budgets.filter((b) => b.status === 'planned');
 const ms = (value: number) => `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })} ms`;
@@ -87,7 +99,9 @@ const commits = promises.commits.toLocaleString('en-US');
 {measured.filter((b) => b.note).map((b) => <p><strong><code>{b.layout}</code>:</strong> {b.note}</p>)}
 
 <h2 id="measured">Measured</h2>
-{rows.length === 0 ? (
+{unread !== null ? (
+	<p><strong>Not read in this build:</strong> {unread}. The published page is built in CI, which fails rather than leave this table out.</p>
+) : rows.length === 0 ? (
 	<p>No release carries measurements yet: the first one to do so is v0.2.0.</p>
 ) : (
 	<table>
