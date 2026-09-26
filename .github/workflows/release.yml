@@ -98,11 +98,52 @@ jobs:
               data: fs.readFileSync(path),
             })
 
+  # The measured budgets travel with the release that was measured: the docs
+  # site reads them from here, so a page of numbers never outlives the build
+  # it describes.
+  budgets:
+    name: budgets (${{ matrix.target }})
+    needs: draft
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Measure the budgets
+        run: cargo bench -p furca-core --bench budgets
+      - name: Upload to the draft release
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs')
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.draft.outputs.release_id }},
+              name: 'budgets-${{ matrix.target }}.json',
+              data: fs.readFileSync('target/budgets.json'),
+            })
+
   publish:
     name: publish
-    # `cli` for the ordering, `draft` for the release id.
-    needs: [draft, cli]
+    # `cli` and `budgets` for the ordering, `draft` for the release id.
+    needs: [draft, cli, budgets]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # To rebuild the docs: a release published with GITHUB_TOKEN does not
+      # trigger other workflows, a dispatch does.
+      actions: write
     steps:
       - uses: actions/github-script@v9
         with:
@@ -113,3 +154,7 @@ jobs:
               release_id: ${{ needs.draft.outputs.release_id }},
               draft: false,
             })
+      - name: Rebuild the docs with this release's budgets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run docs.yml --repo ${{ github.repository }} --ref main

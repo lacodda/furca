@@ -1,0 +1,50 @@
+---
+title: Speed budgets
+description: What furca promises about speed, and what each release measured.
+---
+
+import Budgets from '../../../components/Budgets.astro';
+import ForkComparison from '../../../components/ForkComparison.astro';
+
+Speed is something furca promises, not something it hopes for. Each promise
+below is a budget: an operation, the kind of repository it is measured on, and
+how long it may take. The benchmark that measures them is part of the gate - a
+broken budget fails the build the same way a failing test does - and every
+release carries the numbers its own build measured on Windows, Linux and
+macOS.
+
+<Budgets />
+
+## How it is measured
+
+The repository is generated, not cloned: the same history on every machine and
+every run, built by `git fast-import` and then left the way `git gc` leaves a
+repository - one pack, packed refs, and a commit-graph file.
+
+Each budget is timed 21 times after 3 warm-up runs, and the median is what the
+budget is held to; the 90th percentile is published next to it. A run starts
+from nothing: the repository is opened afresh each time, so the number is what
+a window pays when it opens a repository, not what a warm cache pays.
+
+A median over the budget is measured once more after a pause before the build
+fails. A machine that is busy elsewhere slows every run for seconds at a time;
+a regression stays over the budget on the second try.
+
+## Why the commit-graph matters
+
+The graph is listed so that no commit comes before any of its children. Knowing
+that a commit has no children left to list means having looked at every commit
+that could be one. Generation numbers - stored in the commit-graph file that
+`git gc` writes - bound that search, so the first 500 commits of a long history
+touch a few thousand commits rather than all of them. Without the file, the
+exact order needs the whole history walked first; `git log --date-order` pays
+the same. See
+[ADR 0005](https://github.com/lacodda/furca/blob/main/docs/adr/0005-a-lazy-walk-over-generation-numbers.md).
+
+## Next to Fork
+
+One measurement by hand, on one machine, on the repository above. The three
+tools do different amounts of work - Fork draws a window - so this is where the
+time goes for someone opening a repository, not a like-for-like benchmark.
+
+<ForkComparison />

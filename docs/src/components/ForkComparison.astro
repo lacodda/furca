@@ -1,0 +1,31 @@
+---
+// A one-off comparison on one machine, written down with its date rather than
+// re-run: Fork is a window, and timing a window is done by hand.
+import data from '../data/fork.json';
+
+const median = (runs: number[]) => {
+	const sorted = [...runs].sort((a, b) => a - b);
+	return sorted[Math.floor(sorted.length / 2)];
+};
+const rows = [
+	{ tool: `furca ${data.furca.version}`, ...data.furca },
+	{ tool: `git ${data.git.version}`, ...data.git },
+	{ tool: `Fork ${data.fork.version}`, ...data.fork },
+];
+const fmt = (value: number) => `${value.toLocaleString('en-US')} ms`;
+---
+
+<p>Measured {data.date} on {data.machine}, on {data.repository}.</p>
+<table>
+	<thead><tr><th>Tool</th><th>What was timed</th><th>Median</th><th>Runs</th></tr></thead>
+	<tbody>
+		{rows.map((row) => (
+			<tr>
+				<td>{row.tool}</td>
+				<td>{row.what}</td>
+				<td>{fmt(median(row.runs_ms))}</td>
+				<td>{row.runs_ms.map(fmt).join(', ')}</td>
+			</tr>
+		))}
+	</tbody>
+</table>

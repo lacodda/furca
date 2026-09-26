@@ -3,7 +3,7 @@ name: Docs
 on:
   push:
     branches: [main]
-    paths: ['docs/**']
+    paths: ['docs/**', 'crates/furca-core/benches/budgets.json']
   workflow_dispatch:
 
 permissions:
@@ -32,6 +32,9 @@ jobs:
       - name: Build
         run: pnpm build
         working-directory: docs
+        env:
+          # The budgets page reads the measured numbers from the releases.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-pages-artifact@v5
         with:
           path: docs/dist

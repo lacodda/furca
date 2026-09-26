@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-23",
+  "machine": "Windows 11 laptop, 16 GB, with the usual work running alongside",
+  "repository": "the budget fixture: 100 000 commits, packed, with a commit-graph",
+  "fork": {
+    "version": "2.22.0",
+    "what": "Fork already running; the repository opened from the command line, until the head commit's details show",
+    "runs_ms": [3579, 2681, 3075]
+  },
+  "furca": {
+    "version": "0.2.0",
+    "what": "furca log --all -n 500 --json, from starting the process to its last byte of output",
+    "runs_ms": [879, 368, 376, 371, 313]
+  },
+  "git": {
+    "version": "2.42.0",
+    "what": "git log --all --date-order -n 500, from starting the process to its last byte of output",
+    "runs_ms": [523, 436, 360]
+  }
+}

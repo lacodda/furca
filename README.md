@@ -29,6 +29,7 @@ $ furca refs --json | jq '.branches[0]'
 { "name": "main", "target": "171154d…", "upstream": "origin/main", "head": true }
 ```
 
+- **Fast, and it says so.** Opening a 100 000-commit repository and reading the first 500 rows of its graph takes about 25 ms against a budget of 100 ms. The budgets are part of the gate, and every release publishes what it measured on [the budgets page](https://lacodda.github.io/furca/concepts/budgets/).
 - **Parents after children, always.** `furca log` orders by the graph and uses time only to break ties, so a machine with a slow clock cannot put a parent above its child - the list draws as a graph top to bottom.
 - **JSON for scripts and assistants.** Every command takes `--json`; the output is the engine's own types, not a second format kept in step by hand.
 - **One engine, three doors.** `furca-core` is a plain Rust library; the CLI, the desktop window and - later - an MCP server are thin wrappers around it. See [ADR 0002](https://github.com/lacodda/furca/blob/main/docs/adr/0002-one-core-three-doors.md).
@@ -46,7 +47,7 @@ cargo install furca                                                             
 
 ## Status
 
-**v0.1.0** is the engine and the CLI: `status`, `refs` and `log`, with `furca-core` published as a library. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
+**v0.2.0** is the engine and the CLI - `status`, `refs` and `log`, with `furca-core` published as a library - held to measured speed budgets. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 
