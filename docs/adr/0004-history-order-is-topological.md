@@ -1,7 +1,7 @@
 # 0004 — History order is topological, time only breaks ties
 
 Date: 2026-09-23
-Status: Accepted
+Status: Accepted. The order stands; its implementation is replaced by ADR 0005.
 
 ## Context
 

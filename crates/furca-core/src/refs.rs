@@ -57,6 +57,8 @@ impl Repository {
     /// damaged or shallow clone — is left out rather than failing the list.
     pub fn refs(&self) -> Result<Refs, Error> {
         let platform = self.inner.references().map_err(wrap(Error::References))?;
+        let packed = self.packed_refs()?;
+        let packed = packed.as_ref().map(|buffer| &***buffer);
         let head = self
             .inner
             .head_name()
@@ -66,7 +68,7 @@ impl Repository {
         let mut branches = Vec::new();
         for reference in platform.local_branches().map_err(wrap(Error::References))? {
             let mut reference = reference.map_err(Error::References)?;
-            let Ok(target) = reference.peel_to_id() else {
+            let Ok(target) = reference.peel_to_id_packed(packed) else {
                 continue;
             };
             let name = reference.name().shorten().to_string();
@@ -93,7 +95,7 @@ impl Repository {
             if matches!(reference.target(), gix::refs::TargetRef::Symbolic(_)) {
                 continue;
             }
-            let Ok(target) = reference.peel_to_id() else {
+            let Ok(target) = reference.peel_to_id_packed(packed) else {
                 continue;
             };
             let name = reference.name().shorten().to_string();
@@ -114,7 +116,7 @@ impl Repository {
                     .is_ok_and(|header| header.kind() == gix::object::Kind::Tag),
                 gix::refs::TargetRef::Symbolic(_) => false,
             };
-            let Ok(target) = reference.peel_to_id() else {
+            let Ok(target) = reference.peel_to_id_packed(packed) else {
                 continue;
             };
             tags.push(Tag {

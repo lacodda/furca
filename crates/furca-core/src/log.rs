@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use crate::Repository;
 use crate::error::{Error, wrap};
+use crate::walk::Walk;
 
 /// Where a history walk starts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,26 +66,19 @@ impl Repository {
             .inner
             .commit_graph_if_enabled()
             .map_err(wrap(Error::Walk))?;
-        let walk = gix::traverse::commit::topo::Builder::from_iters(
-            &self.inner.objects,
-            starts,
-            None::<Vec<gix::ObjectId>>,
-        )
-        .with_commit_graph(graph)
-        .sorting(gix::traverse::commit::topo::Sorting::DateOrder)
-        .build()
-        .map_err(wrap(Error::Walk))?;
+        let mut walk = Walk::new(&self.inner, graph);
+        for id in starts {
+            walk.start(id)?;
+        }
 
         let mut commits = Vec::with_capacity(limit.min(4096));
-        let mut truncated = false;
-        for info in walk {
-            let info = info.map_err(wrap(Error::Walk))?;
-            if commits.len() == limit {
-                truncated = true;
+        while commits.len() < limit {
+            let Some(id) = walk.next_id()? else {
                 break;
-            }
-            commits.push(self.commit(info.id)?);
+            };
+            commits.push(self.commit(id)?);
         }
+        let truncated = walk.has_more();
 
         Ok(Log { commits, truncated })
     }
@@ -99,24 +93,18 @@ impl Repository {
 
         if tips == Tips::All {
             let platform = self.inner.references().map_err(wrap(Error::References))?;
+            let packed = self.packed_refs()?;
+            let packed = packed.as_ref().map(|buffer| &***buffer);
             for reference in platform.all().map_err(wrap(Error::References))? {
                 let mut reference = reference.map_err(Error::References)?;
-                let Ok(id) = reference.peel_to_id() else {
-                    continue;
-                };
-                // A tag may point at a tree or a blob; only commits start a walk.
-                let is_commit = self
-                    .inner
-                    .find_header(id)
-                    .is_ok_and(|header| header.kind() == gix::object::Kind::Commit);
-                if is_commit {
+                // A tag may point at a tree or a blob; the walk skips those.
+                if let Ok(id) = reference.peel_to_id_packed(packed) {
                     ids.push(id.detach());
                 }
             }
         }
 
-        // Duplicates are left in: the topological walk skips a tip it has
-        // already seen, and a second pass here would only repeat that work.
+        // Duplicates are left in: the walk knows a tip it has already seen.
         Ok(ids)
     }
 

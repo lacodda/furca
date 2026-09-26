@@ -18,6 +18,7 @@ mod error;
 mod log;
 mod refs;
 mod repo;
+mod walk;
 
 pub use error::Error;
 pub use log::{Commit, Log, Person, Tips};
