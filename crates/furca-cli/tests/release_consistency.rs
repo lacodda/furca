@@ -2,7 +2,10 @@
 //!
 //! Versions drift between manifests the moment one of them is bumped by hand,
 //! and a second README appears the moment someone needs a shorter one. Both
-//! failures are only visible after publishing, so they are checked here.
+//! failures are only visible after publishing, so they are checked here. The
+//! rules the whole line shares are the release engine's and run through it;
+//! the rest are furca's own: its mark, its docs site, its command pages, its
+//! installers.
 
 use std::path::{Path, PathBuf};
 
@@ -20,93 +23,57 @@ fn read(relative: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
 }
 
-/// First `"version": "..."` value in a JSON document.
-fn json_version(source: &str) -> String {
-    source
-        .lines()
-        .find_map(|line| {
-            let rest = line.trim().strip_prefix("\"version\"")?;
-            let value = rest.trim_start_matches([':', ' ']);
-            value.trim_matches(['"', ',']).to_owned().into()
-        })
-        .expect("no `version` field found")
-}
-
-/// First `version = "..."` value in a Cargo.toml.
-fn toml_version(source: &str) -> Option<String> {
-    source.lines().find_map(|line| {
-        let rest = line.trim().strip_prefix("version")?;
-        let rest = rest.trim_start();
-        let rest = rest.strip_prefix('=')?;
-        let value = rest.trim();
-        if value.starts_with("{") {
-            return None; // `version.workspace = true` — not a literal version.
-        }
-        Some(value.trim_matches('"').to_owned())
-    })
-}
-
+/// The rules every repository of the line shares - one version across the
+/// manifests and the path dependencies between crates, one README with
+/// absolute links, packages that describe themselves, no stale version in a
+/// text - live in furca-release, and are checked here on furca itself through
+/// the same `release.toml` a release reads.
+///
+/// The checks that need the history or the registries (the number, the
+/// commits, the age of the stack, the changelog's sections) are left to
+/// `furca release plan`: CI checks out one commit and no tags.
 #[test]
-fn every_manifest_declares_the_same_version() {
-    let workspace_toml = read("Cargo.toml");
-    let workspace_version = toml_version(&workspace_toml)
-        .expect("the workspace Cargo.toml declares [workspace.package].version");
+fn the_release_engine_finds_nothing_in_the_way() {
+    use furca_release::{Release, Sources, Status};
 
-    assert_eq!(
-        json_version(&read("package.json")),
-        workspace_version,
-        "package.json disagrees with the workspace Cargo.toml"
-    );
-    assert_eq!(
-        json_version(&read("src-tauri/tauri.conf.json")),
-        workspace_version,
-        "tauri.conf.json disagrees with the workspace Cargo.toml — the installer would carry the wrong version"
-    );
-
-    // src-tauri/Cargo.toml may declare its own version or inherit the
-    // workspace's; either is fine as long as it resolves to the same number.
-    let tauri_toml = read("src-tauri/Cargo.toml");
-    if let Some(declared) = toml_version(&tauri_toml) {
-        assert_eq!(
-            declared, workspace_version,
-            "src-tauri/Cargo.toml declares its own version, and it disagrees with the workspace"
-        );
-    } else {
-        assert!(
-            tauri_toml.contains("version.workspace = true"),
-            "src-tauri/Cargo.toml neither declares its own version nor inherits the workspace's"
+    let release = Release::open(repo_root()).expect("release.toml reads and holds together");
+    let plan = release
+        .plan(&Sources {
+            registries: None,
+            record: None,
+            now: std::time::SystemTime::now(),
+        })
+        .expect("a plan");
+    let names = ["manifests", "readme", "descriptions", "texts"];
+    for name in names {
+        let check = plan
+            .checks
+            .iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("the plan has no `{name}` check any more"));
+        assert_ne!(
+            check.status,
+            Status::Fail,
+            "{name}: {}
+  {}",
+            check.summary,
+            check.details.join(
+                "
+  "
+            )
         );
     }
 }
 
+/// The docs site and the window are packages of their own that nothing
+/// publishes, so the engine does not look for a README there; a scaffold puts
+/// one in both, and it would drift from the root one.
 #[test]
-fn there_is_exactly_one_readme() {
-    let extra = ["docs/README.md", "src-tauri/README.md", "npm/README.md"];
-
-    for candidate in extra {
+fn neither_the_docs_nor_the_window_keep_a_readme() {
+    for candidate in ["docs/README.md", "src-tauri/README.md"] {
         assert!(
             !repo_root().join(candidate).exists(),
             "{candidate} is a second README; the root one is the only source"
-        );
-    }
-}
-
-#[test]
-fn readme_links_are_absolute() {
-    let readme = read("README.md");
-
-    // A relative link works on GitHub and breaks everywhere the README is
-    // republished — crates.io, npm, the docs site.
-    for line in readme.lines() {
-        let Some(start) = line.find("](") else {
-            continue;
-        };
-        let target = &line[start + 2..];
-        let target = &target[..target.find(')').unwrap_or(target.len())];
-
-        assert!(
-            target.starts_with("http") || target.starts_with('#'),
-            "relative link `{target}` in README.md"
         );
     }
 }

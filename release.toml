@@ -1,0 +1,50 @@
+# How furca is released, read by `furca release`.
+# Reference: https://lacodda.github.io/furca/reference/release/
+
+[project]
+name = "furca"
+changelog = "CHANGELOG.md"
+# The workspace root carries the version for every crate and for the path
+# dependencies between them.
+manifests = ["Cargo.toml", "package.json", "src-tauri/tauri.conf.json"]
+# ADRs record what happened. The release page's examples and the refs sample
+# show numbers of their own, not the version being released.
+as_written = [
+    "docs/adr/",
+    "docs/src/content/docs/reference/release.md",
+    "docs/src/content/docs/reference/refs.md",
+]
+
+[gate]
+commands = [
+    "cargo fmt --all --check",
+    "cargo clippy --workspace --all-targets -- -D warnings",
+    "cargo test --workspace",
+    "cargo bench -p furca-core --bench budgets",
+    "pnpm lint",
+    "cd docs && pnpm build",
+]
+
+[ci]
+provider = "github"
+workflow = "ci.yml"
+publish = "publish.yml"
+
+# In publishing order: each one depends on the ones above it.
+[[package]]
+registry = "crates"
+name = "furca-core"
+manifest = "crates/furca-core/Cargo.toml"
+
+[[package]]
+registry = "crates"
+name = "furca-release"
+manifest = "crates/furca-release/Cargo.toml"
+
+[[package]]
+registry = "crates"
+name = "furca"
+manifest = "crates/furca-cli/Cargo.toml"
+
+[[post]]
+kind = "install"
