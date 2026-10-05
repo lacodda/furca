@@ -91,7 +91,7 @@ jobs:
       - name: Build each package on its declared rust-version
         run: |
           set -euo pipefail
-          groups=$(cargo metadata --no-deps --format-version 1 | jq -r'[.packages[] | {v: .rust_version, n: .name}] | group_by(.v)[] | "\(.[0].v) \(map("-p " + .n) | join(" "))"')
+          groups=$(cargo metadata --no-deps --format-version 1 | jq -r '[.packages[] | {v: .rust_version, n: .name}] | group_by(.v)[] | "\(.[0].v) \(map("-p " + .n) | join(" "))"')
           test -n "$groups"
           while read -r version packages; do
             test "$version" != null
