@@ -6,7 +6,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-rust-version.workspace = true
+# The window follows its framework: Tauri 2.12 needs 1.90. The crates people
+# build from crates.io keep the workspace's lower number; the CI `msrv` job
+# holds each package to its own.
+rust-version = "1.90"
 # The desktop app ships as an installer, never as a crate.
 publish = false
 # Presentation rasters are for the README and the release page, not for anyone
@@ -23,15 +26,15 @@ name = "furca_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 furca-core = { path = "../crates/furca-core", version = "0.2.0" }
-tauri = { version = "2", features = [] }
+tauri = { version = "2.12", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri-plugin-dialog = "2"
-tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2.8"
+tauri-plugin-opener = "2.7"
 
 [lints]
 workspace = true

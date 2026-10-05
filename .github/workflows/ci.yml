@@ -75,7 +75,9 @@ jobs:
 
   # rust-version is a promise to anyone building this. Without a job that
   # actually builds on it, the number silently rots the first time a newer API
-  # is used — so read it from the workspace manifest and hold the build to it.
+  # is used. Each package keeps its own: the crates on crates.io promise a low
+  # number, the window follows Tauri. So every distinct rust-version in the
+  # workspace is installed and the packages that declare it are built on it.
   msrv:
     name: msrv
     runs-on: ubuntu-latest
@@ -85,15 +87,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - name: Read rust-version from the workspace manifest
-        id: msrv
-        run: echo "version=$(cargo metadata --no-deps --format-version 1 | jq -r '[.packages[].rust_version] | max')" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.msrv.outputs.version }}
       - uses: Swatinem/rust-cache@v2
-      - name: Build on the declared MSRV
-        run: cargo check --workspace --all-targets
+      - name: Build each package on its declared rust-version
+        run: |
+          set -euo pipefail
+          groups=$(cargo metadata --no-deps --format-version 1 | jq -r'[.packages[] | {v: .rust_version, n: .name}] | group_by(.v)[] | "\(.[0].v) \(map("-p " + .n) | join(" "))"')
+          test -n "$groups"
+          while read -r version packages; do
+            test "$version" != null
+            echo "::group::rust $version: $packages"
+            rustup toolchain install "$version" --profile minimal --no-self-update
+            cargo "+$version" check $packages --all-targets
+            echo "::endgroup::"
+          done <<< "$groups"
 
   # The desktop bundle is what a user actually installs; a green `cargo test`
   # does not prove it links.
