@@ -45,6 +45,9 @@ pub struct Person {
     /// RFC 3339 with the person's own UTC offset, such as
     /// `2026-09-23T10:15:00+03:00`.
     pub time: String,
+    /// The same moment as seconds since the Unix epoch, for arithmetic
+    /// rather than display.
+    pub seconds: i64,
 }
 
 impl Repository {
@@ -108,7 +111,7 @@ impl Repository {
         Ok(ids)
     }
 
-    fn commit(&self, id: gix::ObjectId) -> Result<Commit, Error> {
+    pub(crate) fn commit(&self, id: gix::ObjectId) -> Result<Commit, Error> {
         let failed = |source: crate::error::Source| Error::Commit {
             id: id.to_string(),
             source,
@@ -130,13 +133,11 @@ fn person(signature: gix::actor::SignatureRef<'_>) -> Person {
     let signature = signature.trim();
     // A malformed date is shown as the epoch rather than failing the whole
     // log: one bad commit from an old import must not hide the history.
-    let time = signature
-        .time()
-        .unwrap_or_default()
-        .format_or_unix(gix::date::time::format::ISO8601_STRICT);
+    let time = signature.time().unwrap_or_default();
     Person {
         name: signature.name.to_string(),
         email: signature.email.to_string(),
-        time,
+        time: time.format_or_unix(gix::date::time::format::ISO8601_STRICT),
+        seconds: time.seconds,
     }
 }

@@ -15,12 +15,14 @@
 //! ```
 
 mod error;
+mod history;
 mod log;
 mod refs;
 mod repo;
 mod walk;
 
 pub use error::Error;
+pub use history::History;
 pub use log::{Commit, Log, Person, Tips};
 pub use refs::{Branch, Refs, RemoteBranch, Tag};
 pub use repo::{HeadSummary, Repository};

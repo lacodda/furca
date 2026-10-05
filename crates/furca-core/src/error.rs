@@ -16,6 +16,14 @@ pub enum Error {
     References(#[source] Source),
     #[error("could not walk the history: {0}")]
     Walk(#[source] Source),
+    #[error("could not read the index: {0}")]
+    Index(#[source] Source),
+    #[error("could not resolve `{revision}` to a commit: {source}")]
+    Revision {
+        revision: String,
+        #[source]
+        source: Source,
+    },
     #[error("could not read commit {id}: {source}")]
     Commit {
         id: String,

@@ -42,6 +42,28 @@ impl Repository {
         Ok(Self { inner })
     }
 
+    /// The root of the working tree; `None` for a bare repository.
+    pub fn workdir(&self) -> Option<&Path> {
+        self.inner.workdir()
+    }
+
+    /// The `.git` directory.
+    pub fn git_dir(&self) -> &Path {
+        self.inner.git_dir()
+    }
+
+    /// Every path the index tracks, relative to the root of the working tree
+    /// with `/` separators, in the index's own order. A repository without
+    /// an index yet tracks nothing.
+    pub fn tracked_paths(&self) -> Result<Vec<String>, Error> {
+        let index = self.inner.index_or_empty().map_err(wrap(Error::Index))?;
+        Ok(index
+            .entries()
+            .iter()
+            .map(|entry| entry.path(&index).to_string())
+            .collect())
+    }
+
     /// Reads the current state of `HEAD`.
     ///
     /// A repository without commits is not an error: its `HEAD` names the

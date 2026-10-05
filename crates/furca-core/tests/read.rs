@@ -333,3 +333,84 @@ fn a_detached_head_names_no_branch() {
         "no branch is current while detached"
     );
 }
+
+#[test]
+fn history_since_a_tag_lists_what_the_tag_cannot_reach() {
+    let fixture = Fixture::new();
+    let root = fixture.commit("root", 1_700_000_000);
+    fixture.git(&["tag", "-a", "v0.1.0", "-m", "v0.1.0"]);
+    // A branch started before the tag and merged after it: its commit is
+    // new to the release even though it is older than the tag.
+    fixture.git(&["checkout", "--quiet", "-b", "topic", &root]);
+    let topic = fixture.commit("topic work", 1_700_000_050);
+    fixture.git(&["checkout", "--quiet", "main"]);
+    let main = fixture.commit("main work", 1_700_000_100);
+    fixture.git_at(
+        &["merge", "--quiet", "--no-ff", "topic", "-m", "merge topic"],
+        "1700000200 +0300",
+    );
+    let merge = fixture.git(&["rev-parse", "HEAD"]);
+
+    let repo = fixture.open();
+    let since: Vec<String> = repo
+        .history(Some("v0.1.0"))
+        .expect("a walk")
+        .map(|c| c.expect("a commit").id)
+        .collect();
+    assert_eq!(since, [merge.clone(), main.clone(), topic.clone()]);
+
+    let all = repo.history(None).expect("a walk").count();
+    assert_eq!(all, 4, "without a base the whole history");
+
+    assert!(matches!(
+        repo.history(Some("v9.9.9")),
+        Err(furca_core::Error::Revision { .. })
+    ));
+}
+
+#[test]
+fn a_message_is_read_whole_and_a_time_also_as_seconds() {
+    let fixture = Fixture::new();
+    let id = fixture.commit(
+        "feat: a thing\n\nWhy it matters.\n\nBREAKING CHANGE: the old one is gone",
+        1_700_000_000,
+    );
+    let repo = fixture.open();
+    assert_eq!(
+        repo.message(&id).expect("a message"),
+        "feat: a thing\n\nWhy it matters.\n\nBREAKING CHANGE: the old one is gone"
+    );
+    let commit = repo
+        .history(None)
+        .expect("a walk")
+        .next()
+        .expect("one commit")
+        .expect("reads");
+    assert_eq!(commit.committer.seconds, 1_700_000_000);
+    assert_eq!(commit.committer.time, "2023-11-15T01:13:20+03:00");
+}
+
+#[test]
+fn tracked_paths_are_the_index_with_forward_slashes() {
+    let fixture = Fixture::new();
+    std::fs::create_dir_all(fixture.path().join("docs/guide")).expect("dirs");
+    std::fs::write(fixture.path().join("README.md"), "x").expect("write");
+    std::fs::write(fixture.path().join("docs/guide/a.md"), "x").expect("write");
+    std::fs::write(fixture.path().join("untracked.txt"), "x").expect("write");
+    let repo = fixture.open();
+    assert!(
+        repo.tracked_paths().expect("an empty index").is_empty(),
+        "nothing is tracked before the first add"
+    );
+
+    fixture.git(&["add", "README.md", "docs/guide/a.md"]);
+    let repo = fixture.open();
+    assert_eq!(
+        repo.tracked_paths().expect("the index"),
+        ["README.md", "docs/guide/a.md"]
+    );
+    assert_eq!(
+        std::fs::canonicalize(repo.workdir().expect("a working tree")).expect("canonical"),
+        std::fs::canonicalize(fixture.path()).expect("canonical")
+    );
+}

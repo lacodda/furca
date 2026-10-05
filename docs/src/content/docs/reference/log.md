@@ -40,12 +40,14 @@ $ furca log -n 1 --json
       "author": {
         "name": "Ada Author",
         "email": "ada@example.com",
-        "time": "2026-09-17T17:06:38-03:00"
+        "time": "2026-09-17T17:06:38-03:00",
+        "seconds": 1789675598
       },
       "committer": {
         "name": "Ada Author",
         "email": "ada@example.com",
-        "time": "2026-09-17T17:06:38-03:00"
+        "time": "2026-09-17T17:06:38-03:00",
+        "seconds": 1789675598
       },
       "subject": "docs: fill the readme out as a shopfront"
     }
@@ -58,6 +60,7 @@ $ furca log -n 1 --json
 | --- | --- |
 | `commits[].parents` | Parent ids in order; the first is the mainline, a merge has two or more. |
 | `commits[].author.time` | RFC 3339 with the person's own UTC offset, not converted to yours. |
+| `commits[].author.seconds` | The same moment as seconds since the Unix epoch, for arithmetic. |
 | `commits[].subject` | The first paragraph of the message, folded to one line. |
 | `truncated` | `true` when the walk stopped at the limit with more history behind it. |
 
