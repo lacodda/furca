@@ -102,7 +102,7 @@ const commits = promises.commits.toLocaleString('en-US');
 {unread !== null ? (
 	<p><strong>Not read in this build:</strong> {unread}. The published page is built in CI, which fails rather than leave this table out.</p>
 ) : rows.length === 0 ? (
-	<p>No release carries measurements yet: the first one to do so is v0.2.0.</p>
+	<p>No release carries measurements yet.</p>
 ) : (
 	<table>
 		<thead><tr><th>Release</th><th>Platform</th><th>Repository</th><th>Median</th><th>90th percentile</th><th>Budget</th></tr></thead>

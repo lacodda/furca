@@ -22,7 +22,7 @@ if (-not $tag) {
     }
 }
 if (-not $tag -or $tag -notmatch '^v\d') {
-    throw "Cannot resolve the latest release of $repo - set `$env:FURCA_VERSION to a tag like v0.1.0"
+    throw "Cannot resolve the latest release of $repo - set `$env:FURCA_VERSION to a release tag (vX.Y.Z)"
 }
 
 $name = "furca-$tag-x86_64-pc-windows-msvc"
