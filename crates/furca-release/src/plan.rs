@@ -244,7 +244,10 @@ impl Release {
         checks.push(self.descriptions_check()?);
         let (texts, bump_texts) = self.texts_check(released.as_ref(), proposed.as_ref())?;
         checks.push(texts);
-        checks.push(self.changelog_check(released.as_ref(), proposed.as_ref())?);
+        let bumped = proposed
+            .as_ref()
+            .is_some_and(|p| written_one.as_ref() == Some(&p.version));
+        checks.push(self.changelog_check(released.as_ref(), proposed.as_ref(), bumped)?);
         checks.push(registries_check(
             &asked,
             sources.registries.is_some(),
@@ -697,10 +700,15 @@ impl Release {
         Ok((check, bump))
     }
 
+    /// The changelog gets one section per release. A section for the new
+    /// number is the release's own once the manifests carry that number too
+    /// (the release edits are made and wait for their commit); before that
+    /// it is a duplicate the run would write twice.
     fn changelog_check(
         &self,
         released: Option<&Version>,
         proposed: Option<&Proposal>,
+        bumped: bool,
     ) -> Result<Check, Error> {
         let path = self.root.join(&self.config.project.changelog);
         let text = std::fs::read_to_string(&path).map_err(|source| Error::Read {
@@ -723,12 +731,25 @@ impl Release {
         if let Some(next) = proposed.map(|p| p.version.to_string())
             && sections.contains(&next)
         {
-            return Ok(check(
-                "changelog",
-                Status::Fail,
-                format!("{changelog} already has a section for {next}"),
-                Vec::new(),
-            ));
+            return Ok(if bumped {
+                check(
+                    "changelog",
+                    Status::Pass,
+                    format!(
+                        "{changelog} has its section for {next}, as the manifests have the number"
+                    ),
+                    Vec::new(),
+                )
+            } else {
+                check(
+                    "changelog",
+                    Status::Fail,
+                    format!(
+                        "{changelog} already has a section for {next}, while the manifests do not carry it yet"
+                    ),
+                    Vec::new(),
+                )
+            });
         }
         if let Some(last) = released.map(ToString::to_string)
             && !sections.contains(&last)

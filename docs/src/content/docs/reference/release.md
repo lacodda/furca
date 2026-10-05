@@ -89,7 +89,7 @@ followed: the release takes the next free number.
 | `readme` | There is no `README.md` at the root, a published package's directory keeps a README of its own, a crate's `readme` is not the root one, or a link in it is relative (it breaks on crates.io and npm). |
 | `descriptions` | A package has no description, or a wrapper describes the product in other words than the package it wraps. |
 | `texts` | A text names a stale version of the product - see below. |
-| `changelog` | The changelog already has a section for the new number. A missing section for the last release is a warning. |
+| `changelog` | The changelog already has a section for the new number while the manifests still carry the old one - the run would write it twice. Once the manifests carry the new number, the section is the release's own. A missing section for the last release is a warning. |
 | `registries` | A registry could not be asked, so the number is not proven free. A package no registry has seen is a warning: the first publish is by hand, and only then can a tag publish it. |
 | `record` | Never fails. A warning when there is no stage to read, or when the record runs another gate than `release.toml`. |
 

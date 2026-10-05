@@ -727,3 +727,27 @@ fn after_one_a_breaking_fix_is_a_major_step() {
         Some(Version::new(2, 0, 0))
     );
 }
+
+#[test]
+fn a_section_for_the_new_number_is_a_duplicate_until_the_manifests_carry_it() {
+    let repo = Repo::released();
+    repo.write(
+        "CHANGELOG.md",
+        "# Changelog
+
+## [0.3.0] - 2026-10-01
+
+## [0.2.0] - 2026-09-01
+",
+    );
+    let plan = repo.plan(&Held::released(), None);
+    assert_eq!(failing(&plan), ["changelog"], "{:#?}", plan.checks);
+
+    // The release edits made: the number in the manifests and the texts.
+    repo.write("Cargo.toml", &CARGO.replace("0.2.0", "0.3.0"));
+    repo.write("npm/package.json", &NPM.replace("0.2.0", "0.3.0"));
+    repo.write("README.md", &README.replace("0.2.0", "0.3.0"));
+    let plan = repo.plan(&Held::released(), None);
+    assert!(plan.ready, "{:#?}", plan.checks);
+    assert!(plan.steps.bump.is_empty(), "{:#?}", plan.steps.bump);
+}
