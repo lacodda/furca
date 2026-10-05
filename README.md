@@ -32,6 +32,7 @@ $ furca refs --json | jq '.branches[0]'
 - **Fast, and it says so.** Opening a 100 000-commit repository and reading the first 500 rows of its graph takes about 25 ms against a budget of 100 ms. The budgets are part of the gate, and every release publishes what it measured on [the budgets page](https://lacodda.github.io/furca/concepts/budgets/).
 - **Parents after children, always.** `furca log` orders by the graph and uses time only to break ties, so a machine with a slow clock cannot put a parent above its child - the list draws as a graph top to bottom.
 - **JSON for scripts and assistants.** Every command takes `--json`; the output is the engine's own types, not a second format kept in step by hand.
+- **A release that checks itself.** `furca release plan` reads `release.toml`, proposes the next free version from the record's stage or the commits, and checks every shop window before a tag: the manifests agree, the README is the only one, the registries do not hold the number, and no stale version hides in the docs. See [release](https://lacodda.github.io/furca/reference/release/).
 - **One engine, three doors.** `furca-core` is a plain Rust library; the CLI, the desktop window and - later - an MCP server are thin wrappers around it. See [ADR 0002](https://github.com/lacodda/furca/blob/main/docs/adr/0002-one-core-three-doors.md).
 
 ## Install
@@ -47,7 +48,7 @@ cargo install furca                                                             
 
 ## Status
 
-**v0.2.0** is the engine and the CLI - `status`, `refs` and `log`, with `furca-core` published as a library - held to measured speed budgets. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
+**v0.3.0** is the engine and the CLI - `status`, `refs` and `log`, held to measured speed budgets - and the plan half of the release engine: `furca release plan`. `furca-core` and `furca-release` are published as libraries. Running a release, the desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 

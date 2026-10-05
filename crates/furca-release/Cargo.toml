@@ -13,7 +13,7 @@ keywords = ["release", "semver", "changelog", "conventional-commits", "git"]
 categories = ["development-tools"]
 
 [dependencies]
-furca-core = { path = "../furca-core", version = "0.2.0" }
+furca-core = { path = "../furca-core", version = "0.3.0" }
 # The parser git-cliff-core uses, on purpose: the plan's reading of a commit
 # and the changelog's (v0.4) must be one reading, not two that drift.
 git-conventional = "0.12"

@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0] - 2026-10-05
+
+### Bug Fixes
+- Take the new changelog section as the release's own once bumped
+
+### CI
+- Publish the release engine and skip what crates.io holds
+- Give jq its filter in the msrv job
+
+### Documentation
+- Write the example tag as vX.Y.Z
+
+### Features
+- Read the history since a revision, whole messages and the index
+- Plan the next release from release.toml
+- Plan a release and tell a no from an error
+
+### Testing
+- Hold furca to the release engine's checks
+
+### Breaking Changes
+- An error now exits 2 instead of 1, so a script can tell "could not answer" from the answer "no".
+
 ## [0.2.0] - 2026-09-26
 
 ### Performance
