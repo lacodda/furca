@@ -152,3 +152,126 @@ fn outside_a_repository_it_fails_with_a_message_and_a_nonzero_exit() {
     );
     assert!(output.stdout.is_empty(), "nothing half-printed on stdout");
 }
+
+#[test]
+fn an_error_exits_two_so_a_script_can_tell_it_from_a_no() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let output = furca(&dir.path().join("missing"), &["status"]);
+    assert_eq!(output.status.code(), Some(2));
+}
+
+/// A project with a `release.toml`, released at v0.1.0 a moment ago and with
+/// one feature since. Dated now, so its dependency update is fresh.
+fn released_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let write = |path: &str, text: &str| {
+        let full = dir.path().join(path);
+        std::fs::create_dir_all(full.parent().expect("a parent")).expect("dirs");
+        std::fs::write(full, text).expect("write");
+    };
+    write(
+        "Cargo.toml",
+        "[package]\nname = \"plan-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\ndescription = \"A fixture.\"\nreadme = \"README.md\"\n",
+    );
+    write("README.md", "# plan-fixture\n\nPin it with `v0.1.0`.\n");
+    write("CHANGELOG.md", "# Changelog\n\n## [0.1.0] - 2026-01-01\n");
+    write(".github/workflows/ci.yml", "name: CI\n");
+    write(
+        "release.toml",
+        "[project]\nname = \"plan-fixture\"\nchangelog = \"CHANGELOG.md\"\nmanifests = [\"Cargo.toml\"]\n\n[gate]\ncommands = [\"cargo test\"]\n\n[ci]\nprovider = \"github\"\nworkflow = \"ci.yml\"\n",
+    );
+    let now = format!(
+        "{} +0000",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after the epoch")
+            .as_secs()
+    );
+    let git_now = |args: &[&str]| {
+        let empty = dir.path().join(".no-config");
+        std::fs::write(&empty, "").expect("empty config");
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(dir.path())
+            .env("GIT_CONFIG_GLOBAL", &empty)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "Ada Author")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_NAME", "Ada Author")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .env("GIT_AUTHOR_DATE", &now)
+            .env("GIT_COMMITTER_DATE", &now)
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git {args:?} failed");
+    };
+    git_now(&["init", "--quiet", "--initial-branch=main"]);
+    std::fs::write(dir.path().join(".gitignore"), ".no-config\n").expect("ignore");
+    git_now(&["add", "--all"]);
+    git_now(&["commit", "--quiet", "-m", "chore(deps): pin the toolchain"]);
+    git_now(&["tag", "v0.1.0"]);
+    git_now(&[
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        "-m",
+        "feat: a command",
+    ]);
+    dir
+}
+
+#[test]
+fn release_plan_proposes_the_next_number_and_exits_zero_when_ready() {
+    let dir = released_project();
+
+    let value = json(&furca(dir.path(), &["release", "plan", "--json"]));
+    assert_eq!(value["ready"], true, "{value:#}");
+    assert_eq!(value["released"], "0.1.0");
+    assert_eq!(value["proposed"]["version"], "0.2.0");
+    assert_eq!(value["steps"]["tag"], "v0.2.0");
+
+    let output = furca(dir.path(), &["release", "plan"]);
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).expect("utf-8");
+    assert!(
+        text.starts_with("plan-fixture 0.1.0 -> 0.2.0, a minor step"),
+        "{text}"
+    );
+    assert!(
+        text.contains("README.md line 3: v0.1.0 -> v0.2.0"),
+        "{text}"
+    );
+    assert!(
+        text.trim_end()
+            .ends_with("Ready: nothing stands in the way."),
+        "{text}"
+    );
+}
+
+#[test]
+fn release_plan_exits_one_when_something_stands_in_the_way() {
+    let dir = released_project();
+    std::fs::write(
+        dir.path().join("README.md"),
+        "# plan-fixture\n\nPin it with `v0.0.9`.\n",
+    )
+    .expect("write");
+
+    let output = furca(dir.path(), &["release", "plan"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).expect("utf-8");
+    assert!(text.contains("README.md:3: v0.0.9"), "{text}");
+    assert!(
+        text.trim_end().ends_with("Not ready: texts fails."),
+        "{text}"
+    );
+}
+
+#[test]
+fn release_plan_without_release_toml_says_so_and_exits_two() {
+    let dir = repo_with(&["first"]);
+    let output = furca(dir.path(), &["release", "plan"]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.starts_with("furca: no release.toml in "), "{stderr}");
+}

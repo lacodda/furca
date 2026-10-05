@@ -39,7 +39,7 @@ Linux x86_64, macOS arm64), unpack it and put `furca` on your `PATH`.
 
 | Variable | Effect |
 | --- | --- |
-| `FURCA_VERSION` | Install this tag, such as `v0.1.0`, instead of the latest release. |
+| `FURCA_VERSION` | Install this tag (`vX.Y.Z`) instead of the latest release. |
 | `FURCA_INSTALL_DIR` | Install here instead of `%LOCALAPPDATA%\Programs\furca` (Windows) or `~/.local/bin` (macOS, Linux). |
 
 ## First look
@@ -57,9 +57,11 @@ d402e85 2026-09-17 Ada Author  chore: point components.json at the dowel registr
 ```
 
 Every command takes `--json` for scripts and assistants, and `-C PATH` to read
-a repository other than the one you are in. See
-[status](/furca/reference/status/), [refs](/furca/reference/refs/) and
-[log](/furca/reference/log/).
+a repository other than the one you are in. It exits 0 when it did what was
+asked, 1 when the answer is no (a release plan with something in its way) and
+2 when it could not answer at all. See
+[status](/furca/reference/status/), [refs](/furca/reference/refs/),
+[log](/furca/reference/log/) and [release](/furca/reference/release/).
 
 ## Use it as a library
 
