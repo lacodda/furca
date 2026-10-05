@@ -1,7 +1,7 @@
 # 0003 — The release engine lives inside the client
 
 Date: 2026-09-03
-Status: Accepted
+Status: Accepted. Where the engine lives is superseded by ADR 0006: a crate of its own, `furca-release`, rather than a module of `furca-core`.
 
 ## Context
 
