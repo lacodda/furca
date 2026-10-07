@@ -414,3 +414,42 @@ fn tracked_paths_are_the_index_with_forward_slashes() {
         std::fs::canonicalize(fixture.path()).expect("canonical")
     );
 }
+
+#[test]
+fn a_commit_is_read_by_any_revision_that_names_it() {
+    let fixture = Fixture::new();
+    let first = fixture.commit("first\n\nwith a body", 1_700_000_000);
+    fixture.git(&["tag", "-a", "v0.1.0", "-m", "release", &first]);
+    let second = fixture.commit("second", 1_700_000_100);
+    let tree = fixture.git(&["rev-parse", "HEAD^{tree}"]);
+    fixture.git(&["tag", "a-tree", &tree]);
+    let repo = fixture.open();
+
+    let by_id = repo.commit(&first).expect("an id names a commit");
+    assert_eq!(by_id.id, first);
+    assert_eq!(by_id.subject, "first");
+    assert_eq!(by_id.committer.seconds, 1_700_000_000);
+
+    let by_tag = repo.commit("v0.1.0").expect("an annotated tag is peeled");
+    assert_eq!(by_tag.id, first, "the tag's commit, not the tag object");
+    assert_eq!(
+        repo.commit("refs/tags/v0.1.0").expect("a full ref name").id,
+        first
+    );
+    assert_eq!(repo.commit("main").expect("a branch").id, second);
+    assert_eq!(repo.commit("HEAD").expect("HEAD").parents, std::slice::from_ref(&first));
+
+    for missing in [
+        "a-tree",
+        "v9.9.9",
+        "0000000000000000000000000000000000000000",
+    ] {
+        assert!(
+            matches!(
+                repo.commit(missing),
+                Err(furca_core::Error::Revision { .. })
+            ),
+            "{missing} names no commit"
+        );
+    }
+}

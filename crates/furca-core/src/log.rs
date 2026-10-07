@@ -79,7 +79,7 @@ impl Repository {
             let Some(id) = walk.next_id()? else {
                 break;
             };
-            commits.push(self.commit(id)?);
+            commits.push(self.read_commit(id)?);
         }
         let truncated = walk.has_more();
 
@@ -111,7 +111,7 @@ impl Repository {
         Ok(ids)
     }
 
-    pub(crate) fn commit(&self, id: gix::ObjectId) -> Result<Commit, Error> {
+    pub(crate) fn read_commit(&self, id: gix::ObjectId) -> Result<Commit, Error> {
         let failed = |source: crate::error::Source| Error::Commit {
             id: id.to_string(),
             source,

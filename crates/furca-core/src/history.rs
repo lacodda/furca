@@ -48,6 +48,17 @@ impl Repository {
         })
     }
 
+    /// The commit a revision names - an id, a tag, a branch, anything git
+    /// understands - with an annotated tag peeled through to its commit.
+    ///
+    /// For a reader that knows which commit it wants: the date a release tag
+    /// was made on, the tip of one branch. A revision that names no commit
+    /// (a tag on a tree, a name nothing has) is [`Error::Revision`].
+    pub fn commit(&self, revision: &str) -> Result<Commit, Error> {
+        let id = self.resolve(revision)?;
+        self.read_commit(id)
+    }
+
     /// The whole message of a commit as it was written: subject, body and
     /// trailers, with the trailing newline git adds trimmed.
     pub fn message(&self, id: &str) -> Result<String, Error> {
@@ -90,6 +101,6 @@ impl Iterator for History<'_> {
             Ok(info) => info,
             Err(error) => return Some(Err(Error::Walk(error.into()))),
         };
-        Some(self.repo.commit(info.id))
+        Some(self.repo.read_commit(info.id))
     }
 }
