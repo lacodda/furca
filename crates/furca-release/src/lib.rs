@@ -3,10 +3,11 @@
 //!
 //! A release is the end of a stage, done as a machine of steps rather than by
 //! hand: propose the next number, check that every shop window agrees, bump,
-//! write the changelog, run the gate, commit, wait for CI, tag, publish, and
-//! the steps after the tag. This crate plans it - what the next release is,
-//! what stands in its way and what a run will do - and changes nothing.
-//! Running the plan is the next release's work. See ADR 0006.
+//! write the changelog, run the gate, commit, push, wait for CI, tag, wait
+//! for the publish, and tell the owner's record. [`Release::plan`] says what
+//! the next release is and what stands in its way, and changes nothing;
+//! [`Release::run`] carries the plan out and stops at the first red step;
+//! [`Release::resume`] carries a stopped run on. See ADR 0006 and ADR 0007.
 //!
 //! ```no_run
 //! use furca_release::{Release, Sources};

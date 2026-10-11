@@ -6,15 +6,17 @@
 //! CLI adds no second shape to keep in step.
 //!
 //! Exit status: 0 when the command did what was asked, 1 when it answered
-//! "no" (a release plan that is not ready), 2 when it could not answer at
-//! all - the same split as `grep`.
+//! "no" (a release plan that is not ready, a run that stopped, CI that is
+//! not green), 2 when it could not answer at all - the same split as `grep`.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use furca_core::{HeadSummary, Log, Refs, Repository, Tips};
-use furca_release::{Plan, Release, Sources, Status};
+use furca_release::hosting::{self, Forge, Place, Run, Waited};
+use furca_release::{Config, Plan, Provider, Release, Report, Runner, Sources, Status};
 use serde::Serialize;
 
 #[derive(Parser)]
@@ -51,7 +53,23 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
-    /// Plan the next release from release.toml: the number and what stands in its way.
+    /// Push the current branch to the remote it follows.
+    Push {
+        #[command(flatten)]
+        common: Common,
+        /// Then wait for the CI runs the push starts, and say how they ended.
+        #[arg(long)]
+        wait_ci: bool,
+    },
+    /// Show the CI runs on a commit and how they ended.
+    Checks {
+        #[command(flatten)]
+        common: Common,
+        /// The commit: an id, a branch, a tag. Defaults to HEAD.
+        #[arg(default_value = "HEAD")]
+        revision: String,
+    },
+    /// Plan and run the next release from release.toml.
     Release {
         #[command(subcommand)]
         command: ReleaseCommand,
@@ -62,6 +80,16 @@ enum Command {
 enum ReleaseCommand {
     /// Say what the next release is, what stands in its way and what a run would do. Changes nothing.
     Plan {
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Release: bump, changelog, gate, commit, push, wait for CI, tag, wait for the publish, record.
+    Run {
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Carry on a release that stopped after its commit, from the step it stopped at.
+    Resume {
         #[command(flatten)]
         common: Common,
     },
@@ -111,6 +139,14 @@ fn run(command: Command) -> Result<Answer, String> {
                 .map_err(|e| e.to_string())?;
             emit(common.json, &log, log_text)
         }
+        Command::Push { common, wait_ci } => push(&common, wait_ci),
+        Command::Checks { common, revision } => checks(&common, &revision),
+        Command::Release {
+            command: ReleaseCommand::Run { common },
+        } => release_run(&common, false),
+        Command::Release {
+            command: ReleaseCommand::Resume { common },
+        } => release_run(&common, true),
         Command::Release {
             command: ReleaseCommand::Plan { common },
         } => {
@@ -130,6 +166,252 @@ fn run(command: Command) -> Result<Answer, String> {
 
 fn open(path: &Path) -> Result<Repository, String> {
     Repository::open(path).map_err(|e| e.to_string())
+}
+
+/// The forge behind a remote's address, asked over HTTPS.
+fn forge(url: &str, provider: Option<Provider>) -> Option<Box<dyn Forge>> {
+    let place = Place::from_url(url, provider)?;
+    Some(Box::new(hosting::Http::new(place)))
+}
+
+/// A progress line on standard error: standard output carries the answer.
+fn say(step: &str, line: &str) {
+    let mut err = std::io::stderr().lock();
+    let _ = writeln!(err, "  {step:<9}  {line}");
+}
+
+fn release_run(common: &Common, resume: bool) -> Result<Answer, String> {
+    let release = Release::open(&common.repo).map_err(|e| e.to_string())?;
+    let registries = furca_release::Http::default();
+    let factory = |url: &str, provider: Provider| forge(url, Some(provider));
+    let mut progress = |step: &str, line: &str| say(step, line);
+    let mut runner = Runner {
+        registries: &registries,
+        record: Some(&furca_release::Rigger),
+        forge: &factory,
+        now: &std::time::SystemTime::now,
+        sleep: &std::thread::sleep,
+        gate_to_stderr: common.json,
+        say: &mut progress,
+    };
+    let report = if resume {
+        release.resume(&mut runner)
+    } else {
+        release.run(&mut runner)
+    }
+    .map_err(|e| e.to_string())?;
+    emit(common.json, &report, report_text)?;
+    Ok(if report.released {
+        Answer::Yes
+    } else {
+        Answer::No
+    })
+}
+
+/// What `push` did, for `--json`.
+#[derive(Serialize)]
+struct Pushed {
+    commit: String,
+    remote: String,
+    branch: String,
+    /// How the CI runs the push started ended; `null` without `--wait-ci`.
+    ci: Option<Waited>,
+}
+
+fn push(common: &Common, wait_ci: bool) -> Result<Answer, String> {
+    let repo = open(&common.repo)?;
+    let upstream = repo.upstream().map_err(|e| e.to_string())?.ok_or(
+        "the current branch follows no remote: push it once with `git push --set-upstream`",
+    )?;
+    let commit = repo
+        .head()
+        .map_err(|e| e.to_string())?
+        .commit
+        .ok_or("there is nothing to push: no commits yet")?;
+    let refspec = format!("HEAD:{}", upstream.merge);
+    repo.git()
+        .push(&upstream.remote, &[&refspec])
+        .map_err(|e| e.to_string())?;
+    say(
+        "push",
+        &format!(
+            "{} to {} {}",
+            short(&commit),
+            upstream.remote,
+            upstream.merge
+        ),
+    );
+
+    let mut pushed = Pushed {
+        commit: commit.clone(),
+        remote: upstream.remote.clone(),
+        branch: upstream.branch.clone(),
+        ci: None,
+    };
+    if wait_ci {
+        let forge = forge(&upstream.url, provider_of(&repo))
+            .ok_or_else(|| not_a_forge(&upstream.remote, &upstream.url))?;
+        let waited = hosting::wait(
+            forge.as_ref(),
+            &commit,
+            &|run| run.reference.as_deref() == Some(upstream.branch.as_str()),
+            &[],
+            forge.pace(),
+            &std::thread::sleep,
+            &mut |runs| say("ci", &states(runs)),
+        )?;
+        pushed.ci = Some(waited);
+    }
+    emit(common.json, &pushed, pushed_text)?;
+    Ok(match &pushed.ci {
+        None | Some(Waited::Green { .. }) => Answer::Yes,
+        Some(_) => Answer::No,
+    })
+}
+
+/// What `checks` read, for `--json`.
+#[derive(Serialize)]
+struct Checks {
+    commit: String,
+    runs: Vec<Run>,
+    /// Every run has ended and none of them failed.
+    green: bool,
+}
+
+fn checks(common: &Common, revision: &str) -> Result<Answer, String> {
+    let repo = open(&common.repo)?;
+    let commit = repo.commit(revision).map_err(|e| e.to_string())?.id;
+    let upstream = repo.upstream().map_err(|e| e.to_string())?;
+    let (remote, url) = match upstream {
+        Some(upstream) => (upstream.remote, upstream.url),
+        None => {
+            let url = repo.remote_url("origin").map_err(|e| e.to_string())?.ok_or(
+                "the current branch follows no remote and there is no `origin`: no forge to ask",
+            )?;
+            ("origin".to_owned(), url)
+        }
+    };
+    let forge = forge(&url, provider_of(&repo)).ok_or_else(|| not_a_forge(&remote, &url))?;
+    let runs = forge.runs(&commit)?;
+    let green = !runs.is_empty() && runs.iter().all(|r| r.state.done() && !r.state.red());
+    let checks = Checks {
+        commit,
+        runs,
+        green,
+    };
+    emit(common.json, &checks, checks_text)?;
+    Ok(if checks.green {
+        Answer::Yes
+    } else {
+        Answer::No
+    })
+}
+
+/// The provider `release.toml` names, when the repository has one.
+fn provider_of(repo: &Repository) -> Option<Provider> {
+    Config::load(repo.workdir()?).ok().map(|c| c.ci.provider)
+}
+
+fn not_a_forge(remote: &str, url: &str) -> String {
+    format!("`{remote}` ({url}) is not a repository on GitHub or Forgejo")
+}
+
+fn states(runs: &[Run]) -> String {
+    if runs.is_empty() {
+        return "waiting for the runs to start".to_owned();
+    }
+    runs.iter()
+        .map(|r| format!("{} {}", r.workflow, r.state.word()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn run_lines(runs: &[Run]) -> Vec<String> {
+    let started = |r: &Run| format!("{} ({})", r.event, r.reference.as_deref().unwrap_or("-"));
+    let workflow = runs.iter().map(|r| r.workflow.len()).max().unwrap_or(0);
+    let by = runs.iter().map(|r| started(r).len()).max().unwrap_or(0);
+    runs.iter()
+        .map(|r| {
+            format!(
+                "  {:<9}  {:<workflow$}  {:<by$}  {}",
+                r.state.word(),
+                r.workflow,
+                started(r),
+                r.url
+            )
+        })
+        .collect()
+}
+
+fn pushed_text(pushed: &Pushed) -> String {
+    let mut out = vec![format!(
+        "Pushed {} to {} {}",
+        short(&pushed.commit),
+        pushed.remote,
+        pushed.branch
+    )];
+    if let Some(ci) = &pushed.ci {
+        out.extend(run_lines(ci.runs()));
+        out.push(match ci {
+            Waited::Green { .. } => "CI is green.".to_owned(),
+            Waited::Red { .. } => "CI failed.".to_owned(),
+            Waited::Missing { .. } => "No CI run started for the push.".to_owned(),
+            Waited::Timeout { .. } => "CI is still running; `furca checks` looks again.".to_owned(),
+        });
+    }
+    out.join("\n")
+}
+
+fn checks_text(checks: &Checks) -> String {
+    if checks.runs.is_empty() {
+        return format!("No CI runs on {}", short(&checks.commit));
+    }
+    let mut out = vec![format!("CI on {}", short(&checks.commit))];
+    out.extend(run_lines(&checks.runs));
+    let running = checks.runs.iter().any(|r| !r.state.done());
+    out.push(if checks.green {
+        "Green.".to_owned()
+    } else if checks.runs.iter().any(|r| r.state.red()) {
+        "Red.".to_owned()
+    } else if running {
+        "Still running.".to_owned()
+    } else {
+        "Not green.".to_owned()
+    });
+    out.join("\n")
+}
+
+fn report_text(report: &Report) -> String {
+    let mut out = Vec::new();
+    let tag = report.tag.as_deref().unwrap_or("the next release");
+    out.push(if report.released {
+        format!("{} {tag} is out.", report.project)
+    } else {
+        format!("{} {tag} stopped.", report.project)
+    });
+    out.push(String::new());
+    let width = report.steps.iter().map(|s| s.name.len()).max().unwrap_or(0);
+    for step in &report.steps {
+        out.push(format!(
+            "  {:<7}  {:<width$}  {}",
+            serde_word(&step.status),
+            step.name,
+            step.summary
+        ));
+        for detail in &step.details {
+            out.push(format!("  {:<7}  {:<width$}    {detail}", "", ""));
+        }
+    }
+    if !report.after.is_empty() {
+        out.push(String::new());
+        out.push("Left for you:".to_owned());
+        out.extend(report.after.iter().map(|a| format!("  {a}")));
+    }
+    if let Some(step) = report.stopped() {
+        out.push(String::new());
+        out.push(format!("Stopped at {}: {}", step.name, step.summary));
+    }
+    out.join("\n")
 }
 
 fn emit<T: Serialize>(json: bool, value: &T, text: fn(&T) -> String) -> Result<Answer, String> {

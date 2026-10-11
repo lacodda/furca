@@ -275,3 +275,83 @@ fn release_plan_without_release_toml_says_so_and_exits_two() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.starts_with("furca: no release.toml in "), "{stderr}");
 }
+
+#[test]
+fn release_resume_with_nothing_under_way_says_so_and_exits_one() {
+    let dir = released_project();
+    let output = furca(dir.path(), &["release", "resume"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).expect("utf-8");
+    assert!(text.contains("no release is under way here"), "{text}");
+
+    let output = furca(dir.path(), &["release", "resume", "--json"]);
+    assert_eq!(output.status.code(), Some(1));
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("one JSON document");
+    assert_eq!(value["released"], false);
+    assert_eq!(value["steps"][0]["name"], "plan");
+    assert_eq!(value["steps"][0]["status"], "stopped");
+    assert_eq!(value["steps"][9]["status"], "ahead");
+}
+
+#[test]
+fn release_run_without_a_remote_stops_before_touching_anything() {
+    let dir = released_project();
+    let output = furca(dir.path(), &["release", "run"]);
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).expect("utf-8");
+    assert!(text.contains("nowhere to go"), "{text}");
+    let manifest = std::fs::read_to_string(dir.path().join("Cargo.toml")).expect("read");
+    assert!(manifest.contains("version = \"0.1.0\""), "{manifest}");
+}
+
+#[test]
+fn push_without_an_upstream_says_how_to_set_one_and_exits_two() {
+    let dir = repo_with(&["first"]);
+    let output = furca(dir.path(), &["push"]);
+    assert_eq!(output.status.code(), Some(2));
+    let error = String::from_utf8(output.stderr).expect("utf-8");
+    assert!(error.contains("git push --set-upstream"), "{error}");
+}
+
+#[test]
+fn push_sends_the_branch_and_checks_refuse_a_remote_that_is_no_forge() {
+    let dir = repo_with(&["first"]);
+    let bare = tempfile::tempdir().expect("temp dir");
+    git(
+        bare.path(),
+        &["init", "--quiet", "--bare", "--initial-branch=main"],
+    );
+    let url = bare.path().to_str().expect("utf-8");
+    git(dir.path(), &["remote", "add", "origin", url]);
+    git(
+        dir.path(),
+        &["push", "--quiet", "--set-upstream", "origin", "main"],
+    );
+    git(
+        dir.path(),
+        &["commit", "--quiet", "--allow-empty", "-m", "second"],
+    );
+
+    let value = json(&furca(dir.path(), &["push", "--json"]));
+    assert_eq!(value["remote"], "origin");
+    assert_eq!(value["branch"], "main");
+    assert!(value["ci"].is_null());
+    let head = value["commit"].as_str().expect("an id").to_owned();
+    let remote = Command::new("git")
+        .args(["rev-parse", "main"])
+        .current_dir(bare.path())
+        .output()
+        .expect("git runs");
+    assert_eq!(String::from_utf8_lossy(&remote.stdout).trim(), head);
+
+    for args in [&["checks"][..], &["push", "--wait-ci"][..]] {
+        let output = furca(dir.path(), args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let error = String::from_utf8(output.stderr).expect("utf-8");
+        assert!(
+            error.contains("is not a repository on GitHub or Forgejo"),
+            "{error}"
+        );
+    }
+}

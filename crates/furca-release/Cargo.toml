@@ -1,6 +1,6 @@
 [package]
 name = "furca-release"
-description = "The release engine behind furca: reads release.toml and says what to release and what stands in the way."
+description = "The release engine behind furca: reads release.toml, plans the next release and runs it from the bump to the tag."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
