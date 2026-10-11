@@ -437,7 +437,10 @@ fn a_commit_is_read_by_any_revision_that_names_it() {
         first
     );
     assert_eq!(repo.commit("main").expect("a branch").id, second);
-    assert_eq!(repo.commit("HEAD").expect("HEAD").parents, std::slice::from_ref(&first));
+    assert_eq!(
+        repo.commit("HEAD").expect("HEAD").parents,
+        std::slice::from_ref(&first)
+    );
 
     for missing in [
         "a-tree",
