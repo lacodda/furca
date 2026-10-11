@@ -30,7 +30,9 @@ provider = "github"
 workflow = "ci.yml"
 publish = "publish.yml"
 
-# In publishing order: each one depends on the ones above it.
+# In publishing order: each one depends on the ones above it. The libraries
+# only: the furca CLI is installed by tools/install.ps1 and tools/install.sh
+# from the release, never from a registry.
 [[package]]
 registry = "crates"
 name = "furca-core"
@@ -40,11 +42,6 @@ manifest = "crates/furca-core/Cargo.toml"
 registry = "crates"
 name = "furca-release"
 manifest = "crates/furca-release/Cargo.toml"
-
-[[package]]
-registry = "crates"
-name = "furca"
-manifest = "crates/furca-cli/Cargo.toml"
 
 [[post]]
 kind = "install"

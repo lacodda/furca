@@ -1,7 +1,8 @@
 name: Publish
 
-# A tag publishes the crates through crates.io trusted publishing (OIDC), one
-# trusted publisher per crate, in dependency order. A version crates.io already
+# A tag publishes the library crates through crates.io trusted publishing
+# (OIDC), one trusted publisher per crate, in dependency order. The furca CLI
+# is not among them: it is installed from the release by tools/install.*. A version crates.io already
 # holds is skipped, so a re-run picks up where a publish stopped - including
 # after a new crate's first publish, which is by hand because trusted
 # publishing can only be set up for a crate that exists. workflow_dispatch
@@ -38,7 +39,7 @@ jobs:
           set -euo pipefail
           version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "furca-core") | .version')
           test -n "$version"
-          for crate in furca-core furca-release furca; do
+          for crate in furca-core furca-release; do
             status=$(curl -s -o /dev/null -w '%{http_code}' \
               -A 'furca-publish (+https://github.com/lacodda/furca)' \
               "https://crates.io/api/v1/crates/$crate/$version")

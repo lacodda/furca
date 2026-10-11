@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/lacodda/furca/actions"><img src="https://img.shields.io/github/actions/workflow/status/lacodda/furca/ci.yml?style=flat-square" alt="CI"></a>
-  <a href="https://crates.io/crates/furca"><img src="https://img.shields.io/crates/v/furca?style=flat-square" alt="crates.io"></a>
+  <a href="https://crates.io/crates/furca-core"><img src="https://img.shields.io/crates/v/furca-core?style=flat-square&label=furca-core" alt="furca-core on crates.io"></a>
   <a href="https://lacodda.github.io/furca/"><img src="https://img.shields.io/badge/docs-lacodda.github.io-blue?style=flat-square" alt="Docs"></a>
   <a href="https://github.com/lacodda/furca/blob/main/LICENSE"><img src="https://img.shields.io/github/license/lacodda/furca?style=flat-square" alt="License"></a>
 </p>
@@ -43,7 +43,6 @@ irm https://raw.githubusercontent.com/lacodda/furca/main/tools/install.ps1 | iex
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lacodda/furca/main/tools/install.sh | sh   # macOS, Linux
-cargo install furca                                                                   # anywhere with Rust
 ```
 
 ## Status

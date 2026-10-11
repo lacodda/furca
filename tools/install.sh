@@ -19,7 +19,8 @@ case "$(uname -s)-$(uname -m)" in
         exit 1
         ;;
     *)
-        echo "No prebuilt binary for $(uname -s)/$(uname -m); install with: cargo install furca" >&2
+        echo "No prebuilt binary for $(uname -s)/$(uname -m); build it from source:" >&2
+        echo "  cargo install --locked --git https://github.com/$REPO furca" >&2
         exit 1
         ;;
 esac

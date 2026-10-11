@@ -449,6 +449,48 @@ fn the_readme_shows_only_real_commands() {
     );
 }
 
+/// The CLI is installed from the release by the two scripts and nothing
+/// else: no page tells anyone to `cargo install` it, the crate cannot be
+/// published, and the publish workflow publishes exactly the libraries
+/// `release.toml` lists - the run waits for each of them in its registry.
+#[test]
+fn the_cli_is_installed_by_the_scripts_only() {
+    for page in ["README.md", "docs/src/content/docs/getting-started.md"] {
+        let text = read(page);
+        for line in ["tools/install.ps1 | iex", "tools/install.sh | sh"] {
+            assert!(text.contains(line), "{page} does not show `{line}`");
+        }
+        assert!(
+            !text.contains("cargo install"),
+            "{page} tells someone to `cargo install` furca; it is installed by the scripts"
+        );
+    }
+
+    let manifest = read("crates/furca-cli/Cargo.toml");
+    assert!(
+        manifest.lines().any(|l| l.trim() == "publish = false"),
+        "crates/furca-cli/Cargo.toml allows publishing the CLI"
+    );
+
+    let config = furca_release::Config::load(&repo_root()).expect("release.toml reads");
+    let listed: Vec<&str> = config.package.iter().map(|p| p.name.as_str()).collect();
+    let publish = read(".github/workflows/publish.yml");
+    let published: Vec<&str> = publish
+        .lines()
+        .find_map(|l| {
+            l.trim()
+                .strip_prefix("for crate in ")
+                .and_then(|rest| rest.strip_suffix("; do"))
+        })
+        .expect("publish.yml has no `for crate in ...; do` loop - the scanner went blind")
+        .split_whitespace()
+        .collect();
+    assert_eq!(
+        published, listed,
+        "publish.yml publishes other crates than release.toml lists"
+    );
+}
+
 /// The installers unpack the folder the release workflow packs.
 #[test]
 fn the_installers_unpack_what_the_release_packs() {

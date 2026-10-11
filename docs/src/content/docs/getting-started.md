@@ -25,12 +25,6 @@ MSYS2 or Cygwin stops with a pointer to `install.ps1` rather than installing
 anything.
 :::
 
-Via cargo:
-
-```bash
-cargo install furca
-```
-
 Or download the archive for your platform from
 [Releases](https://github.com/lacodda/furca/releases/latest) (Windows x86_64,
 Linux x86_64, macOS arm64), unpack it and put `furca` on your `PATH`.

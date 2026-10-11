@@ -12,6 +12,10 @@ readme = "../../README.md"
 keywords = ["git", "cli", "gitoxide", "log"]
 categories = ["command-line-utilities", "development-tools"]
 
+# The CLI is installed from the release by tools/install.ps1 and
+# tools/install.sh; crates.io carries the libraries only.
+publish = false
+
 [[bin]]
 name = "furca"
 path = "src/main.rs"
