@@ -3,19 +3,39 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::error::{Error, wrap};
+use crate::git_cmd::CommandLog;
 
-/// A repository opened for reading.
+/// A repository: read in-process, changed through the system `git`.
 ///
-/// Wraps a `gix::Repository` handle. Reads (log, refs, and later status, diff
-/// and blame) happen in-process through this handle; mutations are out of
-/// scope here and go through the system `git` CLI instead (ADR 0001).
+/// Wraps a `gix::Repository` handle. Reads (log, refs, the working tree's
+/// changes, and later diff and blame) happen in-process through this handle;
+/// mutations go through the system `git` CLI instead (ADR 0001), by way of
+/// [`Repository::git`].
 pub struct Repository {
     pub(crate) inner: gix::Repository,
+    pub(crate) commands: CommandLog,
 }
 
 /// Room for the commits of one graph screen and then some; a commit object
 /// is a few hundred bytes.
 const OBJECT_CACHE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Where a branch goes when it is pushed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Upstream {
+    /// The local branch, such as `main`.
+    pub branch: String,
+    /// The remote's name, such as `origin`.
+    pub remote: String,
+    /// The remote's address, as configured for fetching: it names the
+    /// repository, wherever a `pushurl` sends the pushes.
+    pub url: String,
+    /// The branch on the remote, as a full name: `refs/heads/main`.
+    pub merge: String,
+    /// The remote-tracking branch that mirrors it here, such as
+    /// `origin/main`, if the remote's fetch refspecs give one.
+    pub tracking: Option<String>,
+}
 
 /// A summary of the repository's `HEAD`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -39,7 +59,10 @@ impl Repository {
         // A history walk reads every commit twice: once to order it, once to
         // describe it. Without a cache the second read decompresses again.
         inner.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            commands: CommandLog::default(),
+        })
     }
 
     /// The root of the working tree; `None` for a bare repository.
@@ -78,6 +101,48 @@ impl Repository {
             detached: head.is_detached(),
             upstream,
         })
+    }
+
+    /// Where the current branch is pushed and fetched: its remote, the
+    /// remote's address and the branch there. `None` when `HEAD` is detached
+    /// or the branch follows nothing - a release has nowhere to go then.
+    pub fn upstream(&self) -> Result<Option<Upstream>, Error> {
+        let head = self.inner.head().map_err(wrap(Error::Head))?;
+        let Some(branch) = head.referent_name() else {
+            return Ok(None);
+        };
+        let short = branch.shorten();
+        let Some(remote) = self
+            .inner
+            .branch_remote_name(short, gix::remote::Direction::Fetch)
+        else {
+            return Ok(None);
+        };
+        let remote = remote.as_bstr().to_string();
+        let Some(merge) = self
+            .inner
+            .branch_remote_ref_name(branch, gix::remote::Direction::Fetch)
+            .and_then(Result::ok)
+        else {
+            return Ok(None);
+        };
+        let url = self
+            .inner
+            .try_find_remote(remote.as_str())
+            .and_then(Result::ok)
+            .and_then(|r| {
+                r.url(gix::remote::Direction::Push)
+                    .map(|u| u.to_bstring().to_string())
+            })
+            // A branch may name a URL instead of a configured remote.
+            .unwrap_or_else(|| remote.clone());
+        Ok(Some(Upstream {
+            branch: short.to_string(),
+            remote,
+            url,
+            merge: merge.as_bstr().to_string(),
+            tracking: self.upstream_of(branch),
+        }))
     }
 
     /// The short name of the remote-tracking branch `branch` fetches into, if

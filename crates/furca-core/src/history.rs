@@ -75,7 +75,25 @@ impl Repository {
         Ok(message.to_string().trim_end().to_owned())
     }
 
-    fn resolve(&self, revision: &str) -> Result<gix::ObjectId, Error> {
+    /// Whether `ancestor` is `descendant` or can be reached from it - what
+    /// `git merge-base --is-ancestor` answers. Both are revisions git
+    /// understands.
+    pub fn is_ancestor(&self, ancestor: &str, descendant: &str) -> Result<bool, Error> {
+        let ancestor = self.resolve(ancestor)?;
+        let descendant = self.resolve(descendant)?;
+        if ancestor == descendant {
+            return Ok(true);
+        }
+        // Unrelated histories have no merge base at all: an empty list, not
+        // an error.
+        let bases = self
+            .inner
+            .merge_bases_many(ancestor, &[descendant])
+            .map_err(wrap(Error::Walk))?;
+        Ok(bases.iter().any(|base| base.detach() == ancestor))
+    }
+
+    pub(crate) fn resolve(&self, revision: &str) -> Result<gix::ObjectId, Error> {
         let failed = |source: crate::error::Source| Error::Revision {
             revision: revision.to_owned(),
             source,

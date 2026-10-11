@@ -15,8 +15,9 @@ categories = ["development-tools"]
 [dependencies]
 # `sha1` is a feature of its own, outside `max-performance-safe`: without it
 # gix-hash fails with a cascade of type errors that hide the real cause.
-# `basic` brings objects and references, `revision` the history walk.
-gix = { version = "0.88.0", default-features = false, features = ["max-performance-safe", "sha1", "basic", "revision"] }
+# `basic` brings objects and references, `revision` the history walk,
+# `status` the working tree's changes.
+gix = { version = "0.88.0", default-features = false, features = ["max-performance-safe", "sha1", "basic", "revision", "status"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
