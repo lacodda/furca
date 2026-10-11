@@ -1,0 +1,67 @@
+name: furca
+description: Install the furca CLI from a release, so a workflow can plan and run releases with `furca release`.
+author: Kirill Lakhtachev
+branding:
+  icon: git-branch
+  color: orange
+
+inputs:
+  version:
+    description: >-
+      The release to install, as a tag (vX.Y.Z). Defaults to the tag the action
+      is used at (`uses: lacodda/furca@vX.Y.Z`), and to the latest release when
+      the action is used at a branch.
+    required: false
+    default: ''
+
+outputs:
+  version:
+    description: The release that was installed.
+    value: ${{ steps.installed.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    # The same installers a person runs, from this checkout of the action:
+    # one way to install, whatever runs it.
+    - id: pick
+      shell: bash
+      env:
+        WANTED: ${{ inputs.version }}
+        AT: ${{ github.action_ref }}
+      run: |
+        set -eu
+        version="$WANTED"
+        if [ -z "$version" ] || [ "$version" = latest ]; then
+          case "$AT" in
+            v[0-9]*) version="$AT" ;;
+            *) version="" ;;
+          esac
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "dir=$RUNNER_TEMP/furca" >> "$GITHUB_OUTPUT"
+    - name: Install furca (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        FURCA_VERSION: ${{ steps.pick.outputs.version }}
+        FURCA_INSTALL_DIR: ${{ steps.pick.outputs.dir }}
+      run: |
+        & (Join-Path $env:GITHUB_ACTION_PATH "tools/install.ps1")
+        Add-Content -Path $env:GITHUB_PATH -Value $env:FURCA_INSTALL_DIR
+    - name: Install furca (macOS, Linux)
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        FURCA_VERSION: ${{ steps.pick.outputs.version }}
+        FURCA_INSTALL_DIR: ${{ steps.pick.outputs.dir }}
+      run: |
+        sh "$GITHUB_ACTION_PATH/tools/install.sh"
+        echo "$FURCA_INSTALL_DIR" >> "$GITHUB_PATH"
+    - id: installed
+      shell: bash
+      run: |
+        set -eu
+        version=$(furca --version | cut -d' ' -f2)
+        echo "furca $version is on PATH"
+        echo "version=v$version" >> "$GITHUB_OUTPUT"
