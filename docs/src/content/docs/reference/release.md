@@ -208,8 +208,9 @@ step that stopped:
   registry has not seen. Publish it by hand from the commit about to be
   tagged (`cargo publish -p NAME`), then `resume`.
 - **The publish workflow failed.** The tag is out and stays. Fix the workflow
-  and run it again for the tag; `resume` then finds the version in the
-  registries, which is what counts.
+  and run it again for the tag, or publish by hand; `resume` then finds the
+  version in the registries, which is what counts. The tag's other workflows -
+  the release page among them - still have to end green.
 - **The run was killed.** `resume` picks up the step it was in. A run killed
   before its commit has its edits taken back by the next `run`.
 

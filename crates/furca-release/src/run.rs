@@ -1068,19 +1068,39 @@ impl Release {
         let tag = state.tag.clone();
         let version = state.version.clone();
 
-        // What the registries hold decides: a publish re-run by hand starts
-        // from another commit and the tag's own runs never show it.
+        // What the registries hold decides whether the packages are out: a
+        // publish re-run by hand starts from another commit and the tag's own
+        // runs never show it. Once they hold the version a red publish
+        // workflow no longer matters - but the tag's other workflows, the
+        // release page among them, still have to end green.
         let mut lines = Vec::new();
         let mut missing = self.missing_from_registries(runner.registries, &version)?;
-        if !missing.is_empty()
-            && let Some(workflow) = self.config.ci.publish.clone()
-        {
+        let publish = self.config.ci.publish.clone();
+        let held = missing.is_empty();
+        let keep = |run: &Run| {
+            run.reference.as_deref() == Some(tag.as_str())
+                && !(held && publish.as_deref() == Some(run.workflow.as_str()))
+        };
+        let mut expect: Vec<String> = match &publish {
+            Some(workflow) if !held => vec![workflow.clone()],
+            _ => Vec::new(),
+        };
+        if expect.is_empty() {
+            // Nothing named to wait for: the runs the tag started, if any.
+            for run in forge.runs(&tagged).map_err(Error::Forge)? {
+                if keep(&run) && !expect.contains(&run.workflow) {
+                    expect.push(run.workflow);
+                }
+            }
+        }
+        if !expect.is_empty() {
+            let expected: Vec<&str> = expect.iter().map(String::as_str).collect();
             let say = &mut *runner.say;
             let waited = hosting::wait(
                 forge,
                 &tagged,
-                &|run| run.reference.as_deref() == Some(tag.as_str()),
-                &[workflow.as_str()],
+                &keep,
+                &expected,
                 forge.pace(),
                 runner.sleep,
                 &mut |runs| say("publish", &states(runs)),
@@ -1090,8 +1110,9 @@ impl Release {
             let stop = match &waited {
                 Waited::Green { .. } => None,
                 Waited::Red { .. } => Some(format!("a workflow of {tag} failed")),
-                Waited::Missing { .. } => Some(format!(
-                    "{workflow} did not start for {tag}: is its tag trigger on?"
+                Waited::Missing { missing, .. } => Some(format!(
+                    "{} did not start for {tag}: is its tag trigger on?",
+                    missing.join(", ")
                 )),
                 Waited::Timeout { .. } => Some(format!("the workflows of {tag} are still running")),
             };

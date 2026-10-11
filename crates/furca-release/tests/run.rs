@@ -235,6 +235,8 @@ fn git(dir: &Path, args: &[&str], at: u64) -> String {
 struct World {
     ci: Cell<State>,
     publish: Cell<State>,
+    /// The workflow that puts out the release page, started by the tag too.
+    release: Cell<State>,
     /// What the registry holds of `demo`; `None` before its first publish.
     held: RefCell<Option<Vec<Version>>>,
     /// The publish workflow puts the new version in the registry when it
@@ -249,6 +251,7 @@ impl World {
         Rc::new(World {
             ci: Cell::new(State::Success),
             publish: Cell::new(State::Success),
+            release: Cell::new(State::Success),
             held: RefCell::new(Some(vec![Version::new(0, 2, 0)])),
             publishes: Version::new(0, 3, 0),
             shipped: RefCell::new(Vec::new()),
@@ -280,6 +283,7 @@ impl Forge for FakeForge {
         Ok(vec![
             run("ci.yml", "main", self.0.ci.get()),
             run("publish.yml", "v0.3.0", self.0.publish.get()),
+            run("release.yml", "v0.3.0", self.0.release.get()),
         ])
     }
 
@@ -673,13 +677,29 @@ fn a_red_publish_is_carried_on_once_the_registry_holds_the_version() {
     );
 
     // Published by a re-run started from another commit: the registry is
-    // what counts.
+    // what counts, and the red publish workflow no longer does. The release
+    // page's workflow still has to end green.
     world
         .held
         .borrow_mut()
         .as_mut()
         .expect("held")
         .push(Version::new(0, 3, 0));
+    world.release.set(State::Failure);
+    let (report, _) = go(&pair, &world, Mode::Resume);
+    assert_eq!(stopped_at(&report), "publish", "{report:#?}");
+    let publish = report.stopped().expect("stopped");
+    assert!(
+        publish
+            .details
+            .iter()
+            .any(|d| d.starts_with("release.yml failed"))
+            && !publish.details.iter().any(|d| d.starts_with("publish.yml")),
+        "{publish:#?}"
+    );
+    assert!(world.shipped.borrow().is_empty(), "nothing recorded yet");
+
+    world.release.set(State::Success);
     let (report, _) = go(&pair, &world, Mode::Resume);
     assert!(report.released, "{report:#?}");
     assert_eq!(status(&report, "tag"), StepStatus::Skipped);
