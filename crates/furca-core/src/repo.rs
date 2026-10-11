@@ -145,6 +145,18 @@ impl Repository {
         }))
     }
 
+    /// The address the remote `name` fetches from; `None` when there is no
+    /// such remote.
+    pub fn remote_url(&self, name: &str) -> Result<Option<String>, Error> {
+        match self.inner.try_find_remote(name) {
+            None => Ok(None),
+            Some(Err(error)) => Err(Error::References(error.into())),
+            Some(Ok(remote)) => Ok(remote
+                .url(gix::remote::Direction::Fetch)
+                .map(|url| url.to_bstring().to_string())),
+        }
+    }
+
     /// The short name of the remote-tracking branch `branch` fetches into, if
     /// configured. A misconfigured upstream reads as none: it is a fact about
     /// the configuration, not a reason to fail the whole read.
