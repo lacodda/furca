@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-10-11
+
+### Build
+- Install the CLI by the scripts only and stop publishing its crate
+
+### CI
+- Install the CLI in a workflow with the repository's own action
+
+### Documentation
+- Document running a release, push and checks
+
+### Features
+- Read a commit by any revision that names it
+- Change a repository through git and read its upstream
+- Run a release from the bump to the record, and resume it
+- Read the address of a remote
+- Run and resume a release, push and wait for CI, show checks
+
+### Testing
+- Format the read-a-commit test
+
+### Breaking Changes
+- `Error` is `#[non_exhaustive]` and has new variants for a failed or missing git; a match on it needs a wildcard arm.
+- `Record` asks implementors for `shipped`, and `Error` is `#[non_exhaustive]` with new variants for the run.
+- The furca crate gets no new versions on crates.io; install the CLI with tools/install.ps1 or tools/install.sh, or build it with `cargo install --git https://github.com/lacodda/furca furca`.
+
 ## [0.3.0] - 2026-10-05
 
 ### Bug Fixes
