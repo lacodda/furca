@@ -15,13 +15,19 @@ categories = ["development-tools"]
 [dependencies]
 furca-core = { path = "../furca-core", version = "0.3.0" }
 # The parser git-cliff-core uses, on purpose: the plan's reading of a commit
-# and the changelog's (v0.4) must be one reading, not two that drift.
+# and the changelog's must be one reading, not two that drift. It moves when
+# git-cliff-core moves, not before.
 git-conventional = "0.12"
+# Writes the release's changelog section from the repository's own
+# cliff.toml. Without `repo`: the history comes from furca-core, not libgit2.
+git-cliff-core = { version = "2.14", default-features = false }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 toml = "1"
+# Rewrites a manifest's version and keeps every comment and space around it.
+toml_edit = "0.25"
 # Blocking and small: the plan asks two registries one question each.
 ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 

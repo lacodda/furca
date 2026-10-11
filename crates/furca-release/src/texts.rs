@@ -26,12 +26,18 @@ pub struct Mention {
     pub path: String,
     /// 1-based.
     pub line: usize,
+    /// The byte offset in the line where `text` starts.
+    #[serde(skip)]
+    pub(crate) column: usize,
     /// What is written, such as `v0.2.0` or `furca 0.2.0`.
     pub text: String,
     /// The version alone.
     pub version: String,
     /// Inside a historical-versions block.
     pub history: bool,
+    /// On a Markdown table row.
+    #[serde(skip)]
+    pub(crate) in_table: bool,
 }
 
 /// What one text holds: its mentions, and a historical block it opened and
@@ -91,9 +97,11 @@ pub fn scan(path: &str, text: &str, names: &[String]) -> Scan {
             out.mentions.push(Mention {
                 path: path.to_owned(),
                 line: index + 1,
+                column: start,
                 text: line[start..end].to_owned(),
                 version,
                 history: out.unclosed.is_some(),
+                in_table: line.trim_start().starts_with('|'),
             });
         }
     }

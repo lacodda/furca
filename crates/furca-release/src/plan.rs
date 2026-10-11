@@ -1,5 +1,6 @@
 //! The plan: what the next release is, what stands in its way, and what a
-//! run will do. Nothing here changes the repository.
+//! run will do. Nothing here changes the repository; the run (`run.rs`)
+//! makes a plan first and then does exactly what it says.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -33,11 +34,18 @@ pub struct Sources<'a> {
     pub now: SystemTime,
 }
 
-/// A repository with a `release.toml`, ready to be planned.
+/// A repository with a `release.toml`, ready to be planned and run.
 pub struct Release {
-    root: PathBuf,
-    config: Config,
-    repo: Repository,
+    pub(crate) root: PathBuf,
+    pub(crate) config: Config,
+    pub(crate) repo: Repository,
+}
+
+/// What the bump rewrites, as the plan found it: a run applies exactly
+/// this, never a second reading of its own.
+pub(crate) struct Bumps {
+    pub fields: Vec<Field>,
+    pub mentions: Vec<Mention>,
 }
 
 /// What the next release is, what stands in its way and what a run does.
@@ -172,6 +180,16 @@ impl Release {
     /// Makes the plan. Asks the registries and the record when `sources`
     /// gives them; changes nothing.
     pub fn plan(&self, sources: &Sources) -> Result<Plan, Error> {
+        self.survey(sources).map(|(plan, _)| plan)
+    }
+
+    /// The repository underneath, for reading what the plan does not say.
+    pub fn repository(&self) -> &Repository {
+        &self.repo
+    }
+
+    /// The plan, and the exact places its bump rewrites.
+    pub(crate) fn survey(&self, sources: &Sources) -> Result<(Plan, Bumps), Error> {
         let config = &self.config;
 
         let tags: Vec<(Version, String)> = self
@@ -200,7 +218,10 @@ impl Release {
         let tally = Tally::of(&changes);
         let needed = commits::needed(&changes);
 
-        let versions = manifest::versions(&self.root, &config.project.manifests)?;
+        let tracked: BTreeSet<String> = self.repo.tracked_paths()?.into_iter().collect();
+        let versions = manifest::versions(&self.root, &config.project.manifests, &|path| {
+            tracked.contains(path)
+        })?;
         let written: BTreeSet<&str> = versions.fields.iter().map(|f| f.version.as_str()).collect();
         let written_one = (written.len() == 1)
             .then(|| written.iter().next().and_then(|v| Version::parse(v).ok()))
@@ -259,20 +280,21 @@ impl Release {
         let to = proposed.as_ref().map(|p| p.version.to_string());
         let mut bump = Vec::new();
         if let Some(to) = &to {
-            for field in bump_fields {
+            for field in &bump_fields {
                 bump.push(Edit {
-                    at: field.key,
-                    path: field.path,
-                    from: field.version,
+                    at: field.key.clone(),
+                    path: field.path.clone(),
+                    from: field.version.clone(),
                     to: to.clone(),
                 });
             }
-            for mention in bump_texts {
+            for mention in &bump_texts {
+                let prefix = &mention.text[..mention.text.len() - mention.version.len()];
                 bump.push(Edit {
                     at: format!("line {}", mention.line),
-                    to: mention.text.replacen(&mention.version, to, 1),
-                    from: mention.text,
-                    path: mention.path,
+                    to: format!("{prefix}{to}"),
+                    from: mention.text.clone(),
+                    path: mention.path.clone(),
                 });
             }
         }
@@ -305,7 +327,7 @@ impl Release {
             post: config.post.clone(),
         };
 
-        Ok(Plan {
+        let plan = Plan {
             project: config.project.name.clone(),
             released,
             proposed,
@@ -315,7 +337,12 @@ impl Release {
             checks,
             steps,
             ready,
-        })
+        };
+        let bumps = Bumps {
+            fields: bump_fields,
+            mentions: bump_texts,
+        };
+        Ok((plan, bumps))
     }
 
     fn changes(&self, since: Option<&str>) -> Result<Vec<Change>, Error> {
@@ -648,6 +675,20 @@ impl Release {
         }
 
         let place = |m: &Mention| format!("{}:{}: {}", m.path, m.line, m.text);
+        // A number in a table row is as likely a record ("since v1.4.0") as
+        // a sample, and the bump would rewrite a record into a lie. It does
+        // not stop the release - an install table is a sample - but it is
+        // said before the run makes the edit.
+        let tabled: Vec<String> = bump
+            .iter()
+            .filter(|m| m.in_table)
+            .map(|m| {
+                format!(
+                    "in a table, the bump rewrites it: {}; if it records when something happened, put it in a historical-versions block",
+                    place(m)
+                )
+            })
+            .collect();
         let mut parts = Vec::new();
         for (count, one, many) in [
             (bump.len(), "follows the bump", "follow the bump"),
@@ -671,15 +712,14 @@ impl Release {
             } else {
                 parts.join(", ")
             };
-            check(
-                "texts",
-                Status::Pass,
-                summary,
-                ahead
-                    .iter()
-                    .map(|m| format!("later: {}", place(m)))
-                    .collect(),
-            )
+            let status = if tabled.is_empty() {
+                Status::Pass
+            } else {
+                Status::Warn
+            };
+            let mut details = tabled;
+            details.extend(ahead.iter().map(|m| format!("later: {}", place(m))));
+            check("texts", status, summary, details)
         } else {
             let mut details = unclosed;
             details.extend(stale.iter().map(place));
@@ -920,15 +960,21 @@ fn commits_check(since: Option<&str>, changes: &[Change], tally: &Tally) -> Chec
         );
     }
     let mut parts = Vec::new();
-    for (count, word) in [
-        (tally.breaking, "breaking"),
-        (tally.features, "features"),
-        (tally.fixes, "fixes"),
-        (tally.other, "other"),
-        (tally.unconventional, "outside the convention"),
+    for (count, one, many) in [
+        (tally.breaking, "breaking", "breaking"),
+        (tally.features, "feature", "features"),
+        (tally.fixes, "fix", "fixes"),
+        (tally.other, "other", "other"),
+        (
+            tally.unconventional,
+            "outside the convention",
+            "outside the convention",
+        ),
     ] {
-        if count > 0 {
-            parts.push(format!("{count} {word}"));
+        match count {
+            0 => {}
+            1 => parts.push(format!("1 {one}")),
+            n => parts.push(format!("{n} {many}")),
         }
     }
     let summary = format!(

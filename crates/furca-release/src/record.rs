@@ -1,10 +1,11 @@
 //! The owner's record of the project: which version the current stage aims
-//! at, under what title and for which Friday. The record is rigger's; furca
-//! asks it through its CLI and never writes to it here.
+//! at, under what title and for which Friday - and, once a release is out,
+//! the word that it went out. The record is rigger's; furca asks it and
+//! tells it through its CLI.
 //!
 //! The record is optional. Without rigger on the machine, or without the
-//! project in it, the plan proposes a number from the commits alone and says
-//! so.
+//! project in it, the plan proposes a number from the commits alone and the
+//! run writes nothing, and both say so.
 
 use std::path::Path;
 use std::process::Command;
@@ -37,9 +38,25 @@ pub enum Reading {
     Absent(String),
 }
 
-/// Reads the record of the project named `name` whose repository is `root`.
+/// A release as the run saw it go out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Shipped {
+    pub tag: String,
+    /// A release page went out with its files.
+    pub release: bool,
+    /// The registries that hold the version, by label: `crates.io`, `npm`.
+    pub registries: Vec<String>,
+    /// One line on how it went.
+    pub text: String,
+}
+
+/// The record of the project named `name` whose repository is `root`.
 pub trait Record {
     fn read(&self, name: &str, root: &Path) -> Reading;
+
+    /// Writes that `shipped` went out. `Err` says why nothing was written:
+    /// no rigger here, a project the record does not keep at `root`.
+    fn shipped(&self, name: &str, root: &Path, shipped: &Shipped) -> Result<(), String>;
 }
 
 /// The record as rigger keeps it, asked through `rigger ... --json`.
@@ -47,21 +64,10 @@ pub struct Rigger;
 
 impl Record for Rigger {
     fn read(&self, name: &str, root: &Path) -> Reading {
-        let project = match rigger(&["project", "show", name, "--json"]) {
+        let project = match self.here(name, root) {
             Ok(project) => project,
             Err(why) => return Reading::Absent(why),
         };
-        // A project of the same name elsewhere is another project: reading
-        // its stage would propose someone else's number.
-        let recorded = project
-            .get("path")
-            .and_then(|p| p.as_str())
-            .unwrap_or_default();
-        if !same_place(Path::new(recorded), root) {
-            return Reading::Absent(format!(
-                "the record keeps `{name}` at another path, not at this repository"
-            ));
-        }
         let gate = project
             .get("gate")
             .and_then(|g| g.as_str())
@@ -76,6 +82,49 @@ impl Record for Rigger {
             None => Reading::Absent(format!(
                 "the record's stage for `{name}` names no version furca can read"
             )),
+        }
+    }
+
+    fn shipped(&self, name: &str, root: &Path, shipped: &Shipped) -> Result<(), String> {
+        self.here(name, root)?;
+        let mut args = vec![
+            "note",
+            name,
+            "--kind",
+            "shipped",
+            "--tag",
+            shipped.tag.as_str(),
+            "--json",
+        ];
+        if shipped.release {
+            args.push("--release");
+        }
+        for registry in &shipped.registries {
+            args.extend(["--registry", registry.as_str()]);
+        }
+        if !shipped.text.is_empty() {
+            args.push(shipped.text.as_str());
+        }
+        rigger(&args).map(drop)
+    }
+}
+
+impl Rigger {
+    fn here(&self, name: &str, root: &Path) -> Result<serde_json::Value, String> {
+        let project = rigger(&["project", "show", name, "--json"])?;
+        // A project of the same name elsewhere is another project: reading
+        // its stage would propose someone else's number, and writing to it
+        // would ship someone else's release.
+        let recorded = project
+            .get("path")
+            .and_then(|p| p.as_str())
+            .unwrap_or_default();
+        if same_place(Path::new(recorded), root) {
+            Ok(project)
+        } else {
+            Err(format!(
+                "the record keeps `{name}` at another path, not at this repository"
+            ))
         }
     }
 }

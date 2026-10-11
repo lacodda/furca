@@ -8,7 +8,8 @@ use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 use furca_release::{
-    Error, Origin, Plan, Reading, Record, Registries, Registry, Release, Sources, Stage, Status,
+    Error, Origin, Plan, Reading, Record, Registries, Registry, Release, Shipped, Sources, Stage,
+    Status,
 };
 use semver::Version;
 
@@ -213,6 +214,10 @@ impl Record for Aimed {
             gate: Some("cargo test".to_owned()),
         }
     }
+
+    fn shipped(&self, _name: &str, _root: &Path, _shipped: &Shipped) -> Result<(), String> {
+        Err("a plan writes nothing".to_owned())
+    }
 }
 
 fn status(plan: &Plan, name: &str) -> Status {
@@ -248,6 +253,10 @@ fn a_feature_since_the_tag_proposes_the_next_minor_and_is_ready() {
     assert_eq!(proposed.tag, "v0.3.0");
     assert_eq!(plan.tally.total, 3);
     assert_eq!((plan.tally.features, plan.tally.fixes), (1, 1));
+    assert_eq!(
+        find(&plan, "commits").summary,
+        "3 commits since v0.2.0: 1 feature, 1 fix, 1 other"
+    );
     assert_eq!(status(&plan, "record"), Status::Skip);
     assert_eq!(*held.asked.borrow(), 2, "one question per package");
 
@@ -586,9 +595,40 @@ fn a_workspace_brings_its_members_and_their_path_dependencies() {
         "crates/demo/Cargo.toml",
         "[package]\nname = \"demo\"\nversion.workspace = true\ndescription.workspace = true\nreadme.workspace = true\n\n[dependencies]\ndemo-core = { path = \"../demo-core\", version = \"0.2.0\" }\n",
     );
+    // The lockfile keeps an entry per member; a crate from the registry
+    // carries someone else's number.
+    repo.write(
+        "Cargo.lock",
+        "version = 4
+
+[[package]]
+name = \"demo\"
+version = \"0.2.0\"
+
+[[package]]
+name = \"demo-core\"
+version = \"0.2.0\"
+
+[[package]]
+name = \"serde\"
+version = \"0.2.0\"
+source = \"registry+https://github.com/rust-lang/crates.io-index\"
+",
+    );
     repo.commit("fix: name the member's version", NOW - DAY + 120);
     let plan = repo.plan(&Held::released(), None);
     assert!(plan.ready, "{:#?}", plan.checks);
+    let locked: Vec<&str> = plan
+        .steps
+        .bump
+        .iter()
+        .filter(|e| e.path == "Cargo.lock")
+        .map(|e| e.at.as_str())
+        .collect();
+    assert_eq!(
+        locked,
+        ["package.demo.version", "package.demo-core.version"]
+    );
     // Breaking before 1.0 is a minor step.
     assert_eq!(
         plan.proposed.as_ref().map(|p| p.version.clone()),
@@ -750,4 +790,38 @@ fn a_section_for_the_new_number_is_a_duplicate_until_the_manifests_carry_it() {
     let plan = repo.plan(&Held::released(), None);
     assert!(plan.ready, "{:#?}", plan.checks);
     assert!(plan.steps.bump.is_empty(), "{:#?}", plan.steps.bump);
+}
+
+#[test]
+fn a_version_in_a_table_row_is_said_before_the_bump_rewrites_it() {
+    let repo = Repo::released();
+    repo.write(
+        "docs/commands.md",
+        "| Command | Since |
+| --- | --- |
+| `pulse` | v0.2.0 |
+",
+    );
+    repo.commit("docs: list the commands", NOW - DAY + 60);
+    let plan = repo.plan(&Held::released(), None);
+
+    assert!(plan.ready, "a warning does not stop it: {:#?}", plan.checks);
+    let texts = find(&plan, "texts");
+    assert_eq!(texts.status, Status::Warn, "{texts:?}");
+    assert!(
+        texts
+            .details
+            .iter()
+            .any(|d| d.contains("docs/commands.md:3: v0.2.0")
+                && d.contains("historical-versions block")),
+        "{texts:?}"
+    );
+    assert!(
+        plan.steps
+            .bump
+            .iter()
+            .any(|e| e.path == "docs/commands.md" && e.at == "line 3"),
+        "it is still bumped: {:#?}",
+        plan.steps.bump
+    );
 }

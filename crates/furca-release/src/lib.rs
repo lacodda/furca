@@ -23,16 +23,21 @@
 //! # Ok::<(), furca_release::Error>(())
 //! ```
 
+mod bump;
+mod changelog;
 mod commits;
 mod config;
 mod error;
+pub mod hosting;
 mod manifest;
 mod plan;
 mod record;
 mod registry;
+mod run;
 mod texts;
 mod version;
 
+pub use bump::Touched;
 pub use commits::{Change, Tally};
 pub use config::{Ci, Config, FILE, Gate, Package, Post, Project, Provider, Registry};
 pub use error::Error;
@@ -40,7 +45,8 @@ pub use manifest::Field;
 pub use plan::{
     Check, CiStep, Edit, Origin, Plan, Proposal, Publish, Release, Sources, Status, Steps,
 };
-pub use record::{Reading, Record, Rigger, Stage};
+pub use record::{Reading, Record, Rigger, Shipped, Stage};
 pub use registry::{Http, Registries};
+pub use run::{CHECKPOINT, ForgeFor, Report, Runner, STEPS, Step, StepStatus};
 pub use texts::Mention;
 pub use version::Bump;

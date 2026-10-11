@@ -1,9 +1,8 @@
 //! Where a repository writes its version, and what its packages say about
 //! themselves.
 //!
-//! Read only: rewriting (the bump) keeps each file's formatting and is the
-//! next release's work. What is read here is exactly what the bump will
-//! touch, so the plan can show it.
+//! What is read here is exactly what the bump touches, so the plan can show
+//! it before a run makes it; the bump itself is `bump.rs`.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -41,10 +40,26 @@ pub struct Field {
     /// The file, relative to the root, with `/` separators.
     pub path: String,
     /// The key, dotted: `workspace.package.version`,
-    /// `dependencies.furca-core.version`, `version`.
+    /// `dependencies.furca-core.version`, `version`, or for a lockfile
+    /// `package.furca-core.version`.
     pub key: String,
     /// The value as written.
     pub version: String,
+    /// Where exactly the value sits, for the bump: the dotted key is for
+    /// reading, and is ambiguous once a key holds a dot itself.
+    #[serde(skip)]
+    pub(crate) place: Place,
+}
+
+/// Where a version sits inside its file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Place {
+    /// A key path in a TOML document.
+    Toml(Vec<String>),
+    /// The `[[package]]` entry of a workspace member in a `Cargo.lock`.
+    Lock(String),
+    /// The top-level `"version"` of a JSON document.
+    Json,
 }
 
 /// What a set of manifests says, and what could not be read from it.
@@ -55,12 +70,19 @@ pub struct Versions {
 }
 
 /// Reads every version field the manifests hold. A Cargo workspace root
-/// brings in its members and the path dependencies between them.
-pub fn versions(root: &Path, manifests: &[String]) -> Result<Versions, Error> {
+/// brings in its members, the path dependencies between them, and the
+/// entries its tracked `Cargo.lock` keeps for those members: a lockfile
+/// that still names the old number is rewritten by the first build, and the
+/// release commit would leave that change behind.
+pub fn versions(
+    root: &Path,
+    manifests: &[String],
+    tracked: &dyn Fn(&str) -> bool,
+) -> Result<Versions, Error> {
     let mut out = Versions::default();
     for manifest in manifests {
         match Kind::of(manifest) {
-            Some(Kind::Cargo) => cargo_versions(root, manifest, &mut out)?,
+            Some(Kind::Cargo) => cargo_versions(root, manifest, tracked, &mut out)?,
             Some(Kind::Json) => {
                 let value = read_json(root, manifest)?;
                 match value.get("version").and_then(|v| v.as_str()) {
@@ -68,6 +90,7 @@ pub fn versions(root: &Path, manifests: &[String]) -> Result<Versions, Error> {
                         path: manifest.clone(),
                         key: "version".to_owned(),
                         version: version.to_owned(),
+                        place: Place::Json,
                     }),
                     None => out
                         .problems
@@ -81,14 +104,20 @@ pub fn versions(root: &Path, manifests: &[String]) -> Result<Versions, Error> {
     Ok(out)
 }
 
-fn cargo_versions(root: &Path, manifest: &str, out: &mut Versions) -> Result<(), Error> {
+fn cargo_versions(
+    root: &Path,
+    manifest: &str,
+    tracked: &dyn Fn(&str) -> bool,
+    out: &mut Versions,
+) -> Result<(), Error> {
     let table = read_toml(root, manifest)?;
-    if let Some(version) = string_at(&table, &["workspace", "package", "version"]) {
-        out.fields
-            .push(field(manifest, "workspace.package.version", version));
-    }
-    if let Some(version) = string_at(&table, &["package", "version"]) {
-        out.fields.push(field(manifest, "package.version", version));
+    let shared = string_at(&table, &["workspace", "package", "version"]).map(str::to_owned);
+    if let Some(version) = &shared {
+        out.fields.push(field(
+            manifest,
+            &["workspace", "package", "version"],
+            version,
+        ));
     }
 
     let base = parent(manifest);
@@ -100,10 +129,21 @@ fn cargo_versions(root: &Path, manifest: &str, out: &mut Versions) -> Result<(),
             continue;
         }
         let member_table = read_toml(root, &path)?;
-        if let Some(version) = string_at(&member_table, &["package", "version"]) {
-            out.fields.push(field(&path, "package.version", version));
-        }
         tables.push((path, member_table));
+    }
+
+    // The packages whose version the bump moves, by name: the lockfile keeps
+    // an entry for each.
+    let mut bumped = Vec::new();
+    for (path, table) in &tables {
+        let name = string_at(table, &["package", "name"]).map(str::to_owned);
+        if let Some(version) = string_at(table, &["package", "version"]) {
+            out.fields
+                .push(field(path, &["package", "version"], version));
+            bumped.extend(name);
+        } else if shared.is_some() && inherits(table, "version") {
+            bumped.extend(name);
+        }
     }
 
     // A path dependency on a member names the member's version as well; a
@@ -111,7 +151,7 @@ fn cargo_versions(root: &Path, manifest: &str, out: &mut Versions) -> Result<(),
     let member_dirs: Vec<String> = members.iter().map(|m| join(&base, m, "")).collect();
     for (path, table) in &tables {
         let dir = parent(path);
-        for (key, dependency) in dependencies(table) {
+        for (keys, dependency) in dependencies(table) {
             let Some(dep_path) = dependency.get("path").and_then(|v| v.as_str()) else {
                 continue;
             };
@@ -119,11 +159,49 @@ fn cargo_versions(root: &Path, manifest: &str, out: &mut Versions) -> Result<(),
                 continue;
             };
             if member_dirs.contains(&join(&dir, dep_path, "")) {
-                out.fields.push(field(path, &key, version));
+                out.fields.push(field(path, &keys, version));
+            }
+        }
+    }
+
+    let lock = join(&base, "Cargo.lock", "");
+    if !bumped.is_empty() && tracked(&lock) && root.join(&lock).is_file() {
+        let text = read_toml(root, &lock)?;
+        for entry in text
+            .get("package")
+            .and_then(|p| p.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p.as_table())
+        {
+            let (Some(name), Some(version)) = (
+                entry.get("name").and_then(|v| v.as_str()),
+                entry.get("version").and_then(|v| v.as_str()),
+            ) else {
+                continue;
+            };
+            // A member is built from its path: its entry has no source.
+            if entry.get("source").is_none() && bumped.iter().any(|b| b == name) {
+                out.fields.push(Field {
+                    path: lock.clone(),
+                    key: format!("package.{name}.version"),
+                    version: version.to_owned(),
+                    place: Place::Lock(name.to_owned()),
+                });
             }
         }
     }
     Ok(())
+}
+
+/// Whether `package.<key>` is `{ workspace = true }`.
+fn inherits(table: &toml::Table, key: &str) -> bool {
+    table
+        .get("package")
+        .and_then(|p| p.get(key))
+        .and_then(|v| v.get("workspace"))
+        .and_then(|w| w.as_bool())
+        == Some(true)
 }
 
 /// The workspace members of a root manifest, relative to its directory.
@@ -176,15 +254,15 @@ fn members(
     Ok(members)
 }
 
-/// Every dependency table of a manifest, with the dotted key of its
+/// Every dependency table of a manifest, with the key path of its
 /// `version`: `dependencies.<name>.version`, and the same under
 /// `dev-dependencies`, `build-dependencies`, `workspace.dependencies` and
 /// each `target.<cfg>`.
-fn dependencies(table: &toml::Table) -> Vec<(String, &toml::Table)> {
+fn dependencies(table: &toml::Table) -> Vec<(Vec<String>, &toml::Table)> {
     const KINDS: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
     fn collect<'t>(
-        out: &mut Vec<(String, &'t toml::Table)>,
-        prefix: String,
+        out: &mut Vec<(Vec<String>, &'t toml::Table)>,
+        prefix: &[&str],
         deps: Option<&'t toml::Value>,
     ) {
         let Some(deps) = deps.and_then(|d| d.as_table()) else {
@@ -192,25 +270,28 @@ fn dependencies(table: &toml::Table) -> Vec<(String, &toml::Table)> {
         };
         for (name, value) in deps {
             if let Some(dependency) = value.as_table() {
-                out.push((format!("{prefix}.{name}.version"), dependency));
+                let mut keys: Vec<String> = prefix.iter().map(|k| (*k).to_owned()).collect();
+                keys.push(name.clone());
+                keys.push("version".to_owned());
+                out.push((keys, dependency));
             }
         }
     }
     let mut out = Vec::new();
     for kind in KINDS {
-        collect(&mut out, kind.to_owned(), table.get(kind));
+        collect(&mut out, &[kind], table.get(kind));
     }
     if let Some(workspace) = table.get("workspace").and_then(|w| w.as_table()) {
         collect(
             &mut out,
-            "workspace.dependencies".to_owned(),
+            &["workspace", "dependencies"],
             workspace.get("dependencies"),
         );
     }
     if let Some(targets) = table.get("target").and_then(|t| t.as_table()) {
         for (cfg, target) in targets {
             for kind in KINDS {
-                collect(&mut out, format!("target.{cfg}.{kind}"), target.get(kind));
+                collect(&mut out, &["target", cfg, kind], target.get(kind));
             }
         }
     }
@@ -273,12 +354,7 @@ pub fn meta(root: &Path, package: &Package) -> Result<Meta, Error> {
                     .map(str::to_owned),
                 readme,
                 publishable,
-                inherits_version: table
-                    .get("package")
-                    .and_then(|p| p.get("version"))
-                    .and_then(|v| v.get("workspace"))
-                    .and_then(|w| w.as_bool())
-                    == Some(true),
+                inherits_version: inherits(&table, "version"),
             })
         }
         Registry::Npm => {
@@ -295,11 +371,13 @@ pub fn meta(root: &Path, package: &Package) -> Result<Meta, Error> {
     }
 }
 
-fn field(path: &str, key: &str, version: &str) -> Field {
+fn field<K: AsRef<str>>(path: &str, keys: &[K], version: &str) -> Field {
+    let keys: Vec<String> = keys.iter().map(|k| k.as_ref().to_owned()).collect();
     Field {
         path: path.to_owned(),
-        key: key.to_owned(),
+        key: keys.join("."),
         version: version.to_owned(),
+        place: Place::Toml(keys),
     }
 }
 
