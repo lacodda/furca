@@ -52,10 +52,15 @@ d402e85 2026-09-17 Ada Author  chore: point components.json at the dowel registr
 
 Every command takes `--json` for scripts and assistants, and `-C PATH` to read
 a repository other than the one you are in. It exits 0 when it did what was
-asked, 1 when the answer is no (a release plan with something in its way) and
-2 when it could not answer at all. See
-[status](/furca/reference/status/), [refs](/furca/reference/refs/),
-[log](/furca/reference/log/) and [release](/furca/reference/release/).
+asked, 1 when the answer is no - a release plan with something in its way, a
+release run that stopped, CI that is not green - and 2 when it could not
+answer at all. See [status](/furca/reference/status/),
+[refs](/furca/reference/refs/), [log](/furca/reference/log/),
+[push](/furca/reference/push/), [checks](/furca/reference/checks/) and
+[release](/furca/reference/release/).
+
+In a GitHub Actions workflow, the repository's own action installs the CLI
+from a release - see [release in CI](/furca/reference/release/#in-ci).
 
 ## Use it as a library
 

@@ -8,8 +8,8 @@ and pnpm.
 | Crate | What it is |
 | --- | --- |
 | `crates/furca-core` | The git library: reads through gitoxide, no terminal or window. |
-| `crates/furca-release` | The release engine: reads `release.toml`, plans the next release. |
-| `crates/furca-cli` | The `furca` binary, a thin door onto both. |
+| `crates/furca-release` | The release engine: reads `release.toml`, plans the next release and runs it. |
+| `crates/furca-cli` | The `furca` binary, a thin door onto both; installed from the release, not published as a crate. |
 | `src-tauri` | The desktop window, not published as a crate. |
 
 The crates on crates.io build on the workspace's `rust-version`; the window
@@ -37,7 +37,11 @@ fixture under `target/tmp` and takes a few minutes; later runs reuse it.
 
 Engine tests build their repositories with `git` in a temporary directory and
 never read a repository on your machine. The release engine's tests play the
-registries and the record with fakes, so they need no network and no rigger.
+registries, the forge and the record with fakes, and push to a bare
+repository next to the one they release, so they need no network and no
+rigger.
 
 `cargo run -p furca -- release plan` says whether this repository is ready to
-release, from its own `release.toml`.
+release, from its own `release.toml`. A release is `furca release run` from a
+clean `main`, with the installed CLI rather than one in `target/`: the gate
+rebuilds `target/` while the run waits for it.

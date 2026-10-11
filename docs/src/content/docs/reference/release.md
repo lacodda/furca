@@ -1,16 +1,22 @@
 ---
 title: release
-description: Plan the next release from release.toml - the number, what stands in its way, and what a run would do.
+description: Plan, run and resume the next release from release.toml - the number, what stands in its way, and every step from the bump to the record.
 ---
 
 ```sh
-furca release plan [-C PATH] [--json]
+furca release plan   [-C PATH] [--json]
+furca release run    [-C PATH] [--json]
+furca release resume [-C PATH] [--json]
 ```
 
-Reads `release.toml` at the root of the repository and says what the next
-release is, what stands in its way and what a run would do. It changes
-nothing: no file, no tag, no commit. Running the plan comes in a later
-release; until then the plan is the checklist.
+`plan` reads `release.toml` at the root of the repository and says what the
+next release is, what stands in its way and what a run would do. It changes
+nothing: no file, no tag, no commit.
+
+`run` makes the same plan and carries it out - bump, changelog, gate, commit,
+push, CI, tag, publish, record - and stops at the first step that is not
+green. `resume` carries on a run that stopped after its commit. See
+[Run](#run) below.
 
 ```console
 $ furca release plan
@@ -95,6 +101,11 @@ followed: the release takes the next free number.
 
 `warn` is worth reading and does not stop the release; `fail` does.
 
+A version the bump would rewrite on a Markdown table row is a `texts`
+warning: a row is as likely a record ("since v1.4.0") as a sample, and
+rewriting a record turns it into a lie. If it is history, put it in a
+historical-versions block.
+
 ## Versions in texts
 
 Every tracked file that carries samples and examples - Markdown, workflows,
@@ -128,6 +139,134 @@ In files that are not markup the same words go in a `#` or `//` comment. A
 block left open is reported, so an exemption cannot quietly cover the rest of
 the file. Whole files whose numbers stay as written - ADRs, pages of examples
 - are listed in `as_written`.
+
+## Run
+
+```console
+$ furca release run
+  plan       v0.4.0 is ready
+  bump       Cargo.toml workspace.package.version: 0.3.0 -> 0.4.0
+  bump       Cargo.lock package.furca-core.version: 0.3.0 -> 0.4.0
+  changelog  ## [0.4.0] - 2026-10-11
+  gate       cargo fmt --all --check
+  gate       cargo test --workspace
+  commit     4c3ea3f chore(release): v0.4.0
+  push       4c3ea3f to origin refs/heads/main
+  ci         ci.yml running
+  ci         ci.yml passed
+  tag        v0.4.0 on 4c3ea3f
+  publish    publish.yml running, release.yml running
+  publish    publish.yml passed, release.yml passed
+  publish    0.4.0 is in crates.io; the release page has 6 files
+  record     v0.4.0 shipped
+furca v0.4.0 is out.
+
+  done  plan       furca 0.3.0 -> 0.4.0
+  done  bump       8 places say 0.4.0
+  ...
+  done  record     the record has v0.4.0 as shipped
+
+Left for you:
+  install the released build with the repository's installer
+```
+
+Each step is printed on standard error as it happens; the report goes to
+standard output at the end. Lists are shortened here.
+
+| Step | What it does | It stops when |
+| --- | --- | --- |
+| `plan` | Makes the plan. The branch must follow a remote, the working tree must be clean, and the remote must have nothing the branch lacks. | A check fails. |
+| `bump` | Rewrites every place in `steps.bump` and nothing else, keeping each file's formatting: comments, key order, line endings. A Cargo workspace's tracked `Cargo.lock` is bumped with it, so a build does not change it later. | A file no longer says what the plan saw. |
+| `changelog` | Renders the release's section with [git-cliff](https://git-cliff.org/) from the repository's `cliff.toml` (git-cliff's default without one) and puts it under the changelog's header. Everything already in the file stays byte for byte. | - |
+| `gate` | Runs `gate.commands` one by one from the root, through `cmd /C` on Windows and `sh -c` elsewhere, their output on the terminal. | A command fails, or the gate changed a tracked file: a gate checks, it does not edit. |
+| `commit` | Commits the release's edits as `chore(release): vX.Y.Z` with your own `git`, hooks and all. | git refuses. |
+| `push` | Pushes the branch to its remote. | The remote moved on. |
+| `ci` | Waits for `ci.workflow` on the pushed commit, as [push --wait-ci](/furca/reference/push/) does. | It fails, is skipped, never starts, or is still running after two hours. |
+| `tag` | Makes the annotated tag on the green commit and pushes it. Every package must already be in its registry: a tag cannot create one. | A package was never published, or the tag already names another commit, here or on the remote. |
+| `publish` | Waits for the workflows the tag starts, `ci.publish` among them, then for each registry to hold the version. | A workflow fails, or a registry still lacks the version ten minutes after. |
+| `record` | Writes the release into the owner's [record](https://lacodda.github.io/rigger/) as shipped - tag, registries, release page - when rigger keeps this project here. Without one it says so and carries on. | - |
+
+The steps after the tag that the release lists under `post` - installing the
+released build, deploying - are left to a person for now, and the report says
+so.
+
+### Stopping and resuming
+
+Before the release commit the steps are local, and a stop there is undone
+rather than resumed: a red gate puts every edited file back as it was. Fix
+the problem, commit the fix, and `run` again - a fix made on top of
+uncommitted release edits would ride into `chore(release)` and miss the
+changelog section written before it.
+
+After the commit the steps are remote and slow, and a stop there keeps its
+place in a checkpoint, `.git/furca-release.json`. `resume` carries on from the
+step that stopped:
+
+- **CI is red.** Fix it with a new commit. `resume` pushes it, waits for CI
+  on it and tags it - the tag always names a commit whose CI is green.
+- **A package was never published.** A tag cannot create a package its
+  registry has not seen. Publish it by hand from the commit about to be
+  tagged (`cargo publish -p NAME`), then `resume`.
+- **The publish workflow failed.** The tag is out and stays. Fix the workflow
+  and run it again for the tag; `resume` then finds the version in the
+  registries, which is what counts.
+- **The run was killed.** `resume` picks up the step it was in. A run killed
+  before its commit has its edits taken back by the next `run`.
+
+`run` refuses to start while a release is under way past its commit, and
+`resume` with nothing under way says so. Nothing pushed is ever rewritten and
+a tag is never moved.
+
+### Report
+
+```console
+$ furca release run --json
+{
+  "project": "furca",
+  "version": "0.4.0",
+  "tag": "v0.4.0",
+  "released": true,
+  "steps": [
+    { "name": "plan", "status": "done", "summary": "furca 0.3.0 -> 0.4.0", "details": [] }
+  ],
+  "commit": "4c3ea3f…",
+  "registries": ["crates.io"],
+  "page": { "draft": false, "assets": ["furca-v0.4.0-x86_64-pc-windows-msvc.zip"], "url": "https://github.com/lacodda/furca/releases/tag/v0.4.0" },
+  "after": ["install the released build with the repository's installer"],
+  "git": [
+    { "args": ["push", "--quiet", "origin", "HEAD:refs/heads/main"], "code": 0, "millis": 1840 }
+  ]
+}
+```
+
+Lists are shortened here to one entry each. With `--json` the gate's own
+output goes to standard error, so standard output stays one document.
+
+| Field | Meaning |
+| --- | --- |
+| `released` | `true` once the release is tagged, published and recorded. |
+| `steps[].name` | `plan`, `bump`, `changelog`, `gate`, `commit`, `push`, `ci`, `tag`, `publish`, `record`, always in this order. |
+| `steps[].status` | `done`; `skipped` - nothing to do, or done before a resume; `stopped` - the run stopped here; `ahead` - not reached. |
+| `registries` | The registries that hold the version. |
+| `page` | The release page the tag's workflows put out; `null` when there is none. |
+| `after` | What is left to a person. |
+| `git` | Every git command the run made, in order. |
+
+### In CI
+
+The CLI runs anywhere a release archive does, GitHub Actions included. The
+repository carries an action that installs it by tag:
+
+```yaml
+- uses: actions/checkout@v7
+  with:
+    fetch-depth: 0     # the tags: without them every release looks like the first
+- uses: lacodda/furca@vX.Y.Z
+- run: furca release plan
+```
+
+A run in CI pushes with the job's token, so it needs `contents: write`, and
+commits as whoever `git config user.name` and `user.email` name there.
 
 ## release.toml
 
@@ -188,7 +327,7 @@ The file is public and holds nothing private - no machine paths, no stand
 names, no tokens. What belongs to the owner's machine is asked of the tool
 that keeps it.
 
-## JSON
+## The plan as JSON
 
 ```console
 $ furca release plan --json
@@ -240,9 +379,11 @@ Lists are shortened here to one entry each.
 
 ## Exit status
 
-`0` when the release is ready, `1` when something stands in its way, `2` when
-there is no plan at all - no `release.toml`, a problem in it, or no
-repository.
+`plan`: `0` when the release is ready, `1` when something stands in its way.
+`run` and `resume`: `0` when the release is out, `1` when the run stopped -
+the report says where and why. All three: `2` when there is no answer at
+all - no `release.toml`, a problem in it, no repository, or a forge or
+registry that could not be asked.
 
 ## Options
 
@@ -254,4 +395,6 @@ repository.
 ## Related
 
 - [ADR 0006](https://github.com/lacodda/furca/blob/main/docs/adr/0006-the-release-engine-is-a-crate-of-its-own.md) - why the engine is a crate of its own.
+- [ADR 0007](https://github.com/lacodda/furca/blob/main/docs/adr/0007-a-release-run-is-redone-before-its-commit-and-resumed-after.md) - why a run is redone before its commit and resumed after it.
+- [push](/furca/reference/push/) - how the forge is asked and with which token.
 - [ADR 0003](https://github.com/lacodda/furca/blob/main/docs/adr/0003-release-engine-inside-the-client.md) - the pipeline and the invariants it holds.
