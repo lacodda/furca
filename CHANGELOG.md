@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0] - 2026-10-14
+
+### Bug Fixes
+- Wait for the tag's other workflows once the registries hold the version
+
+### Build
+- Let a running furca be replaced and leave the PATH alone
+
+### Documentation
+- Document verify, the install proof and the tag trigger
+
+### Features
+- Verify, install and deploy what a release put out
+- Put a held publish tag trigger back in the release commit
+- Refuse installers that ask for a target never built
+
+### Breaking Changes
+- `[[post]] kind = "install"` in release.toml is now
+`[post.install]` (with `bin` and `aliases`) and `[post.deploy]`; the
+report loses `after`, and `Runner` asks for a `web` and a `machine`.
+
 ## [0.4.0] - 2026-10-11
 
 ### Build
