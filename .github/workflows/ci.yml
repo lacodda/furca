@@ -73,10 +73,11 @@ jobs:
           path: target/budgets.json
           if-no-files-found: ignore
 
-  # The action installs the CLI from a release on every runner and the CLI
-  # plans this repository's next release there: the door for CI works without
-  # the owner's machine. Plan exits 0 or 1 - both are answers; 2 is a CLI that
-  # could not answer at all.
+  # The action installs the CLI from a release on every runner, and the CLI
+  # answers there: the door for CI works without the owner's machine. The
+  # installed CLI is the last release, one behind this checkout, so it is not
+  # asked to plan it - release.toml may already have a shape the last release
+  # never knew, and that is no fault of the action.
   action:
     name: action (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -91,19 +92,17 @@ jobs:
           fetch-depth: 0
       - id: furca
         uses: ./
-      - name: Plan the next release with the installed CLI
+      - name: The installed CLI is the latest release and reads this repository
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "installed ${{ steps.furca.outputs.version }}"
-          set +e
-          furca release plan --json > plan.json
-          code=$?
-          set -e
-          echo "furca release plan exited $code"
-          test "$code" -le 1
-          grep -q '"project": "furca"' plan.json
+          set -eu
+          latest=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$GITHUB_REPOSITORY/releases/latest")
+          latest="${latest##*/}"
+          said=$(furca --version)
+          echo "latest release $latest, installed: $said"
+          test "$said" = "furca ${latest#v}"
+          furca log -n 3
+          furca release --help > /dev/null
 
   # rust-version is a promise to anyone building this. Without a job that
   # actually builds on it, the number silently rots the first time a newer API

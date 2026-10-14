@@ -46,6 +46,9 @@ runs:
       env:
         FURCA_VERSION: ${{ steps.pick.outputs.version }}
         FURCA_INSTALL_DIR: ${{ steps.pick.outputs.dir }}
+        # The step below puts the directory on the job's PATH; the
+        # installer leaves the runner's own alone.
+        FURCA_NO_PATH: '1'
       run: |
         & (Join-Path $env:GITHUB_ACTION_PATH "tools/install.ps1")
         Add-Content -Path $env:GITHUB_PATH -Value $env:FURCA_INSTALL_DIR
@@ -55,6 +58,9 @@ runs:
       env:
         FURCA_VERSION: ${{ steps.pick.outputs.version }}
         FURCA_INSTALL_DIR: ${{ steps.pick.outputs.dir }}
+        # The step below puts the directory on the job's PATH; the
+        # installer leaves the runner's own alone.
+        FURCA_NO_PATH: '1'
       run: |
         sh "$GITHUB_ACTION_PATH/tools/install.sh"
         echo "$FURCA_INSTALL_DIR" >> "$GITHUB_PATH"

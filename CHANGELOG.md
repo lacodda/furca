@@ -10,6 +10,9 @@ All notable changes to this project are documented in this file.
 ### Build
 - Let a running furca be replaced and leave the PATH alone
 
+### CI
+- Check the action by the release it installs, not by a plan
+
 ### Documentation
 - Document verify, the install proof and the tag trigger
 
