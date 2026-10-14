@@ -13,6 +13,7 @@ use serde::Serialize;
 use crate::commits::{self, Change, Tally};
 use crate::config::{Config, Post, Provider, Registry};
 use crate::error::Error;
+use crate::install::{self, INSTALLERS};
 use crate::manifest::{self, Field};
 use crate::record::{Reading, Record, Stage};
 use crate::registry::Registries;
@@ -96,7 +97,7 @@ pub enum Origin {
 pub struct Check {
     /// A stable identifier: `number`, `commits`, `stack`, `manifests`,
     /// `readme`, `descriptions`, `texts`, `changelog`, `registries`,
-    /// `trigger`, `record`.
+    /// `trigger`, `installers`, `record`.
     pub name: &'static str,
     pub status: Status,
     pub summary: String,
@@ -281,6 +282,7 @@ impl Release {
         ));
         let (trigger, put_back) = self.trigger_check(proposed.as_ref())?;
         checks.push(trigger);
+        checks.push(self.installers_check()?);
         checks.push(record_check(reading.as_ref(), config));
 
         let ready = checks.iter().all(|c| c.status != Status::Fail);
@@ -898,6 +900,81 @@ impl Release {
                 }
             }
         }
+    }
+
+    /// Every target an installer asks for is among the files the release
+    /// page carries: an installer cannot ask for an archive the release
+    /// never builds.
+    fn installers_check(&self) -> Result<Check, Error> {
+        let tracked: BTreeSet<String> = self.repo.tracked_paths()?.into_iter().collect();
+        let present: Vec<&str> = INSTALLERS
+            .into_iter()
+            .filter(|p| tracked.contains(*p))
+            .collect();
+        if present.is_empty() {
+            return Ok(check(
+                "installers",
+                Status::Pass,
+                "no installers".to_owned(),
+                Vec::new(),
+            ));
+        }
+        let Some(page) = &self.config.page else {
+            return Ok(check(
+                "installers",
+                Status::Warn,
+                "release.toml lists no `[page] assets`, so the installers' targets are not checked"
+                    .to_owned(),
+                Vec::new(),
+            ));
+        };
+        let (mut asked, mut blind, mut wrong) = (0, Vec::new(), Vec::new());
+        for path in &present {
+            let full = self.root.join(path);
+            let text = std::fs::read_to_string(&full).map_err(|source| Error::Read {
+                path: full.clone(),
+                source,
+            })?;
+            let targets = install::targets(&text);
+            if targets.is_empty() {
+                blind.push(format!("{path} names no target furca can read"));
+            }
+            for target in targets {
+                asked += 1;
+                if !page.assets.iter().any(|a| a.contains(&target)) {
+                    wrong.push(format!(
+                        "{path} asks for {target}, and no file of `[page] assets` is built for it"
+                    ));
+                }
+            }
+        }
+        Ok(if !wrong.is_empty() {
+            let mut details = wrong;
+            details.extend(blind);
+            check(
+                "installers",
+                Status::Fail,
+                "an installer asks for a target the release does not carry".to_owned(),
+                details,
+            )
+        } else if !blind.is_empty() {
+            check(
+                "installers",
+                Status::Warn,
+                "an installer's targets could not be read".to_owned(),
+                blind,
+            )
+        } else {
+            check(
+                "installers",
+                Status::Pass,
+                format!(
+                    "{} ask for {asked} targets the release page carries",
+                    plural(present.len(), "installer")
+                ),
+                Vec::new(),
+            )
+        })
     }
 
     /// What the run's `verify` step looks at, as lines.

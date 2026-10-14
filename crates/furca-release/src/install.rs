@@ -431,6 +431,56 @@ pub(crate) fn sha256_of(path: &Path) -> Result<String, String> {
         .collect())
 }
 
+/// The target triples a text names - `x86_64-pc-windows-msvc`,
+/// `aarch64-apple-darwin` - and the tails of ones it builds from a variable,
+/// such as `$ARCH-unknown-linux-musl`, which come back as
+/// `-unknown-linux-musl`.
+pub(crate) fn targets(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let part = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_';
+    let mut found: Vec<String> = Vec::new();
+    for vendor in ["-pc-", "-unknown-", "-apple-"] {
+        let mut from = 0;
+        while let Some(at) = text[from..].find(vendor) {
+            let start = at + from;
+            from = start + vendor.len();
+            let mut left = start;
+            while left > 0 && part(bytes[left - 1]) {
+                left -= 1;
+            }
+            // The system, then an optional environment: two parts at most.
+            let mut right = start + vendor.len();
+            let mut parts = 0;
+            while parts < 2 {
+                let begin = right;
+                while right < bytes.len() && part(bytes[right]) {
+                    right += 1;
+                }
+                if right == begin {
+                    break;
+                }
+                parts += 1;
+                if right < bytes.len() && bytes[right] == b'-' && parts < 2 {
+                    let next = right + 1;
+                    if next < bytes.len() && part(bytes[next]) {
+                        right = next;
+                        continue;
+                    }
+                }
+                break;
+            }
+            if parts == 0 {
+                continue;
+            }
+            let triple = text[left..right].trim_end_matches('-').to_owned();
+            if !found.contains(&triple) {
+                found.push(triple);
+            }
+        }
+    }
+    found
+}
+
 fn pass(name: &'static str, summary: String) -> Check {
     Check {
         name,
@@ -452,6 +502,28 @@ fn fail(name: &'static str, summary: String, details: Vec<String>) -> Check {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_installer_names_its_targets_whole_or_by_their_tail() {
+        let ps1 = r#"$name = "furca-$tag-x86_64-pc-windows-msvc"
+$url = "https://example.com/$name.zip""#;
+        assert_eq!(targets(ps1), ["x86_64-pc-windows-msvc"]);
+        let sh = r#"case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) TARGET="x86_64-unknown-linux-gnu" ;;
+    Darwin-arm64) TARGET="aarch64-apple-darwin" ;;
+esac
+URL="$BASE/$NAME.tar.gz"
+LIBC="$ARCH-unknown-linux-musl""#;
+        assert_eq!(
+            targets(sh),
+            [
+                "x86_64-unknown-linux-gnu",
+                "-unknown-linux-musl",
+                "aarch64-apple-darwin"
+            ]
+        );
+        assert!(targets("the pc-unknown words of prose").is_empty());
+    }
 
     #[test]
     fn a_version_is_read_as_a_word_of_its_own() {

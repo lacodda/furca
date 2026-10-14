@@ -887,6 +887,44 @@ fn a_tag_trigger_that_leaves_the_tag_out_stops_the_release() {
 }
 
 #[test]
+fn an_installer_that_asks_for_a_target_the_release_lacks_is_caught() {
+    let repo = Repo::released();
+    let ps1 = "$name = \"demo-$tag-x86_64-pc-windows-msvc\"\n";
+    let sh = "TARGET=\"aarch64-apple-darwin\"\nLIBC=\"$ARCH-unknown-linux-musl\"\n";
+    repo.write("tools/install.ps1", ps1);
+    repo.write("tools/install.sh", sh);
+    repo.write(
+        "release.toml",
+        &format!(
+            "{RELEASE}\n[page]\nassets = [\"demo-{{tag}}-x86_64-pc-windows-msvc.zip\", \"demo-{{tag}}-aarch64-apple-darwin.tar.gz\", \"demo-{{tag}}-x86_64-unknown-linux-gnu.tar.gz\"]\n"
+        ),
+    );
+    repo.commit("build: add the installers", NOW - DAY);
+    let plan = repo.plan(&Held::released(), None);
+    let installers = find(&plan, "installers");
+    assert_eq!(installers.status, Status::Fail, "{installers:#?}");
+    assert_eq!(
+        installers.details,
+        [
+            "tools/install.sh asks for -unknown-linux-musl, and no file of `[page] assets` is built for it"
+        ]
+    );
+
+    repo.write(
+        "tools/install.sh",
+        "TARGET=\"aarch64-apple-darwin\"\nLIBC=\"$ARCH-unknown-linux-gnu\"\n",
+    );
+    repo.commit("fix: ask for the archive the release builds", NOW - DAY);
+    let plan = repo.plan(&Held::released(), None);
+    let installers = find(&plan, "installers");
+    assert_eq!(installers.status, Status::Pass, "{installers:#?}");
+    assert_eq!(
+        installers.summary,
+        "2 installers ask for 3 targets the release page carries"
+    );
+}
+
+#[test]
 fn an_install_without_its_installers_or_with_a_bad_asset_is_refused() {
     let repo = Repo::released();
     repo.write(
