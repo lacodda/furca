@@ -55,7 +55,11 @@ mkdir -p "$BIN_DIR"
 install -m 755 "$TMP/$NAME/furca" "$BIN_DIR/furca"
 echo "Installed furca $TAG to $BIN_DIR/furca"
 
-case ":$PATH:" in
-    *":$BIN_DIR:"*) ;;
-    *) echo "Note: add $BIN_DIR to your PATH." ;;
-esac
+# FURCA_NO_PATH: an install into a scratch directory, such as
+# `furca release verify --install`, has no PATH to talk about.
+if [ -z "${FURCA_NO_PATH:-}" ]; then
+    case ":$PATH:" in
+        *":$BIN_DIR:"*) ;;
+        *) echo "Note: add $BIN_DIR to your PATH." ;;
+    esac
+fi

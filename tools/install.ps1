@@ -31,14 +31,31 @@ $dir = if ($env:FURCA_INSTALL_DIR) { $env:FURCA_INSTALL_DIR } else { Join-Path $
 $tmp = Join-Path ([IO.Path]::GetTempPath()) "furca-install-$([guid]::NewGuid())"
 New-Item -ItemType Directory -Force $tmp | Out-Null
 
+$target = Join-Path $dir "furca.exe"
 try {
     Write-Host "Downloading $url"
     Invoke-WebRequest $url -OutFile (Join-Path $tmp "furca.zip")
     Expand-Archive (Join-Path $tmp "furca.zip") -DestinationPath $tmp -Force
     New-Item -ItemType Directory -Force $dir | Out-Null
-    Copy-Item (Join-Path $tmp "$name\furca.exe") $dir -Force
+    # A running furca.exe cannot be overwritten, but it can be renamed: the
+    # old one steps aside, so a furca that installs its own release - the
+    # release engine's install step - replaces itself. It is deleted below,
+    # or by the next install once it no longer runs.
+    if (Test-Path $target) {
+        Move-Item $target "$target.old-$([guid]::NewGuid())" -Force
+    }
+    Copy-Item (Join-Path $tmp "$name\furca.exe") $target -Force
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+Get-ChildItem $dir -Filter "furca.exe.old-*" -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+
+# $env:FURCA_NO_PATH leaves the PATH alone: an install into a scratch
+# directory, such as `furca release verify --install`, must not add it.
+if ($env:FURCA_NO_PATH) {
+    Write-Host "Installed furca $tag to $target"
+    return
 }
 
 # The user PATH is edited in the registry, not through the .NET environment
@@ -74,4 +91,4 @@ public static extern System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint M
 } catch {
     Write-Host "Note: could not update the user PATH ($($_.Exception.Message)); add $dir to it yourself."
 }
-Write-Host "Installed furca $tag to $dir\furca.exe"
+Write-Host "Installed furca $tag to $target"
