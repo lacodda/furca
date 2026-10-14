@@ -27,13 +27,15 @@ pub struct Touched {
     pub after: String,
 }
 
-/// Rewrites `fields` and `mentions` to `to` and returns the files it
-/// changed, in path order. Every new text is made before the first one is
-/// written: a file the bump refuses leaves every file as it was.
+/// Rewrites `fields` and `mentions` to `to`, puts the held tag trigger of
+/// the workflow `trigger` back, and returns the files it changed, in path
+/// order. Every new text is made before the first one is written: a file
+/// the bump refuses leaves every file as it was.
 pub(crate) fn apply(
     root: &Path,
     fields: &[Field],
     mentions: &[Mention],
+    trigger: Option<&str>,
     to: &str,
 ) -> Result<Vec<Touched>, Error> {
     let mut files: BTreeMap<&str, (Vec<&Field>, Vec<&Mention>)> = BTreeMap::new();
@@ -42,6 +44,9 @@ pub(crate) fn apply(
     }
     for mention in mentions {
         files.entry(&mention.path).or_default().1.push(mention);
+    }
+    if let Some(path) = trigger {
+        files.entry(path).or_default();
     }
 
     let mut touched = Vec::new();
@@ -61,6 +66,9 @@ pub(crate) fn apply(
         }
         if !mentions.is_empty() {
             after = rewrite_mentions(&after, &mentions, to).map_err(refuse)?;
+        }
+        if trigger == Some(path) {
+            after = crate::workflow::put_back(&after).map_err(refuse)?;
         }
         if after != before {
             touched.push(Touched {

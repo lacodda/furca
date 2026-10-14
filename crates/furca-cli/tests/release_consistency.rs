@@ -44,7 +44,7 @@ fn the_release_engine_finds_nothing_in_the_way() {
             now: std::time::SystemTime::now(),
         })
         .expect("a plan");
-    let names = ["manifests", "readme", "descriptions", "texts"];
+    let names = ["manifests", "readme", "descriptions", "texts", "trigger"];
     for name in names {
         let check = plan
             .checks

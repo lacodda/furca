@@ -1080,3 +1080,34 @@ fn a_shop_window_out_of_order_stops_at_verify() {
     assert!(report.released, "{report:#?}");
     assert_eq!(status(&report, "verify"), StepStatus::Done);
 }
+
+#[test]
+fn a_held_tag_trigger_comes_back_in_the_release_commit() {
+    let pair = Pair::new(PASS);
+    let held = "name: Publish\non: workflow_dispatch\n";
+    pair.write(".github/workflows/publish.yml", held);
+    pair.commit("ci: hold the publish tag trigger", NOW - DAY);
+    git(&pair.work(), &["push", "--quiet"], NOW);
+    let world = World::new(&pair);
+    let (report, _) = go(&pair, &world, Mode::Run);
+
+    assert!(report.released, "{report:#?}");
+    let bump = report
+        .steps
+        .iter()
+        .find(|s| s.name == "bump")
+        .expect("bump");
+    assert!(
+        bump.summary.ends_with("; the tag trigger is back"),
+        "{bump:#?}"
+    );
+    let shown = git(
+        &pair.work(),
+        &["show", "v0.3.0:.github/workflows/publish.yml"],
+        NOW,
+    );
+    assert_eq!(
+        shown,
+        "name: Publish\non:\n  push:\n    tags: ['v*']\n  workflow_dispatch:"
+    );
+}

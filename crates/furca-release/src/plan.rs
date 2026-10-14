@@ -18,6 +18,7 @@ use crate::record::{Reading, Record, Stage};
 use crate::registry::Registries;
 use crate::texts::{self, Mention};
 use crate::version::{self, Bump};
+use crate::workflow::{self, Starts};
 
 /// How long a dependency update stays fresh. The line updates its whole
 /// stack before a new version, at most once a week: an update older than
@@ -46,6 +47,8 @@ pub struct Release {
 pub(crate) struct Bumps {
     pub fields: Vec<Field>,
     pub mentions: Vec<Mention>,
+    /// The publish workflow whose held tag trigger the bump puts back.
+    pub trigger: Option<String>,
 }
 
 /// What the next release is, what stands in its way and what a run does.
@@ -93,7 +96,7 @@ pub enum Origin {
 pub struct Check {
     /// A stable identifier: `number`, `commits`, `stack`, `manifests`,
     /// `readme`, `descriptions`, `texts`, `changelog`, `registries`,
-    /// `record`.
+    /// `trigger`, `record`.
     pub name: &'static str,
     pub status: Status,
     pub summary: String,
@@ -276,6 +279,8 @@ impl Release {
             sources.registries.is_some(),
             released_tag.as_ref(),
         ));
+        let (trigger, put_back) = self.trigger_check(proposed.as_ref())?;
+        checks.push(trigger);
         checks.push(record_check(reading.as_ref(), config));
 
         let ready = checks.iter().all(|c| c.status != Status::Fail);
@@ -299,6 +304,14 @@ impl Release {
                     path: mention.path.clone(),
                 });
             }
+        }
+        if let Some((path, held)) = &put_back {
+            bump.push(Edit {
+                path: path.clone(),
+                at: "on".to_owned(),
+                from: held.join(", "),
+                to: format!("push ({}), {}", workflow::PUT_BACK, held.join(", ")),
+            });
         }
 
         let steps = Steps {
@@ -344,6 +357,7 @@ impl Release {
         let bumps = Bumps {
             fields: bump_fields,
             mentions: bump_texts,
+            trigger: put_back.map(|(path, _)| path),
         };
         Ok((plan, bumps))
     }
@@ -812,6 +826,80 @@ impl Release {
         ))
     }
 
+    /// Pushing the release's tag starts the publish workflow. A held
+    /// trigger is put back by the bump: a run never tags before every
+    /// package is in its registry, so holding it protects nothing. Returns
+    /// the workflow to put back and the events it starts on now.
+    fn trigger_check(&self, proposed: Option<&Proposal>) -> Result<(Check, PutBack), Error> {
+        let Some(publish) = &self.config.ci.publish else {
+            return Ok((
+                check(
+                    "trigger",
+                    Status::Pass,
+                    "release.toml names no publish workflow".to_owned(),
+                    Vec::new(),
+                ),
+                None,
+            ));
+        };
+        let path = format!("{}/{publish}", self.config.ci.provider.workflow_dir());
+        let full = self.root.join(&path);
+        let text = std::fs::read_to_string(&full).map_err(|source| Error::Read {
+            path: full.clone(),
+            source,
+        })?;
+        let tag = proposed.map_or_else(|| "v0.0.0".to_owned(), |p| p.tag.clone());
+        let by_hand = format!("put `push: {}` under its `on:` by hand", workflow::PUT_BACK);
+        let fail = |summary: String, details: Vec<String>| {
+            Ok((check("trigger", Status::Fail, summary, details), None))
+        };
+        match workflow::starts(&text, &tag) {
+            Err(why) => fail(format!("{path} cannot be read: {why}"), Vec::new()),
+            Ok(Starts::Yes) => Ok((
+                check(
+                    "trigger",
+                    Status::Pass,
+                    format!("pushing {tag} starts {publish}"),
+                    Vec::new(),
+                ),
+                None,
+            )),
+            Ok(Starts::Filtered(patterns)) => fail(
+                format!("{publish} starts on tags, but its filter leaves {tag} out"),
+                vec![format!("filter: {}", patterns.join(", "))],
+            ),
+            Ok(Starts::BranchesOnly) => fail(
+                format!("{publish} starts on pushed branches and never on a tag"),
+                vec![by_hand],
+            ),
+            Ok(Starts::Held(events)) => {
+                let restored = workflow::put_back(&text)
+                    .and_then(|after| workflow::starts(&after, &tag).map_err(|e| e.to_string()));
+                match restored {
+                    Ok(Starts::Yes) => Ok((
+                        check(
+                            "trigger",
+                            Status::Warn,
+                            format!(
+                                "{publish} has no tag trigger: the bump puts `push: {}` back",
+                                workflow::PUT_BACK
+                            ),
+                            vec![
+                                "a run tags only once every package is in its registry, so the hold protects nothing"
+                                    .to_owned(),
+                            ],
+                        ),
+                        Some((path, events)),
+                    )),
+                    Ok(_) | Err(_) => fail(
+                        format!("{publish} has no tag trigger, and its `on:` is not a shape the bump can rewrite"),
+                        vec![by_hand],
+                    ),
+                }
+            }
+        }
+    }
+
     /// What the run's `verify` step looks at, as lines.
     fn verify_plan(&self, proposed: Option<&Proposal>) -> Vec<String> {
         let mut lines = Vec::new();
@@ -829,6 +917,10 @@ impl Release {
         lines
     }
 }
+
+/// The publish workflow whose held trigger the bump puts back, and the
+/// events it starts on until then.
+type PutBack = Option<(String, Vec<String>)>;
 
 /// What one registry said about one package.
 struct Asked {

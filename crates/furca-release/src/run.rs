@@ -477,8 +477,12 @@ impl Release {
         bumps: &Bumps,
         to: &str,
     ) -> Flow {
-        let Bumps { fields, mentions } = bumps;
-        if fields.is_empty() && mentions.is_empty() {
+        let Bumps {
+            fields,
+            mentions,
+            trigger,
+        } = bumps;
+        if fields.is_empty() && mentions.is_empty() && trigger.is_none() {
             report.mark(
                 "bump",
                 StepStatus::Skipped,
@@ -487,7 +491,7 @@ impl Release {
             );
             return Ok(true);
         }
-        let touched = bump::apply(&self.root, fields, mentions, to)?;
+        let touched = bump::apply(&self.root, fields, mentions, trigger.as_deref(), to)?;
         state.touched = touched;
         save(&self.checkpoint_path(), state)?;
         let details: Vec<String> = fields
@@ -497,6 +501,11 @@ impl Release {
                 mentions
                     .iter()
                     .map(|m| format!("{} line {}: {}", m.path, m.line, m.text)),
+            )
+            .chain(
+                trigger
+                    .iter()
+                    .map(|path| format!("{path} on: push ({}) is back", crate::workflow::PUT_BACK)),
             )
             .collect();
         for line in &details {
@@ -524,12 +533,12 @@ impl Release {
             )?;
             return Ok(false);
         }
-        report.mark(
-            "bump",
-            StepStatus::Done,
-            format!("{} places say {to}", details.len()),
-            details,
-        );
+        let places = fields.len() + mentions.len();
+        let summary = match trigger {
+            Some(_) => format!("{places} places say {to}; the tag trigger is back"),
+            None => format!("{places} places say {to}"),
+        };
+        report.mark("bump", StepStatus::Done, summary, details);
         Ok(true)
     }
 

@@ -41,6 +41,7 @@ mod run;
 mod texts;
 mod verify;
 mod version;
+mod workflow;
 
 pub use bump::Touched;
 pub use commits::{Change, Tally};

@@ -831,6 +831,62 @@ fn a_version_in_a_table_row_is_said_before_the_bump_rewrites_it() {
 }
 
 #[test]
+fn a_held_tag_trigger_is_put_back_by_the_bump() {
+    let repo = Repo::released();
+    let held = "name: Publish\n\n# The tag trigger waits for the first publish.\non:\n  workflow_dispatch:\n    inputs:\n      tag:\n        required: true\n";
+    repo.write(".github/workflows/publish.yml", held);
+    repo.commit("ci: hold the publish tag trigger", NOW - DAY);
+    let plan = repo.plan(&Held::released(), None);
+
+    assert!(plan.ready, "{:#?}", plan.checks);
+    let trigger = find(&plan, "trigger");
+    assert_eq!(trigger.status, Status::Warn, "{trigger:#?}");
+    assert!(
+        trigger.summary.contains("puts `push: tags: ['v*']` back"),
+        "{trigger:#?}"
+    );
+    let edit = plan
+        .steps
+        .bump
+        .iter()
+        .find(|e| e.path == ".github/workflows/publish.yml")
+        .expect("the bump puts the trigger back");
+    assert_eq!(edit.from, "workflow_dispatch");
+    assert_eq!(edit.at, "on");
+}
+
+#[test]
+fn a_tag_trigger_that_leaves_the_tag_out_stops_the_release() {
+    let repo = Repo::released();
+    for (workflow, summary) in [
+        (
+            "on:\n  push:\n    tags: ['release-*']\n",
+            "its filter leaves v0.3.0 out",
+        ),
+        ("on:\n  push:\n    branches: [main]\n", "never on a tag"),
+        ("name: Publish\n", "cannot be read"),
+    ] {
+        repo.write(".github/workflows/publish.yml", workflow);
+        repo.commit("ci: change the publish trigger", NOW - DAY);
+        let plan = repo.plan(&Held::released(), None);
+        let trigger = find(&plan, "trigger");
+        assert_eq!(trigger.status, Status::Fail, "{workflow}: {trigger:#?}");
+        assert!(
+            trigger.summary.contains(summary),
+            "{workflow}: {trigger:#?}"
+        );
+        assert!(
+            !plan
+                .steps
+                .bump
+                .iter()
+                .any(|e| e.path == ".github/workflows/publish.yml"),
+            "nothing is rewritten"
+        );
+    }
+}
+
+#[test]
 fn an_install_without_its_installers_or_with_a_bad_asset_is_refused() {
     let repo = Repo::released();
     repo.write(
