@@ -1,6 +1,6 @@
 [package]
 name = "furca-release"
-description = "The release engine behind furca: reads release.toml, plans the next release and runs it from the bump to the tag."
+description = "The release engine behind furca: reads release.toml, plans the next release and runs it from the bump to a proven install."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -24,15 +24,16 @@ git-cliff-core = { version = "2.14", default-features = false }
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The install proof: the installed binary hashes as the release's own.
+sha2 = "0.11"
+# Where the install proof unpacks the release's archive.
+tempfile = "3"
 thiserror = "2"
 toml = "1"
 # Rewrites a manifest's version and keeps every comment and space around it.
 toml_edit = "0.25"
 # Blocking and small: the plan asks two registries one question each.
 ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
-
-[dev-dependencies]
-tempfile = "3"
 
 [lints]
 workspace = true

@@ -16,7 +16,8 @@ pub trait Registries {
     fn versions(&self, registry: Registry, name: &str) -> Result<Option<Vec<Version>>, String>;
 }
 
-/// The public registries over HTTPS.
+/// The public registries over HTTPS, and the web a release's links point
+/// at.
 pub struct Http {
     agent: ureq::Agent,
 }
@@ -70,6 +71,17 @@ impl Registries for Http {
             Registry::Crates => crates_versions(&body),
             Registry::Npm => npm_versions(&body),
         }))
+    }
+}
+
+impl crate::verify::Web for Http {
+    fn status(&self, url: &str) -> Result<u16, String> {
+        let response = self
+            .agent
+            .get(url)
+            .call()
+            .map_err(|e| format!("did not answer: {e}"))?;
+        Ok(response.status().as_u16())
     }
 }
 

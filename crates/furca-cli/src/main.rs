@@ -16,7 +16,9 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use furca_core::{HeadSummary, Log, Refs, Repository, Tips};
 use furca_release::hosting::{self, Forge, Place, Run, Waited};
-use furca_release::{Config, Plan, Provider, Release, Report, Runner, Sources, Status};
+use furca_release::{
+    Check, Config, Local, Plan, Provider, Release, Report, Runner, Shops, Sources, Status, Verified,
+};
 use serde::Serialize;
 
 #[derive(Parser)]
@@ -69,7 +71,7 @@ enum Command {
         #[arg(default_value = "HEAD")]
         revision: String,
     },
-    /// Plan and run the next release from release.toml.
+    /// Plan and run the next release from release.toml, and verify one that went out.
     Release {
         #[command(subcommand)]
         command: ReleaseCommand,
@@ -92,6 +94,16 @@ enum ReleaseCommand {
     Resume {
         #[command(flatten)]
         common: Common,
+    },
+    /// Check the shop windows of a release: its page and files, the registries, the links.
+    Verify {
+        #[command(flatten)]
+        common: Common,
+        /// The release tag. Defaults to the newest one.
+        tag: Option<String>,
+        /// Also install it into a temporary directory with the repository's installer and prove the build.
+        #[arg(long)]
+        install: bool,
     },
 }
 
@@ -148,6 +160,14 @@ fn run(command: Command) -> Result<Answer, String> {
             command: ReleaseCommand::Resume { common },
         } => release_run(&common, true),
         Command::Release {
+            command:
+                ReleaseCommand::Verify {
+                    common,
+                    tag,
+                    install,
+                },
+        } => release_verify(&common, tag, install),
+        Command::Release {
             command: ReleaseCommand::Plan { common },
         } => {
             let release = Release::open(&common.repo).map_err(|e| e.to_string())?;
@@ -182,13 +202,18 @@ fn say(step: &str, line: &str) {
 
 fn release_run(common: &Common, resume: bool) -> Result<Answer, String> {
     let release = Release::open(&common.repo).map_err(|e| e.to_string())?;
-    let registries = furca_release::Http::default();
+    let http = furca_release::Http::default();
     let factory = |url: &str, provider: Provider| forge(url, Some(provider));
+    let machine = Local {
+        to_stderr: common.json,
+    };
     let mut progress = |step: &str, line: &str| say(step, line);
     let mut runner = Runner {
-        registries: &registries,
+        registries: &http,
+        web: &http,
         record: Some(&furca_release::Rigger),
         forge: &factory,
+        machine: &machine,
         now: &std::time::SystemTime::now,
         sleep: &std::thread::sleep,
         gate_to_stderr: common.json,
@@ -206,6 +231,60 @@ fn release_run(common: &Common, resume: bool) -> Result<Answer, String> {
     } else {
         Answer::No
     })
+}
+
+fn release_verify(common: &Common, tag: Option<String>, install: bool) -> Result<Answer, String> {
+    let release = Release::open(&common.repo).map_err(|e| e.to_string())?;
+    let tag = match tag {
+        Some(tag) => tag,
+        None => release
+            .released_tag()
+            .map_err(|e| e.to_string())?
+            .ok_or("there is no release tag here yet: name one")?,
+    };
+    let repo = release.repository();
+    let (remote, url) = remote_of(repo)?;
+    let forge = forge(&url, Some(release.config().ci.provider))
+        .ok_or_else(|| not_a_forge(&remote, &url))?;
+    let http = furca_release::Http::default();
+    let mut verified = release
+        .verify(
+            &tag,
+            &Shops {
+                registries: &http,
+                web: &http,
+                forge: forge.as_ref(),
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    if install {
+        let dir = tempfile::tempdir().map_err(|e| format!("no temporary directory: {e}"))?;
+        let machine = Local {
+            to_stderr: common.json,
+        };
+        let checks = release
+            .install_check(&tag, dir.path(), forge.as_ref(), &machine, &mut |line| {
+                say("install", line)
+            })
+            .map_err(|e| e.to_string())?;
+        verified.checks.extend(checks);
+        verified.ok = verified.checks.iter().all(|c| c.status != Status::Fail);
+    }
+    emit(common.json, &verified, verified_text)?;
+    Ok(if verified.ok { Answer::Yes } else { Answer::No })
+}
+
+/// The remote the current branch follows, or `origin`, and its address.
+fn remote_of(repo: &Repository) -> Result<(String, String), String> {
+    match repo.upstream().map_err(|e| e.to_string())? {
+        Some(upstream) => Ok((upstream.remote, upstream.url)),
+        None => {
+            let url = repo.remote_url("origin").map_err(|e| e.to_string())?.ok_or(
+                "the current branch follows no remote and there is no `origin`: no forge to ask",
+            )?;
+            Ok(("origin".to_owned(), url))
+        }
+    }
 }
 
 /// What `push` did, for `--json`.
@@ -281,16 +360,7 @@ struct Checks {
 fn checks(common: &Common, revision: &str) -> Result<Answer, String> {
     let repo = open(&common.repo)?;
     let commit = repo.commit(revision).map_err(|e| e.to_string())?.id;
-    let upstream = repo.upstream().map_err(|e| e.to_string())?;
-    let (remote, url) = match upstream {
-        Some(upstream) => (upstream.remote, upstream.url),
-        None => {
-            let url = repo.remote_url("origin").map_err(|e| e.to_string())?.ok_or(
-                "the current branch follows no remote and there is no `origin`: no forge to ask",
-            )?;
-            ("origin".to_owned(), url)
-        }
-    };
+    let (remote, url) = remote_of(&repo)?;
     let forge = forge(&url, provider_of(&repo)).ok_or_else(|| not_a_forge(&remote, &url))?;
     let runs = forge.runs(&commit)?;
     let green = !runs.is_empty() && runs.iter().all(|r| r.state.done() && !r.state.red());
@@ -402,16 +472,50 @@ fn report_text(report: &Report) -> String {
             out.push(format!("  {:<7}  {:<width$}    {detail}", "", ""));
         }
     }
-    if !report.after.is_empty() {
-        out.push(String::new());
-        out.push("Left for you:".to_owned());
-        out.extend(report.after.iter().map(|a| format!("  {a}")));
-    }
     if let Some(step) = report.stopped() {
         out.push(String::new());
         out.push(format!("Stopped at {}: {}", step.name, step.summary));
     }
     out.join("\n")
+}
+
+fn verified_text(verified: &Verified) -> String {
+    let mut out = vec![
+        format!("{} {}", verified.project, verified.tag),
+        String::new(),
+    ];
+    out.extend(check_lines(&verified.checks));
+    out.push(String::new());
+    let failing: Vec<&str> = verified
+        .checks
+        .iter()
+        .filter(|c| c.status == Status::Fail)
+        .map(|c| c.name)
+        .collect();
+    out.push(if failing.is_empty() {
+        "Every shop window is in order.".to_owned()
+    } else {
+        format!("Not in order: {} fails.", failing.join(", "))
+    });
+    out.join("\n")
+}
+
+/// Checks one per line, their details under them.
+fn check_lines(checks: &[Check]) -> Vec<String> {
+    let width = checks.iter().map(|c| c.name.len()).max().unwrap_or(0);
+    let mut out = Vec::new();
+    for check in checks {
+        out.push(format!(
+            "  {:<4}  {:<width$}  {}",
+            serde_word(&check.status),
+            check.name,
+            check.summary
+        ));
+        for detail in &check.details {
+            out.push(format!("  {:<4}  {:<width$}    {detail}", "", ""));
+        }
+    }
+    out
 }
 
 fn emit<T: Serialize>(json: bool, value: &T, text: fn(&T) -> String) -> Result<Answer, String> {
@@ -527,18 +631,7 @@ fn plan_text(plan: &Plan) -> String {
     }
     out.push(String::new());
 
-    let width = plan.checks.iter().map(|c| c.name.len()).max().unwrap_or(0);
-    for check in &plan.checks {
-        out.push(format!(
-            "  {:<4}  {:<width$}  {}",
-            serde_word(&check.status),
-            check.name,
-            check.summary
-        ));
-        for detail in &check.details {
-            out.push(format!("  {:<4}  {:<width$}    {detail}", "", ""));
-        }
-    }
+    out.extend(check_lines(&plan.checks));
     out.push(String::new());
 
     let steps = &plan.steps;
@@ -593,8 +686,21 @@ fn plan_text(plan: &Plan) -> String {
             format!("{} {}{now}", package.registry.label(), package.name),
         ));
     }
-    for post in &steps.post {
-        run.push(("after", serde_word(post)));
+    for line in &steps.verify {
+        run.push(("verify", line.clone()));
+    }
+    if let Some(install) = &steps.post.install {
+        let bin = install.bin.as_deref().unwrap_or(&plan.project);
+        run.push((
+            "install",
+            format!("{bin} from the release, proven by its hash"),
+        ));
+        for alias in &install.aliases {
+            run.push(("install", format!("{alias}, the same build")));
+        }
+    }
+    if steps.post.deploy.is_some() {
+        run.push(("deploy", "turnout deploy".to_owned()));
     }
     out.push("The run would".to_owned());
     let width = run.iter().map(|(step, _)| step.len()).max().unwrap_or(0);
@@ -625,11 +731,6 @@ fn plan_text(plan: &Plan) -> String {
 fn serde_word<T: Serialize>(value: &T) -> String {
     match serde_json::to_value(value) {
         Ok(serde_json::Value::String(word)) => word,
-        Ok(serde_json::Value::Object(map)) => map
-            .get("kind")
-            .and_then(|k| k.as_str())
-            .unwrap_or_default()
-            .to_owned(),
         _ => String::new(),
     }
 }

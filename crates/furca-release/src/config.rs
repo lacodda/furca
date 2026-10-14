@@ -26,9 +26,33 @@ pub struct Config {
     /// What the release publishes, one entry per package per registry.
     #[serde(default)]
     pub package: Vec<Package>,
-    /// What happens after the tag, in order.
+    /// The files the tag's release page carries.
+    pub page: Option<PageAssets>,
+    /// What happens after the publish: the install, the deploy.
     #[serde(default)]
-    pub post: Vec<Post>,
+    pub post: Post,
+}
+
+/// The files a release page has to carry, by name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageAssets {
+    /// File names, with `{tag}` and `{version}` filled in for each release:
+    /// `furca-{tag}-x86_64-pc-windows-msvc.zip`.
+    pub assets: Vec<String>,
+}
+
+impl PageAssets {
+    /// The names for one release.
+    pub fn names(&self, tag: &str, version: &semver::Version) -> Vec<String> {
+        self.assets
+            .iter()
+            .map(|a| {
+                a.replace("{tag}", tag)
+                    .replace("{version}", &version.to_string())
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,16 +148,36 @@ impl Registry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
-pub enum Post {
-    /// Install the released build for the owner with the repository's own
-    /// installer, downloading from the release rather than building.
-    Install,
-    /// Deploy with turnout from the repository; which stand it goes to is
-    /// turnout's own configuration, not this file's.
-    Deploy,
+/// The steps after the publish, each at most once and always in this
+/// order: the install, then the deploy.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Post {
+    pub install: Option<Install>,
+    pub deploy: Option<Deploy>,
 }
+
+/// Install the released build for the owner with the repository's own
+/// installers, `tools/install.ps1` and `tools/install.sh`, and prove it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Install {
+    /// The program the installers put on the PATH; the project's name when
+    /// left out. Its upper-cased name prefixes the installers' environment:
+    /// `FURCA_VERSION`.
+    pub bin: Option<String>,
+    /// The other names the installers make for it, such as `tn` for
+    /// `turnout`: each has to be the same build.
+    #[serde(default)]
+    pub aliases: Vec<String>,
+}
+
+/// Deploy with turnout from the repository: which stand it goes to is
+/// turnout's own configuration, not this file's, and turnout checks the
+/// stand's health.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Deploy {}
 
 impl Config {
     /// Reads and checks `release.toml` at `root`.
@@ -209,6 +253,49 @@ impl Config {
             }
         }
 
+        if let Some(page) = &self.page {
+            if page.assets.is_empty() {
+                problems.push("`page.assets` names no file".to_owned());
+            }
+            for asset in &page.assets {
+                let unknown = asset
+                    .replace("{tag}", "")
+                    .replace("{version}", "")
+                    .contains(['{', '}']);
+                if unknown {
+                    problems.push(format!(
+                        "the asset `{asset}` has a placeholder other than {{tag}} and {{version}}"
+                    ));
+                }
+            }
+        }
+        if let Some(install) = &self.post.install {
+            for installer in crate::install::INSTALLERS {
+                if !root.join(installer).is_file() {
+                    problems.push(format!("the installer `{installer}` does not exist"));
+                }
+            }
+            let bin = self.bin(install);
+            let named = |name: &str| {
+                !name.is_empty()
+                    && name
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+            };
+            if !named(bin) {
+                problems.push(format!(
+                    "`post.install.bin` `{bin}` is not a program's name"
+                ));
+            }
+            for alias in &install.aliases {
+                if !named(alias) || alias == bin {
+                    problems.push(format!(
+                        "`post.install.aliases` has `{alias}`, which is not another program's name"
+                    ));
+                }
+            }
+        }
+
         let mut seen = BTreeSet::new();
         for package in &self.package {
             if !seen.insert((package.registry, package.name.as_str())) {
@@ -229,6 +316,12 @@ impl Config {
             }
         }
         problems
+    }
+
+    /// The program `[post.install]` installs: its `bin`, or the project's
+    /// name.
+    pub fn bin<'a>(&'a self, install: &'a Install) -> &'a str {
+        install.bin.as_deref().unwrap_or(&self.project.name)
     }
 
     /// The package `package` wraps: the one of that name in another

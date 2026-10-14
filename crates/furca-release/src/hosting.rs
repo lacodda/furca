@@ -1,6 +1,6 @@
 //! The forge a repository is pushed to, as far as a release needs it: which
-//! workflow runs a commit has and how they ended, and whether a release page
-//! went out for a tag.
+//! workflow runs a commit has and how they ended, whether a release page
+//! went out for a tag, and the files on it.
 //!
 //! Two forges are read: GitHub (Actions) and Forgejo (Forgejo Actions, the
 //! `actions/runs` API of Forgejo 11 and later). Both are asked over HTTPS
@@ -84,6 +84,9 @@ pub trait Forge {
 
     /// The release page of `tag`; `None` when there is none.
     fn page(&self, tag: &str) -> Result<Option<Page>, String>;
+
+    /// The bytes of the file `asset` on the release page of `tag`.
+    fn download(&self, tag: &str, asset: &str) -> Result<Vec<u8>, String>;
 
     /// Where a person sees the repository's runs.
     fn actions_url(&self) -> String;
@@ -194,9 +197,13 @@ impl Http {
         self.token.is_some()
     }
 
-    fn get(&self, path: &str) -> Result<Option<serde_json::Value>, String> {
-        let url = format!("{}{path}", self.place.api());
-        let mut request = self.agent.get(&url).header("Accept", "application/json");
+    /// A request to `url` with the forge's headers and the token, if any.
+    fn request(
+        &self,
+        url: &str,
+        accept: &str,
+    ) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
+        let mut request = self.agent.get(url).header("Accept", accept);
         if self.place.provider == Provider::Github {
             request = request.header("X-GitHub-Api-Version", "2022-11-28");
         }
@@ -207,6 +214,12 @@ impl Http {
             };
             request = request.header("Authorization", value.as_str());
         }
+        request
+    }
+
+    fn get(&self, path: &str) -> Result<Option<serde_json::Value>, String> {
+        let url = format!("{}{path}", self.place.api());
+        let request = self.request(&url, "application/json");
         let label = self.place.provider.label();
         let mut response = request
             .call()
@@ -272,6 +285,45 @@ impl Forge for Http {
                 .collect(),
             url: text(&body, "html_url"),
         }))
+    }
+
+    fn download(&self, tag: &str, asset: &str) -> Result<Vec<u8>, String> {
+        let body = self
+            .get(&format!("{}/releases/tags/{tag}", self.repo_path()))?
+            .ok_or_else(|| format!("{tag} has no release page"))?;
+        let found = body
+            .get("assets")
+            .and_then(|a| a.as_array())
+            .into_iter()
+            .flatten()
+            .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(asset))
+            .ok_or_else(|| format!("the release page of {tag} has no {asset}"))?;
+        // GitHub serves an asset's bytes from its API address with this
+        // Accept header, a private repository's included, and redirects to
+        // its storage - where the token is not sent along. Forgejo serves
+        // them from the download address.
+        let (url, accept) = match self.place.provider {
+            Provider::Github => (text(found, "url"), "application/octet-stream"),
+            Provider::Forgejo => (text(found, "browser_download_url"), "*/*"),
+        };
+        let label = self.place.provider.label();
+        let mut response = self
+            .request(&url, accept)
+            .config()
+            .timeout_global(Some(Duration::from_secs(10 * 60)))
+            .build()
+            .call()
+            .map_err(|e| format!("{label} did not send {asset}: {e}"))?;
+        let status = response.status().as_u16();
+        if status != 200 {
+            return Err(format!("{label} answered {status} for {asset}"));
+        }
+        response
+            .body_mut()
+            .with_config()
+            .limit(1 << 30)
+            .read_to_vec()
+            .map_err(|e| format!("{label} broke off sending {asset}: {e}"))
     }
 
     fn pace(&self) -> Pace {
@@ -644,6 +696,9 @@ mod tests {
         }
         fn page(&self, _tag: &str) -> Result<Option<Page>, String> {
             Ok(None)
+        }
+        fn download(&self, _tag: &str, asset: &str) -> Result<Vec<u8>, String> {
+            Err(format!("no {asset} here"))
         }
         fn actions_url(&self) -> String {
             String::new()

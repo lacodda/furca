@@ -35,7 +35,7 @@ impl Repo {
             "# Changelog\n\n## [0.2.0] - 2026-09-01\n\n- First\n",
         );
         repo.write(".github/workflows/ci.yml", "name: CI\n");
-        repo.write(".github/workflows/publish.yml", "name: Publish\n");
+        repo.write(".github/workflows/publish.yml", PUBLISH);
         repo.write("docs/adr/0001-a.md", "Since v0.1.0 the CLI prints JSON.\n");
         repo.write("release.toml", RELEASE);
         repo.commit("chore: found the project", NOW - 30 * DAY);
@@ -158,9 +158,11 @@ name = "demo-cli"
 manifest = "npm/package.json"
 wraps = "demo"
 
-[[post]]
-kind = "install"
+[post.deploy]
 "#;
+
+/// A publish workflow a pushed `v*` tag starts.
+const PUBLISH: &str = "name: Publish\non:\n  push:\n    tags: ['v*']\n  workflow_dispatch:\n";
 
 /// Registries that hold what the test says, and count the questions.
 struct Held {
@@ -507,7 +509,7 @@ fn nothing_since_the_tag_is_nothing_to_release() {
     repo.write("README.md", README);
     repo.write("CHANGELOG.md", "# Changelog\n\n## [0.2.0] - 2026-09-01\n");
     repo.write(".github/workflows/ci.yml", "name: CI\n");
-    repo.write(".github/workflows/publish.yml", "name: Publish\n");
+    repo.write(".github/workflows/publish.yml", PUBLISH);
     repo.write("docs/adr/0001-a.md", "x\n");
     repo.write("release.toml", RELEASE);
     repo.commit("chore(deps): update", NOW - DAY);
@@ -526,10 +528,7 @@ fn a_first_release_takes_the_number_the_manifests_carry() {
         ("README.md", README.replace("0.2.0", "0.1.0")),
         ("CHANGELOG.md", "# Changelog\n".to_owned()),
         (".github/workflows/ci.yml", "name: CI\n".to_owned()),
-        (
-            ".github/workflows/publish.yml",
-            "name: Publish\n".to_owned(),
-        ),
+        (".github/workflows/publish.yml", PUBLISH.to_owned()),
         ("docs/adr/0001-a.md", "x\n".to_owned()),
         ("release.toml", RELEASE.to_owned()),
     ] {
@@ -696,7 +695,12 @@ fn the_plan_serializes_to_the_documented_shape() {
     assert_eq!(json["checks"][0]["name"], "number");
     assert_eq!(json["checks"][0]["status"], "pass");
     assert_eq!(json["steps"]["ci"]["provider"], "github");
-    assert_eq!(json["steps"]["post"][0]["kind"], "install");
+    assert!(
+        json["steps"]["post"]["deploy"].is_object(),
+        "{}",
+        json["steps"]["post"]
+    );
+    assert!(json["steps"]["post"]["install"].is_null());
     assert_eq!(json["steps"]["publish"][1]["registry"], "npm");
     assert_eq!(json["ready"], true);
 }
@@ -824,4 +828,25 @@ fn a_version_in_a_table_row_is_said_before_the_bump_rewrites_it() {
         "it is still bumped: {:#?}",
         plan.steps.bump
     );
+}
+
+#[test]
+fn an_install_without_its_installers_or_with_a_bad_asset_is_refused() {
+    let repo = Repo::released();
+    repo.write(
+        "release.toml",
+        &RELEASE.replace(
+            "[post.deploy]\n",
+            "[post.install]\naliases = [\"demo\"]\n\n[page]\nassets = [\"demo-{target}.zip\"]\n",
+        ),
+    );
+    let problems = match Release::open(repo.path()) {
+        Err(Error::Config(problems)) => problems,
+        other => panic!("expected a config error, got {:?}", other.map(|_| ())),
+    };
+    assert_eq!(problems.len(), 4, "{problems:#?}");
+    assert!(problems.iter().any(|p| p.contains("tools/install.ps1")));
+    assert!(problems.iter().any(|p| p.contains("tools/install.sh")));
+    assert!(problems.iter().any(|p| p.contains("aliases")));
+    assert!(problems.iter().any(|p| p.contains("placeholder")));
 }

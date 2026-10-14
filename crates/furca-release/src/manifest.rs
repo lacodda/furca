@@ -371,6 +371,63 @@ pub fn meta(root: &Path, package: &Package) -> Result<Meta, Error> {
     }
 }
 
+/// The web links a manifest shows on its registry page - homepage,
+/// documentation, repository - in that order, following `*.workspace =
+/// true` to the workspace root at `root/Cargo.toml`. A workspace root
+/// without a package of its own shows its `[workspace.package]` ones.
+pub(crate) fn links(root: &Path, path: &str) -> Result<Vec<String>, Error> {
+    const KEYS: [&str; 3] = ["homepage", "documentation", "repository"];
+    let mut links = Vec::new();
+    match Kind::of(path) {
+        Some(Kind::Cargo) => {
+            let table = read_toml(root, path)?;
+            let workspace = if path != "Cargo.toml" && root.join("Cargo.toml").is_file() {
+                read_toml(root, "Cargo.toml")?
+            } else {
+                table.clone()
+            };
+            let shared = |key: &str| {
+                workspace
+                    .get("workspace")?
+                    .get("package")?
+                    .get(key)?
+                    .as_str()
+                    .map(str::to_owned)
+            };
+            for key in KEYS {
+                let link = match table.get("package").and_then(|p| p.get(key)) {
+                    Some(own) if own.get("workspace").and_then(|w| w.as_bool()) == Some(true) => {
+                        shared(key)
+                    }
+                    Some(own) => own.as_str().map(str::to_owned),
+                    None if table.get("package").is_none() => shared(key),
+                    None => None,
+                };
+                links.extend(link);
+            }
+        }
+        Some(Kind::Json) => {
+            let value = read_json(root, path)?;
+            for key in KEYS {
+                let link = match value.get(key) {
+                    Some(serde_json::Value::String(url)) => Some(url.clone()),
+                    // npm's `"repository": { "type": "git", "url": "git+https://..." }`.
+                    Some(object) => object.get("url").and_then(|u| u.as_str()).map(|u| {
+                        u.trim_start_matches("git+")
+                            .trim_end_matches(".git")
+                            .to_owned()
+                    }),
+                    None => None,
+                };
+                links.extend(link);
+            }
+        }
+        None => {}
+    }
+    links.retain(|l| l.starts_with("https://") || l.starts_with("http://"));
+    Ok(links)
+}
+
 fn field<K: AsRef<str>>(path: &str, keys: &[K], version: &str) -> Field {
     let keys: Vec<String> = keys.iter().map(|k| k.as_ref().to_owned()).collect();
     Field {
@@ -459,5 +516,41 @@ mod tests {
         assert_eq!(Kind::of("crates/x/Cargo.toml"), Some(Kind::Cargo));
         assert_eq!(Kind::of("npm/package.json"), Some(Kind::Json));
         assert_eq!(Kind::of("pyproject.toml"), None);
+    }
+
+    #[test]
+    fn the_links_a_manifest_shows_follow_the_workspace() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let write = |path: &str, text: &str| {
+            let full = dir.path().join(path);
+            std::fs::create_dir_all(full.parent().expect("a parent")).expect("dirs");
+            std::fs::write(full, text).expect("write");
+        };
+        write(
+            "Cargo.toml",
+            "[workspace]\nmembers = [\"crates/*\"]\n\n[workspace.package]\nhomepage = \"https://demo.example/\"\nrepository = \"https://forge.example/demo\"\n",
+        );
+        write(
+            "crates/demo/Cargo.toml",
+            "[package]\nname = \"demo\"\nhomepage.workspace = true\ndocumentation = \"https://docs.example/demo\"\n",
+        );
+        write(
+            "npm/package.json",
+            r#"{ "homepage": "https://demo.example/", "repository": { "type": "git", "url": "git+https://forge.example/demo.git" }, "bugs": "x" }"#,
+        );
+        let links = |path: &str| super::links(dir.path(), path).expect("reads");
+        assert_eq!(
+            links("Cargo.toml"),
+            ["https://demo.example/", "https://forge.example/demo"]
+        );
+        assert_eq!(
+            links("crates/demo/Cargo.toml"),
+            ["https://demo.example/", "https://docs.example/demo"],
+            "a package shows its own and what it inherits, not every shared link"
+        );
+        assert_eq!(
+            links("npm/package.json"),
+            ["https://demo.example/", "https://forge.example/demo"]
+        );
     }
 }

@@ -43,5 +43,15 @@ registry = "crates"
 name = "furca-release"
 manifest = "crates/furca-release/Cargo.toml"
 
-[[post]]
-kind = "install"
+# The files the tag's release page has to carry: checked after the publish,
+# and against the targets the installers ask for before the tag.
+[page]
+assets = [
+    "furca-{tag}-x86_64-pc-windows-msvc.zip",
+    "furca-{tag}-x86_64-unknown-linux-gnu.tar.gz",
+    "furca-{tag}-aarch64-apple-darwin.tar.gz",
+]
+
+# The CLI is installed for the owner from the release by the installers in
+# tools/, and proven to be the release's own build.
+[post.install]

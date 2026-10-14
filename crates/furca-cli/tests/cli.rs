@@ -355,3 +355,35 @@ fn push_sends_the_branch_and_checks_refuse_a_remote_that_is_no_forge() {
         );
     }
 }
+
+#[test]
+fn release_verify_needs_a_forge_and_says_why_it_has_none() {
+    let dir = released_project();
+    let output = furca(dir.path(), &["release", "verify"]);
+    assert_eq!(output.status.code(), Some(2));
+    let error = String::from_utf8(output.stderr).expect("utf-8");
+    assert!(error.contains("no forge to ask"), "{error}");
+
+    let bare = tempfile::tempdir().expect("temp dir");
+    git(
+        bare.path(),
+        &["init", "--quiet", "--bare", "--initial-branch=main"],
+    );
+    git(
+        dir.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            bare.path().to_str().expect("utf-8"),
+        ],
+    );
+    let output = furca(dir.path(), &["release", "verify", "v0.1.0", "--json"]);
+    assert_eq!(output.status.code(), Some(2));
+    let error = String::from_utf8(output.stderr).expect("utf-8");
+    assert!(
+        error.contains("is not a repository on GitHub or Forgejo"),
+        "{error}"
+    );
+    assert!(output.stdout.is_empty(), "no half of a document");
+}

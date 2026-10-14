@@ -124,7 +124,9 @@ pub struct Steps {
     pub ci: CiStep,
     pub tag: Option<String>,
     pub publish: Vec<Publish>,
-    pub post: Vec<Post>,
+    /// The shop windows the run checks after the publish.
+    pub verify: Vec<String>,
+    pub post: Post,
 }
 
 /// One version the bump rewrites.
@@ -324,6 +326,7 @@ impl Release {
                     first: matches!(state.versions, Ok(None)),
                 })
                 .collect(),
+            verify: self.verify_plan(proposed.as_ref()),
             post: config.post.clone(),
         };
 
@@ -807,6 +810,23 @@ impl Release {
             format!("the new section goes under the header of {changelog}"),
             Vec::new(),
         ))
+    }
+
+    /// What the run's `verify` step looks at, as lines.
+    fn verify_plan(&self, proposed: Option<&Proposal>) -> Vec<String> {
+        let mut lines = Vec::new();
+        if let (Some(page), Some(proposed)) = (&self.config.page, proposed) {
+            for name in page.names(&proposed.tag, &proposed.version) {
+                lines.push(format!("release page: {name}"));
+            }
+        } else {
+            lines.push("release page: out, not a draft".to_owned());
+        }
+        for package in &self.config.package {
+            lines.push(format!("{}: {}", package.registry.label(), package.name));
+        }
+        lines.push("the links the manifests show".to_owned());
+        lines
     }
 }
 

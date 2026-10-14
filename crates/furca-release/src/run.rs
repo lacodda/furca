@@ -1,13 +1,16 @@
 //! The run: the plan carried out step by step - bump, changelog, gate,
-//! commit, push, CI, tag, publish, record - with a checkpoint after each.
+//! commit, push, CI, tag, publish, verify, install, deploy, record - with a
+//! checkpoint after each.
 //!
 //! Before the release commit the steps are local and cheap, and a stop
 //! there is undone rather than resumed: a red gate puts the files back as
 //! they were, and the next run starts from a fresh plan. A fix made on top
 //! of uncommitted release edits would ride into `chore(release)` and miss
 //! the changelog written before it. After the commit the steps are remote
-//! and slow - a push, a CI run, a tag, a publish - and `resume` carries a
-//! stopped run on from the step it stopped at.
+//! and slow - a push, a CI run, a tag, a publish, the shop windows, the
+//! install and the deploy - and `resume` carries a stopped run on from the
+//! step it stopped at. The steps after the publish prove what they did
+//! (ADR 0008): an install is the release's own bytes, not an exit code.
 //!
 //! The invariants hold whoever calls: a tag only on a commit whose CI is
 //! green; nothing pushed is ever rewritten and a tag is never moved; the
@@ -24,13 +27,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::bump::{self, Touched};
 use crate::changelog;
-use crate::config::{Post, Provider, Registry};
+use crate::config::Provider;
 use crate::error::Error;
 use crate::hosting::{self, Forge, Page, Run, State, Waited};
+use crate::install::{self, InstallTo, Machine, Order};
 use crate::manifest;
-use crate::plan::{Release, Sources, Status};
+use crate::plan::{Bumps, Release, Sources, Status};
 use crate::record::{Record, Shipped};
 use crate::registry::Registries;
+use crate::verify::{Shops, Web, first_publish};
 use crate::version;
 
 /// The checkpoint, inside the repository's `.git`: never committed, kept
@@ -38,7 +43,7 @@ use crate::version;
 pub const CHECKPOINT: &str = "furca-release.json";
 
 /// The steps of a run, in order.
-pub const STEPS: [&str; 10] = [
+pub const STEPS: [&str; 13] = [
     "plan",
     "bump",
     "changelog",
@@ -48,6 +53,9 @@ pub const STEPS: [&str; 10] = [
     "ci",
     "tag",
     "publish",
+    "verify",
+    "install",
+    "deploy",
     "record",
 ];
 
@@ -62,9 +70,13 @@ pub type ForgeFor<'a> = dyn Fn(&str, Provider) -> Option<Box<dyn Forge + 'a>> + 
 /// What a run asks of the world besides the repository.
 pub struct Runner<'a> {
     pub registries: &'a dyn Registries,
+    /// Asked whether the links the manifests show answer.
+    pub web: &'a dyn Web,
     /// The owner's record; `None` to neither read nor write one.
     pub record: Option<&'a dyn Record>,
     pub forge: &'a ForgeFor<'a>,
+    /// Where the install and the deploy happen.
+    pub machine: &'a dyn Machine,
     pub now: &'a dyn Fn() -> SystemTime,
     pub sleep: &'a dyn Fn(Duration),
     /// Sends what the gate's commands print on their standard output to
@@ -81,7 +93,8 @@ pub struct Report {
     pub project: String,
     pub version: Option<Version>,
     pub tag: Option<String>,
-    /// The release is out: tagged, published, recorded.
+    /// The release is out: tagged, published, in every shop window,
+    /// installed and deployed where `release.toml` asks, recorded.
     pub released: bool,
     /// Every step in order.
     pub steps: Vec<Step>,
@@ -91,8 +104,6 @@ pub struct Report {
     pub registries: Vec<String>,
     /// The release page the tag's workflows put out.
     pub page: Option<Page>,
-    /// What is left to a person once the release is out.
-    pub after: Vec<String>,
     /// Every git command the run made, in order.
     pub git: Vec<GitRun>,
 }
@@ -136,7 +147,6 @@ impl Report {
             commit: None,
             registries: Vec::new(),
             page: None,
-            after: Vec::new(),
             git: Vec::new(),
         }
     }
@@ -182,9 +192,18 @@ struct Checkpoint {
     /// The registries that hold the version, once they do.
     published: Option<Vec<String>>,
     page: Option<Page>,
+    /// Every shop window passed.
+    #[serde(default)]
+    verified: bool,
+    /// The install is proven, or none was asked.
+    #[serde(default)]
+    installed: bool,
+    /// The deploy went through, or none was asked.
+    #[serde(default)]
+    deployed: bool,
 }
 
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 2;
 
 /// How a step ended: carry on, or stop - the report says where and why.
 type Flow = Result<bool, Error>;
@@ -428,18 +447,14 @@ impl Release {
             tagged: None,
             published: None,
             page: None,
+            verified: false,
+            installed: false,
+            deployed: false,
         };
         save(&path, &state)?;
 
         let to = proposed.version.to_string();
-        if !self.bump(
-            runner,
-            report,
-            &mut state,
-            &bumps.fields,
-            &bumps.mentions,
-            &to,
-        )? {
+        if !self.bump(runner, report, &mut state, &bumps, &to)? {
             return Ok(None);
         }
         if !self.changelog(runner, report, &mut state, now)? {
@@ -459,10 +474,10 @@ impl Release {
         runner: &mut Runner,
         report: &mut Report,
         state: &mut Checkpoint,
-        fields: &[manifest::Field],
-        mentions: &[crate::texts::Mention],
+        bumps: &Bumps,
         to: &str,
     ) -> Flow {
+        let Bumps { fields, mentions } = bumps;
         if fields.is_empty() && mentions.is_empty() {
             report.mark(
                 "bump",
@@ -770,20 +785,18 @@ impl Release {
         if !self.publish(runner, report, state, forge)? {
             return Ok(());
         }
+        if !self.verify_step(runner, report, state, forge)? {
+            return Ok(());
+        }
+        if !self.install_step(runner, report, state, forge)? {
+            return Ok(());
+        }
+        if !self.deploy_step(runner, report, state)? {
+            return Ok(());
+        }
         self.record(runner, report, state)?;
         remove(&self.checkpoint_path())?;
         report.released = true;
-        report.after = self
-            .config
-            .post
-            .iter()
-            .map(|post| match post {
-                Post::Install => {
-                    "install the released build with the repository's installer".to_owned()
-                }
-                Post::Deploy => "deploy with turnout".to_owned(),
-            })
-            .collect();
         Ok(())
     }
 
@@ -1201,6 +1214,212 @@ impl Release {
         Ok(missing)
     }
 
+    /// The shop windows of the tag, as `furca release verify` reads them.
+    fn verify_step(
+        &self,
+        runner: &mut Runner,
+        report: &mut Report,
+        state: &mut Checkpoint,
+        forge: &dyn Forge,
+    ) -> Flow {
+        if state.verified {
+            report.mark(
+                "verify",
+                StepStatus::Skipped,
+                "every shop window passed already".to_owned(),
+                Vec::new(),
+            );
+            return Ok(true);
+        }
+        let verified = self.verify(
+            &state.tag,
+            &Shops {
+                registries: runner.registries,
+                web: runner.web,
+                forge,
+            },
+        )?;
+        let lines: Vec<String> = verified
+            .checks
+            .iter()
+            .flat_map(|c| {
+                std::iter::once(format!(
+                    "{} {}: {}",
+                    status_word(c.status),
+                    c.name,
+                    c.summary
+                ))
+                .chain(c.details.iter().map(|d| format!("  {d}")))
+            })
+            .collect();
+        if !verified.ok {
+            let failing: Vec<&str> = verified
+                .checks
+                .iter()
+                .filter(|c| c.status == Status::Fail)
+                .map(|c| c.name)
+                .collect();
+            let mut details = lines;
+            details.push(format!(
+                "{} is out and stays: mend the shop window, then `furca release resume`",
+                state.tag
+            ));
+            report.mark(
+                "verify",
+                StepStatus::Stopped,
+                format!("{} fails", failing.join(", ")),
+                details,
+            );
+            return Ok(false);
+        }
+        state.verified = true;
+        save(&self.checkpoint_path(), state)?;
+        let summary = verified
+            .checks
+            .iter()
+            .map(|c| c.name)
+            .collect::<Vec<_>>()
+            .join(", ")
+            + " pass";
+        (runner.say)("verify", &summary);
+        report.mark("verify", StepStatus::Done, summary, lines);
+        Ok(true)
+    }
+
+    /// Installs the release for the owner with the repository's installer
+    /// and proves it is the release's own build.
+    fn install_step(
+        &self,
+        runner: &mut Runner,
+        report: &mut Report,
+        state: &mut Checkpoint,
+        forge: &dyn Forge,
+    ) -> Flow {
+        let Some(post) = &self.config.post.install else {
+            report.mark(
+                "install",
+                StepStatus::Skipped,
+                "release.toml asks for no install".to_owned(),
+                Vec::new(),
+            );
+            return Ok(true);
+        };
+        if state.installed {
+            report.mark(
+                "install",
+                StepStatus::Skipped,
+                "installed and proven already".to_owned(),
+                Vec::new(),
+            );
+            return Ok(true);
+        }
+        let bin = self.config.bin(post);
+        let say = &mut *runner.say;
+        let checks = install::install(
+            &Order {
+                root: &self.root,
+                bin,
+                aliases: &post.aliases,
+                tag: &state.tag,
+                version: &state.version,
+                into: InstallTo::Owner,
+            },
+            forge,
+            runner.machine,
+            &mut |line| say("install", line),
+        );
+        let lines: Vec<String> = checks
+            .iter()
+            .flat_map(|c| {
+                std::iter::once(format!(
+                    "{} {}: {}",
+                    status_word(c.status),
+                    c.name,
+                    c.summary
+                ))
+                .chain(c.details.iter().map(|d| format!("  {d}")))
+            })
+            .collect();
+        if let Some(failed) = checks.iter().find(|c| c.status == Status::Fail) {
+            let mut details = lines;
+            details.push("fix it, then `furca release resume`".to_owned());
+            report.mark(
+                "install",
+                StepStatus::Stopped,
+                failed.summary.clone(),
+                details,
+            );
+            return Ok(false);
+        }
+        state.installed = true;
+        save(&self.checkpoint_path(), state)?;
+        let summary = format!(
+            "{bin} {} is installed, the release's own build",
+            state.version
+        );
+        (runner.say)("install", &summary);
+        report.mark("install", StepStatus::Done, summary, lines);
+        Ok(true)
+    }
+
+    /// Deploys with turnout, which checks the stand's health and rolls a
+    /// failed deploy back.
+    fn deploy_step(
+        &self,
+        runner: &mut Runner,
+        report: &mut Report,
+        state: &mut Checkpoint,
+    ) -> Flow {
+        if self.config.post.deploy.is_none() {
+            report.mark(
+                "deploy",
+                StepStatus::Skipped,
+                "release.toml asks for no deploy".to_owned(),
+                Vec::new(),
+            );
+            return Ok(true);
+        }
+        if state.deployed {
+            report.mark(
+                "deploy",
+                StepStatus::Skipped,
+                "deployed already".to_owned(),
+                Vec::new(),
+            );
+            return Ok(true);
+        }
+        (runner.say)("deploy", "turnout deploy");
+        let ran = runner.machine.run("turnout", &DEPLOY, &self.root, &[]);
+        let stop = match ran {
+            Ok(Some(0)) => None,
+            Ok(Some(code)) => Some(format!("`turnout {}` exited {code}", DEPLOY.join(" "))),
+            Ok(None) => Some(format!("`turnout {}` was stopped", DEPLOY.join(" "))),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Some("turnout is not installed here".to_owned())
+            }
+            Err(error) => Some(format!("turnout did not start: {error}")),
+        };
+        if let Some(summary) = stop {
+            report.mark(
+                "deploy",
+                StepStatus::Stopped,
+                summary,
+                vec![
+                    "turnout's output above says why; a stand that fails its check is rolled back"
+                        .to_owned(),
+                    "fix it, then `furca release resume`".to_owned(),
+                ],
+            );
+            return Ok(false);
+        }
+        state.deployed = true;
+        save(&self.checkpoint_path(), state)?;
+        let summary = format!("{} is on its stand, deployed by turnout", state.tag);
+        (runner.say)("deploy", &summary);
+        report.mark("deploy", StepStatus::Done, summary, Vec::new());
+        Ok(true)
+    }
+
     fn record(
         &self,
         runner: &mut Runner,
@@ -1223,10 +1442,23 @@ impl Release {
                 .as_ref()
                 .is_some_and(|p| !p.draft && !p.assets.is_empty()),
             registries: state.published.clone().unwrap_or_default(),
-            text: format!(
-                "released by `furca release run` from {}",
-                state.commit.as_deref().map(short).unwrap_or_default()
-            ),
+            text: {
+                let mut text = format!(
+                    "released by `furca release run` from {}; every shop window checked",
+                    state.commit.as_deref().map(short).unwrap_or_default()
+                );
+                if let Some(post) = &self.config.post.install {
+                    text.push_str(&format!(
+                        "; {} {} installed from the release and proven by its hash",
+                        self.config.bin(post),
+                        state.version
+                    ));
+                }
+                if self.config.post.deploy.is_some() {
+                    text.push_str("; deployed by turnout");
+                }
+                text
+            },
         };
         match record.shipped(&self.config.project.name, &self.root, &shipped) {
             Ok(()) => {
@@ -1244,11 +1476,17 @@ impl Release {
     }
 }
 
-/// How a package its registry has never seen is published the first time.
-fn first_publish(registry: Registry, name: &str) -> String {
-    match registry {
-        Registry::Crates => format!("`cargo publish -p {name}`"),
-        Registry::Npm => "`npm publish` in its directory".to_owned(),
+/// How the deploy step calls turnout: in this terminal even when
+/// `TURNOUT_DETACH` would send it to the background, since the run waits
+/// for its outcome.
+const DEPLOY: [&str; 2] = ["deploy", "--foreground"];
+
+fn status_word(status: Status) -> &'static str {
+    match status {
+        Status::Pass => "pass",
+        Status::Warn => "warn",
+        Status::Fail => "fail",
+        Status::Skip => "skip",
     }
 }
 
