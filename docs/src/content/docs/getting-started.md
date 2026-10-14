@@ -35,6 +35,7 @@ Linux x86_64, macOS arm64), unpack it and put `furca` on your `PATH`.
 | --- | --- |
 | `FURCA_VERSION` | Install this tag (`vX.Y.Z`) instead of the latest release. |
 | `FURCA_INSTALL_DIR` | Install here instead of `%LOCALAPPDATA%\Programs\furca` (Windows) or `~/.local/bin` (macOS, Linux). |
+| `FURCA_NO_PATH` | Leave the `PATH` alone: the Windows installer does not add the directory, the other says nothing about it. For an install into a scratch directory. |
 
 ## First look
 

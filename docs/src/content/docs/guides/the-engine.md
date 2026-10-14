@@ -19,13 +19,16 @@ own. See
 Releasing is a crate of its own, `furca-release`, on top of `furca-core`: it
 reads a repository's `release.toml`, proposes the next version, checks
 everything that has to agree before a tag, and then carries the release out -
-bump, changelog, gate, commit, push, CI, tag, publish, record - see
+bump, changelog, gate, commit, push, CI, tag, publish, then the shop
+windows, the install and the deploy, each proven, and the record - see
 [release](/furca/reference/release/). It reads git through `furca-core` and
 changes it through the same git door as everything else, so the split above
 holds for it too. See
 [ADR 0006](https://github.com/lacodda/furca/blob/main/docs/adr/0006-the-release-engine-is-a-crate-of-its-own.md)
 and, for why a run is redone before its commit and resumed after it,
-[ADR 0007](https://github.com/lacodda/furca/blob/main/docs/adr/0007-a-release-run-is-redone-before-its-commit-and-resumed-after.md).
+[ADR 0007](https://github.com/lacodda/furca/blob/main/docs/adr/0007-a-release-run-is-redone-before-its-commit-and-resumed-after.md);
+for why the steps after the tag prove what they did,
+[ADR 0008](https://github.com/lacodda/furca/blob/main/docs/adr/0008-after-the-tag-the-run-proves-what-went-out.md).
 
 ## Mutations
 

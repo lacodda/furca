@@ -1,12 +1,13 @@
 ---
 title: release
-description: Plan, run and resume the next release from release.toml - the number, what stands in its way, and every step from the bump to the record.
+description: Plan, run, resume and verify a release from release.toml - the number, what stands in its way, every step from the bump to the install, and the shop windows after it.
 ---
 
 ```sh
 furca release plan   [-C PATH] [--json]
 furca release run    [-C PATH] [--json]
 furca release resume [-C PATH] [--json]
+furca release verify [TAG] [--install] [-C PATH] [--json]
 ```
 
 `plan` reads `release.toml` at the root of the repository and says what the
@@ -14,9 +15,12 @@ next release is, what stands in its way and what a run would do. It changes
 nothing: no file, no tag, no commit.
 
 `run` makes the same plan and carries it out - bump, changelog, gate, commit,
-push, CI, tag, publish, record - and stops at the first step that is not
-green. `resume` carries on a run that stopped after its commit. See
-[Run](#run) below.
+push, CI, tag, publish, verify, install, deploy, record - and stops at the
+first step that is not green. `resume` carries on a run that stopped after
+its commit. See [Run](#run) below.
+
+`verify` checks the shop windows of a release that went out - its page and
+files, the registries, the links - for any tag. See [Verify](#verify).
 
 ```console
 $ furca release plan
@@ -38,6 +42,8 @@ stage v0.3.0 "Release engine: plan"
                         crates.io `furca-core`: 0.2.0
                         crates.io `furca-release` is not published yet: the first publish is by hand, and only then can a tag publish it
                         crates.io `furca`: 0.2.0
+  pass  trigger       pushing v0.3.0 starts publish.yml
+  pass  installers    2 installers ask for 3 targets the release page carries
   pass  record        stage v0.3.0 "Release engine: plan", not aimed at a week yet
 
 The run would
@@ -54,7 +60,10 @@ The run would
   publish    crates.io furca-core (0.2.0 now)
              crates.io furca-release (not there yet: the first publish is by hand)
              crates.io furca (0.2.0 now)
-  after      install
+  verify     release page: furca-v0.3.0-x86_64-pc-windows-msvc.zip
+             crates.io: furca-core
+             the links the manifests show
+  install    furca from the release, proven by its hash
 
 Ready: nothing stands in the way.
 ```
@@ -97,6 +106,8 @@ followed: the release takes the next free number.
 | `texts` | A text names a stale version of the product - see below. |
 | `changelog` | The changelog already has a section for the new number while the manifests still carry the old one - the run would write it twice. Once the manifests carry the new number, the section is the release's own. A missing section for the last release is a warning. |
 | `registries` | A registry could not be asked, so the number is not proven free. A package no registry has seen is a warning: the first publish is by hand, and only then can a tag publish it. |
+| `trigger` | Pushing the tag would not start `ci.publish`: its tag filter leaves the tag out, it starts on pushed branches only, or it cannot be read. A held trigger - no push event at all - is a warning, and the bump puts it back (see below). |
+| `installers` | `tools/install.ps1` or `tools/install.sh` asks for a target - `x86_64-unknown-linux-musl`, or the tail of one built from a variable - that no file of `[page] assets` is built for. An installer whose targets cannot be read, or `[page]` missing, is a warning. |
 | `record` | Never fails. A warning when there is no stage to read, or when the record runs another gate than `release.toml`. |
 
 `warn` is worth reading and does not stop the release; `fail` does.
@@ -105,6 +116,28 @@ A version the bump would rewrite on a Markdown table row is a `texts`
 warning: a row is as likely a record ("since v1.4.0") as a sample, and
 rewriting a record turns it into a lie. If it is history, put it in a
 historical-versions block.
+
+### The tag trigger comes back by itself
+
+A new repository's first publish is by hand - a tag cannot create a package
+its registry has never seen - and the habit was to hold the publish
+workflow's tag trigger until then, and to forget to put it back. A run never
+tags before every package is in its registry, so the hold protects nothing.
+When the publish workflow has no push event, the bump writes one into its
+`on:` - `on: workflow_dispatch`, `on: [a, b]` and a block map are all
+rewritten, every other line kept - and the release commit carries it:
+
+```yaml
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+```
+
+The workflow is read with a YAML parser and the tag matched against its
+filters as GitHub matches them (`*`, `**`, `?`, `+`, `[0-9]`, `!`), so a
+`tags:` in a comment is no trigger. A comment that explains the hold stays,
+and is worth deleting.
 
 ## Versions in texts
 
@@ -158,16 +191,19 @@ $ furca release run
   publish    publish.yml running, release.yml running
   publish    publish.yml passed, release.yml passed
   publish    0.4.0 is in crates.io; the release page has 6 files
+  verify     page, registries, links pass
+  install    tools/install.ps1 for v0.4.0
+  install    comparing C:\Users\ada\AppData\Local\Programs\furca\furca.exe with the release's own build
+  install    furca 0.4.0 is installed, the release's own build
   record     v0.4.0 shipped
 furca v0.4.0 is out.
 
-  done  plan       furca 0.3.0 -> 0.4.0
-  done  bump       8 places say 0.4.0
+  done     plan       furca 0.3.0 -> 0.4.0
+  done     bump       8 places say 0.4.0
   ...
-  done  record     the record has v0.4.0 as shipped
-
-Left for you:
-  install the released build with the repository's installer
+  done     install    furca 0.4.0 is installed, the release's own build
+  skipped  deploy     release.toml asks for no deploy
+  done     record     the record has v0.4.0 as shipped
 ```
 
 Each step is printed on standard error as it happens; the report goes to
@@ -176,7 +212,7 @@ standard output at the end. Lists are shortened here.
 | Step | What it does | It stops when |
 | --- | --- | --- |
 | `plan` | Makes the plan. The branch must follow a remote, the working tree must be clean, and the remote must have nothing the branch lacks. | A check fails. |
-| `bump` | Rewrites every place in `steps.bump` and nothing else, keeping each file's formatting: comments, key order, line endings. A Cargo workspace's tracked `Cargo.lock` is bumped with it, so a build does not change it later. | A file no longer says what the plan saw. |
+| `bump` | Rewrites every place in `steps.bump` and nothing else, keeping each file's formatting: comments, key order, line endings. A Cargo workspace's tracked `Cargo.lock` is bumped with it, so a build does not change it later. A held tag trigger is put back. | A file no longer says what the plan saw. |
 | `changelog` | Renders the release's section with [git-cliff](https://git-cliff.org/) from the repository's `cliff.toml` (git-cliff's default without one) and puts it under the changelog's header. Everything already in the file stays byte for byte. | - |
 | `gate` | Runs `gate.commands` one by one from the root, through `cmd /C` on Windows and `sh -c` elsewhere, their output on the terminal. | A command fails, or the gate changed a tracked file: a gate checks, it does not edit. |
 | `commit` | Commits the release's edits as `chore(release): vX.Y.Z` with your own `git`, hooks and all. | git refuses. |
@@ -184,11 +220,32 @@ standard output at the end. Lists are shortened here.
 | `ci` | Waits for `ci.workflow` on the pushed commit, as [push --wait-ci](/furca/reference/push/) does. | It fails, is skipped, never starts, or is still running after two hours. |
 | `tag` | Makes the annotated tag on the green commit and pushes it. Every package must already be in its registry: a tag cannot create one. | A package was never published, or the tag already names another commit, here or on the remote. |
 | `publish` | Waits for the workflows the tag starts, `ci.publish` among them, then for each registry to hold the version. | A workflow fails, or a registry still lacks the version ten minutes after. |
-| `record` | Writes the release into the owner's [record](https://lacodda.github.io/rigger/) as shipped - tag, registries, release page - when rigger keeps this project here. Without one it says so and carries on. | - |
+| `verify` | Checks the shop windows of the tag, as [`verify`](#verify) does: the page and its files, the registries, the links. | Any of them fails. |
+| `install` | With `[post.install]`: runs `tools/install.ps1` (Windows) or `tools/install.sh` with `{APP}_VERSION` pinned to the tag, then proves it - see [The install proof](#the-install-proof). Skipped without it. | The installer fails, or the proof does. |
+| `deploy` | With `[post.deploy]`: runs `turnout deploy --foreground` from the root. turnout's own configuration names the stand; it checks the stand's health and rolls a failed deploy back. Skipped without it. | turnout exits non-zero or is not installed. |
+| `record` | Writes the release into the owner's [record](https://lacodda.github.io/rigger/) as shipped - tag, registries, release page, install, deploy - when rigger keeps this project here. Without one it says so and carries on. | - |
 
-The steps after the tag that the release lists under `post` - installing the
-released build, deploying - are left to a person for now, and the report says
-so.
+### The install proof
+
+An installer that exits 0 has not proven anything: an alias can keep the old
+binary, a self-update can say it updated and not have, and a local build of
+the same number prints the same `--version`. So the `install` step checks
+what is on the machine afterwards:
+
+1. `found` - the program, by the name `post.install.bin`, is on the `PATH`.
+   A first install adds its directory to the user `PATH`, which the running
+   process does not see: open a new terminal and `resume`.
+2. `version` - its `--version` names the release's number as a word of its
+   own.
+3. `build` - its SHA-256 equals that of the program inside the release
+   page's archive for this machine's target (`x86_64-pc-windows-msvc`, ...),
+   downloaded and unpacked by the system `tar` (`unzip` for a zip outside
+   Windows). This is what tells the release's own bytes from anything else.
+4. `aliases` - every name in `post.install.aliases` is on the `PATH` with the
+   same hash.
+
+On Windows the installer renames a running `furca.exe` aside before it copies
+the new one, so a furca can install its own release.
 
 ### Stopping and resuming
 
@@ -211,6 +268,11 @@ step that stopped:
   and run it again for the tag, or publish by hand; `resume` then finds the
   version in the registries, which is what counts. The tag's other workflows -
   the release page among them - still have to end green.
+- **A shop window is out of order.** The tag is out and stays. Mend it - run
+  the release workflow again for a missing file, fix the site for a dead
+  link - then `resume`, which verifies again.
+- **The install or the deploy failed.** Fix it, then `resume`: a step that
+  passed is not repeated, so a red deploy does not install again.
 - **The run was killed.** `resume` picks up the step it was in. A run killed
   before its commit has its edits taken back by the next `run`.
 
@@ -233,7 +295,6 @@ $ furca release run --json
   "commit": "4c3ea3f…",
   "registries": ["crates.io"],
   "page": { "draft": false, "assets": ["furca-v0.4.0-x86_64-pc-windows-msvc.zip"], "url": "https://github.com/lacodda/furca/releases/tag/v0.4.0" },
-  "after": ["install the released build with the repository's installer"],
   "git": [
     { "args": ["push", "--quiet", "origin", "HEAD:refs/heads/main"], "code": 0, "millis": 1840 }
   ]
@@ -245,12 +306,12 @@ output goes to standard error, so standard output stays one document.
 
 | Field | Meaning |
 | --- | --- |
-| `released` | `true` once the release is tagged, published and recorded. |
-| `steps[].name` | `plan`, `bump`, `changelog`, `gate`, `commit`, `push`, `ci`, `tag`, `publish`, `record`, always in this order. |
+| `released` | `true` once the release is tagged, published, in every shop window, installed and deployed where `release.toml` asks, and recorded. |
+| `steps[].name` | `plan`, `bump`, `changelog`, `gate`, `commit`, `push`, `ci`, `tag`, `publish`, `verify`, `install`, `deploy`, `record`, always in this order. |
 | `steps[].status` | `done`; `skipped` - nothing to do, or done before a resume; `stopped` - the run stopped here; `ahead` - not reached. |
+| `steps[].details` | For `verify` and `install`, one line per check: `pass build: ...`, its details indented under it. |
 | `registries` | The registries that hold the version. |
 | `page` | The release page the tag's workflows put out; `null` when there is none. |
-| `after` | What is left to a person. |
 | `git` | Every git command the run made, in order. |
 
 ### In CI
@@ -268,6 +329,47 @@ repository carries an action that installs it by tag:
 
 A run in CI pushes with the job's token, so it needs `contents: write`, and
 commits as whoever `git config user.name` and `user.email` name there.
+
+## Verify
+
+```console
+$ furca release verify v0.4.0 --install
+furca v0.4.0
+
+  pass  page        out with every file release.toml lists (3 of 6)
+                      https://github.com/lacodda/furca/releases/tag/v0.4.0
+  pass  registries  0.4.0 is in crates.io
+                      crates.io `furca-core`: 0.4.0
+                      crates.io `furca-release`: 0.4.0
+  pass  links       2 links answer
+                      https://lacodda.github.io/furca/: 200
+                      https://github.com/lacodda/furca: 200
+  pass  installer   tools/install.ps1 installed v0.4.0
+  pass  found       C:\Users\ada\AppData\Local\Temp\.tmpXj4gTa\furca.exe
+  pass  version     C:\Users\ada\AppData\Local\Temp\.tmpXj4gTa\furca.exe says `furca 0.4.0`
+  pass  build       the release's own build, as in furca-v0.4.0-x86_64-pc-windows-msvc.zip
+                      sha256 e4591bf9a6ff4c89b20ce593d1c59de6968ab15bd5f903cc1f1f007b305c7af4
+
+Every shop window is in order.
+```
+
+`verify` reads what a stranger sees of a release that went out. `TAG`
+defaults to the newest release tag. Nothing is changed.
+
+| Check | Fails when |
+| --- | --- |
+| `page` | The tag has no release page, it is still a draft, or it lacks a file `[page] assets` lists. Other files on it are fine. |
+| `registries` | A package's registry does not hold the version. One that never saw the package says how the first publish goes by hand. |
+| `links` | A homepage, documentation or repository link a manifest shows does not answer with a success after its redirects. No links at all is a warning. |
+
+`--install` also installs the release into a temporary directory with the
+repository's installer - `{APP}_INSTALL_DIR` set to it, `{APP}_NO_PATH=1` so
+the `PATH` is left alone - and proves it as the run's
+[install proof](#the-install-proof) does, there instead of on the `PATH`.
+It needs `[post.install]`.
+
+The run's `verify` step is the same check without `--install`; its `install`
+step proves the owner's own install.
 
 ## release.toml
 
@@ -301,8 +403,17 @@ name = "turnout-cli"
 manifest = "npm/package.json"
 wraps = "turnout"
 
-[[post]]
-kind = "install"
+[page]
+assets = [
+    "turnout-{tag}-x86_64-pc-windows-msvc.zip",
+    "turnout-{tag}-x86_64-unknown-linux-gnu.tar.gz",
+    "turnout-{tag}-aarch64-apple-darwin.tar.gz",
+]
+
+[post.install]
+aliases = ["tn"]
+
+[post.deploy]
 ```
 
 Paths are relative to the root and use `/`. Every problem in the file is
@@ -322,7 +433,11 @@ reported at once; an unknown key is a problem, not something to ignore.
 | `package[].name` | The name the registry knows the package by; it has to match the manifest. |
 | `package[].manifest` | The manifest that describes the package. |
 | `package[].wraps` | The package of another registry this one ships the binary of - an npm wrapper around a crate's CLI, which may share its name. The two must describe the product the same way. |
-| `post[].kind` | What happens after the tag, in order: `install` installs the released build with the repository's own installer, `deploy` deploys with turnout, whose own configuration names the stand. |
+| `page.assets` | The files the tag's release page has to carry, `{tag}` and `{version}` filled in. `verify` checks the page has them; `installers` checks every target an installer asks for is among them. |
+| `post.install` | Install the release for the owner after the publish with `tools/install.ps1` and `tools/install.sh`, which must exist, and prove it. |
+| `post.install.bin` | The program the installers put on the `PATH`; the project's name when left out. Upper-cased, it prefixes the installers' variables: `FURCA_VERSION`. |
+| `post.install.aliases` | Other names the installers make for it, such as `tn` for `turnout`; each must be the same build. |
+| `post.deploy` | Deploy with turnout after the install. It takes no keys: the stand is turnout's own configuration. |
 
 The file is public and holds nothing private - no machine paths, no stand
 names, no tokens. What belongs to the owner's machine is asked of the tool
@@ -357,7 +472,8 @@ $ furca release plan --json
     "publish": [
       { "registry": "crates", "name": "furca-release", "latest": null, "first": true }
     ],
-    "post": [{ "kind": "install" }]
+    "verify": ["release page: furca-v0.3.0-x86_64-pc-windows-msvc.zip", "crates.io: furca-core", "the links the manifests show"],
+    "post": { "install": { "bin": null, "aliases": [] }, "deploy": null }
   },
   "ready": true
 }
@@ -372,19 +488,22 @@ Lists are shortened here to one entry each.
 | `proposed.bump` | `patch`, `minor` or `major` from `released`; `null` for a first release. |
 | `stage` | The stage the record says is being built; `null` without a record. |
 | `changes` | Commits since the last release tag, newest first. `kind` is `null` for a message outside the convention. |
-| `checks[].name` | `number`, `commits`, `stack`, `manifests`, `readme`, `descriptions`, `texts`, `changelog`, `registries`, `record` - stable identifiers. |
+| `checks[].name` | `number`, `commits`, `stack`, `manifests`, `readme`, `descriptions`, `texts`, `changelog`, `registries`, `trigger`, `installers`, `record` - stable identifiers. |
 | `checks[].status` | `pass`, `warn`, `fail`, or `skip` for a source that was not asked. |
 | `steps.bump` | Every edit the bump makes: a manifest key, or a line of a text. |
 | `steps.publish[].first` | `true` when the registry has never seen the package. |
+| `steps.verify` | What the `verify` step looks at. |
+| `steps.post` | `install` and `deploy` as `release.toml` has them; `null` for one it does not ask for. |
 | `ready` | `true` when no check fails. |
 
 ## Exit status
 
 `plan`: `0` when the release is ready, `1` when something stands in its way.
 `run` and `resume`: `0` when the release is out, `1` when the run stopped -
-the report says where and why. All three: `2` when there is no answer at
-all - no `release.toml`, a problem in it, no repository, or a forge or
-registry that could not be asked.
+the report says where and why. `verify`: `0` when every check passes, `1`
+when one fails. All four: `2` when there is no answer at all - no
+`release.toml`, a problem in it, no repository, no forge behind the remote,
+or a forge or registry that could not be asked.
 
 ## Options
 
@@ -397,5 +516,6 @@ registry that could not be asked.
 
 - [ADR 0006](https://github.com/lacodda/furca/blob/main/docs/adr/0006-the-release-engine-is-a-crate-of-its-own.md) - why the engine is a crate of its own.
 - [ADR 0007](https://github.com/lacodda/furca/blob/main/docs/adr/0007-a-release-run-is-redone-before-its-commit-and-resumed-after.md) - why a run is redone before its commit and resumed after it.
+- [ADR 0008](https://github.com/lacodda/furca/blob/main/docs/adr/0008-after-the-tag-the-run-proves-what-went-out.md) - why the steps after the tag prove what they did.
 - [push](/furca/reference/push/) - how the forge is asked and with which token.
 - [ADR 0003](https://github.com/lacodda/furca/blob/main/docs/adr/0003-release-engine-inside-the-client.md) - the pipeline and the invariants it holds.

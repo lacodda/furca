@@ -32,7 +32,7 @@ $ furca refs --json | jq '.branches[0]'
 - **Fast, and it says so.** Opening a 100 000-commit repository and reading the first 500 rows of its graph takes about 25 ms against a budget of 100 ms. The budgets are part of the gate, and every release publishes what it measured on [the budgets page](https://lacodda.github.io/furca/concepts/budgets/).
 - **Parents after children, always.** `furca log` orders by the graph and uses time only to break ties, so a machine with a slow clock cannot put a parent above its child - the list draws as a graph top to bottom.
 - **JSON for scripts and assistants.** Every command takes `--json`; the output is the engine's own types, not a second format kept in step by hand.
-- **A release that runs itself.** `furca release plan` proposes the next free version and checks every shop window before a tag; `furca release run` then carries it out - bump, changelog, gate, commit, push, CI, tag, publish - and stops at the first red step, and `resume` picks up after the fix. The tag only ever lands on a commit whose CI is green. See [release](https://lacodda.github.io/furca/reference/release/).
+- **A release that runs itself.** `furca release plan` proposes the next free version and checks every shop window before a tag; `furca release run` carries it out - bump, changelog, gate, commit, push, CI, tag, publish - then verifies the release page, registries and links, installs the release and proves the installed binary is its own build. It stops at the first red step; `resume` picks up after the fix. See [release](https://lacodda.github.io/furca/reference/release/).
 - **One engine, three doors.** `furca-core` is a plain Rust library; the CLI, the desktop window and - later - an MCP server are thin wrappers around it. See [ADR 0002](https://github.com/lacodda/furca/blob/main/docs/adr/0002-one-core-three-doors.md).
 
 ## Install
@@ -47,7 +47,7 @@ curl -fsSL https://raw.githubusercontent.com/lacodda/furca/main/tools/install.sh
 
 ## Status
 
-**v0.4.0** is the engine and the CLI - `status`, `refs` and `log` held to measured speed budgets, `push --wait-ci` and `checks` - and the release engine whole: `furca release plan`, `run` and `resume`, which released this version itself. `furca-core` and `furca-release` are published as libraries; the CLI installs from the release. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
+**v0.5.0** is the engine and the CLI - `status`, `refs` and `log` held to measured speed budgets, `push --wait-ci` and `checks` - and the release engine whole: `furca release plan`, `run`, `resume` and `verify`, which released this version itself and installed it. `furca-core` and `furca-release` are published as libraries; the CLI installs from the release. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 
