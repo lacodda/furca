@@ -6,8 +6,11 @@
 //! The record is optional. Without rigger on the machine, or without the
 //! project in it, the plan proposes a number from the commits alone and the
 //! run writes nothing, and both say so.
+//!
+//! The record also keeps the list of the owner's projects, which is where
+//! `furca line` finds the repositories to read when it is named none.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use semver::Version;
@@ -48,6 +51,13 @@ pub struct Shipped {
     pub registries: Vec<String>,
     /// One line on how it went.
     pub text: String,
+}
+
+/// A repository the record keeps, under its project's name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Kept {
+    pub name: String,
+    pub path: PathBuf,
 }
 
 /// The record of the project named `name` whose repository is `root`.
@@ -110,6 +120,13 @@ impl Record for Rigger {
 }
 
 impl Rigger {
+    /// The repositories of the projects the record keeps, in its order.
+    /// `Err` says why there is no list: no rigger here, or one that did not
+    /// answer.
+    pub fn repositories(&self) -> Result<Vec<Kept>, String> {
+        kept(&rigger(&["project", "list", "--json"])?)
+    }
+
     fn here(&self, name: &str, root: &Path) -> Result<serde_json::Value, String> {
         let project = rigger(&["project", "show", name, "--json"])?;
         // A project of the same name elsewhere is another project: reading
@@ -140,6 +157,28 @@ pub(crate) fn stage(json: &serde_json::Value) -> Option<Stage> {
         week: text("week"),
         friday: text("friday"),
     })
+}
+
+/// Reads the repositories out of `rigger project list --json`. A project
+/// that is a folder rather than a repository, one with no path, and one the
+/// owner retired are not part of the line's repositories.
+pub(crate) fn kept(json: &serde_json::Value) -> Result<Vec<Kept>, String> {
+    let projects = json
+        .as_array()
+        .ok_or("rigger project list printed something other than a list")?;
+    Ok(projects
+        .iter()
+        .filter(|p| p.get("kind").and_then(|k| k.as_str()) == Some("repo"))
+        .filter(|p| p.get("retired_at").is_none_or(serde_json::Value::is_null))
+        .filter_map(|p| {
+            let name = p.get("name")?.as_str()?;
+            let path = p.get("path")?.as_str().filter(|path| !path.is_empty())?;
+            Some(Kept {
+                name: name.to_owned(),
+                path: PathBuf::from(path),
+            })
+        })
+        .collect())
 }
 
 /// A stage's version as the record spells it: `v0.3.0`, or `v1.15` for a
@@ -228,5 +267,22 @@ mod tests {
         let unaimed = serde_json::json!({ "version": "v0.3.0", "title": "x", "week": null });
         assert_eq!(stage(&unaimed).expect("a stage").week, None);
         assert_eq!(stage(&serde_json::json!({ "version": "next" })), None);
+    }
+
+    #[test]
+    fn the_line_is_the_repositories_the_record_keeps_and_has_not_retired() {
+        let json = serde_json::json!([
+            { "name": "app", "path": "/src/app", "kind": "repo", "retired_at": null },
+            { "name": "old", "path": "/src/old", "kind": "repo", "retired_at": "2026-10-13T17:41:26Z" },
+            { "name": "notes", "path": "/notes", "kind": "folder", "retired_at": null },
+            { "name": "place", "path": null, "kind": "repo", "retired_at": null },
+            { "name": "lib", "path": "/src/lib", "kind": "repo" }
+        ]);
+        let kept = kept(&json).expect("a list");
+        let names: Vec<&str> = kept.iter().map(|k| k.name.as_str()).collect();
+        assert_eq!(names, ["app", "lib"]);
+        assert_eq!(kept[0].path, PathBuf::from("/src/app"));
+
+        assert!(super::kept(&serde_json::json!({ "error": "x" })).is_err());
     }
 }

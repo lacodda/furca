@@ -387,3 +387,132 @@ fn release_verify_needs_a_forge_and_says_why_it_has_none() {
     );
     assert!(output.stdout.is_empty(), "no half of a document");
 }
+
+/// Runs `furca line` with `args` and nothing else: it takes no `-C`.
+fn furca_line(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_furca"))
+        .arg("line")
+        .args(args)
+        .output()
+        .expect("furca runs")
+}
+
+/// A repository named `name` in `parent` with one commit tagged `v0.1.0`
+/// and `origin/main` on it, as if pushed: settled until a test unsettles it.
+fn settled_repo(parent: &Path, name: &str) -> std::path::PathBuf {
+    let dir = parent.join(name);
+    std::fs::create_dir_all(&dir).expect("dir");
+    git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+    // The helper's own config file is the repository's business, not a change.
+    std::fs::write(
+        dir.join(".git").join("info").join("exclude"),
+        ".no-config\n",
+    )
+    .expect("exclude");
+    git(&dir, &["commit", "--quiet", "--allow-empty", "-m", "first"]);
+    git(&dir, &["tag", "v0.1.0"]);
+    git(
+        &dir,
+        &["remote", "add", "origin", "https://example.com/app.git"],
+    );
+    git(&dir, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git(&dir, &["config", "branch.main.remote", "origin"]);
+    git(&dir, &["config", "branch.main.merge", "refs/heads/main"]);
+    dir
+}
+
+#[test]
+fn line_reads_every_repository_a_pattern_matches_into_one_table() {
+    let parent = tempfile::tempdir().expect("temp dir");
+    settled_repo(parent.path(), "alpha");
+    let beta = settled_repo(parent.path(), "beta");
+    git(
+        &beta,
+        &["commit", "--quiet", "--allow-empty", "-m", "second"],
+    );
+    std::fs::write(beta.join("notes.txt"), "scratch\n").expect("write");
+    std::fs::create_dir_all(parent.path().join("not-a-repo")).expect("dir");
+    let pattern = parent.path().join("*");
+    let pattern = pattern.to_str().expect("utf-8");
+
+    let output = furca_line(&[pattern]);
+    assert_eq!(output.status.code(), Some(1), "beta holds work only here");
+    let text = String::from_utf8(output.stdout).expect("utf-8");
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].starts_with("REPOSITORY  BRANCH"), "{text}");
+    assert!(
+        lines[1].starts_with("alpha ") && lines[1].ends_with("  -"),
+        "{text}"
+    );
+    assert!(lines[1].contains(" up to date "), "{text}");
+    assert!(lines[2].starts_with("beta "), "{text}");
+    assert!(lines[2].contains(" 1 ahead "), "{text}");
+    assert!(lines[2].ends_with("  1 untracked, 1 unpushed"), "{text}");
+    assert_eq!(
+        lines.len(),
+        5,
+        "no row for the directory that is not a repository"
+    );
+    assert_eq!(
+        lines[4],
+        "2 repositories: 1 settled, 1 with work only here."
+    );
+
+    let output = furca_line(&[pattern, "--json"]);
+    assert_eq!(output.status.code(), Some(1));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    assert_eq!(value["source"], "paths");
+    assert_eq!(value["settled"], false);
+    let alpha = &value["repositories"][0];
+    assert_eq!(alpha["name"], "alpha");
+    assert!(
+        alpha["path"]
+            .as_str()
+            .is_some_and(|p| Path::new(p).is_absolute())
+    );
+    assert_eq!(alpha["settled"], true);
+    assert!(alpha.get("error").is_none());
+    let beta = &value["repositories"][1]["standing"];
+    assert_eq!(beta["branch"], "main");
+    assert_eq!(beta["upstream"]["name"], "origin/main");
+    assert_eq!(beta["upstream"]["ahead"], 1);
+    assert_eq!(beta["upstream"]["behind"], 0);
+    assert_eq!(beta["untracked"], 1);
+    assert_eq!(beta["unpushed"], 1);
+    assert_eq!(beta["tag"]["name"], "v0.1.0");
+    assert_eq!(beta["tag"]["since"], 1);
+    assert_eq!(beta["commit"]["subject"], "second");
+    assert!(beta["operation"].is_null());
+}
+
+#[test]
+fn line_exits_zero_when_every_repository_is_settled() {
+    let parent = tempfile::tempdir().expect("temp dir");
+    let alpha = settled_repo(parent.path(), "alpha");
+    std::fs::create_dir_all(alpha.join("src")).expect("dir");
+    let inside = alpha.join("src");
+
+    // A path inside a repository names it, and naming it twice reads it once.
+    let output = furca_line(&[
+        inside.to_str().expect("utf-8"),
+        alpha.to_str().expect("utf-8"),
+    ]);
+    assert_eq!(output.status.code(), Some(0));
+    let text = String::from_utf8(output.stdout).expect("utf-8");
+    assert!(
+        text.trim_end().ends_with("1 repository, all settled."),
+        "{text}"
+    );
+    assert_eq!(text.lines().count(), 4, "{text}");
+}
+
+#[test]
+fn line_refuses_a_pattern_that_matches_nothing_and_exits_two() {
+    let parent = tempfile::tempdir().expect("temp dir");
+    let pattern = parent.path().join("*");
+    let output = furca_line(&[pattern.to_str().expect("utf-8")]);
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("matches no repository"), "{stderr}");
+    assert!(output.stdout.is_empty());
+}

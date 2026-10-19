@@ -7,10 +7,11 @@ changelog = "CHANGELOG.md"
 # The workspace root carries the version for every crate and for the path
 # dependencies between them.
 manifests = ["Cargo.toml", "package.json", "src-tauri/tauri.conf.json"]
-# ADRs record what happened. The release page's examples and the refs sample
-# show numbers of their own, not the version being released.
+# ADRs record what happened. The release page's examples, the refs sample and
+# the line sample show numbers of their own, not the version being released.
 as_written = [
     "docs/adr/",
+    "docs/src/content/docs/reference/line.md",
     "docs/src/content/docs/reference/release.md",
     "docs/src/content/docs/reference/refs.md",
 ]

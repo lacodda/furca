@@ -9,6 +9,8 @@
 //! "no" (a release plan that is not ready, a run that stopped, CI that is
 //! not green), 2 when it could not answer at all - the same split as `grep`.
 
+mod line;
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -70,6 +72,15 @@ enum Command {
         /// The commit: an id, a branch, a tag. Defaults to HEAD.
         #[arg(default_value = "HEAD")]
         revision: String,
+    },
+    /// Show where every repository of the line stands: uncommitted, unpushed, unreleased.
+    Line {
+        /// Repositories to read: paths inside them, or patterns such as "DIR/*". Defaults to every repository the rigger record keeps.
+        #[arg(value_name = "PATH")]
+        paths: Vec<String>,
+        /// Print JSON instead of text.
+        #[arg(long)]
+        json: bool,
     },
     /// Plan and run the next release from release.toml, and verify one that went out.
     Release {
@@ -150,6 +161,20 @@ fn run(command: Command) -> Result<Answer, String> {
                 .log(tips, limit)
                 .map_err(|e| e.to_string())?;
             emit(common.json, &log, log_text)
+        }
+        Command::Line { paths, json } => {
+            let (source, targets) = if paths.is_empty() {
+                (line::Source::Record, line::recorded()?)
+            } else {
+                (line::Source::Paths, line::targets(&paths)?)
+            };
+            let line = line::read(source, targets);
+            emit(json, &line, line::text)?;
+            Ok(if line.settled {
+                Answer::Yes
+            } else {
+                Answer::No
+            })
         }
         Command::Push { common, wait_ci } => push(&common, wait_ci),
         Command::Checks { common, revision } => checks(&common, &revision),

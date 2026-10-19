@@ -54,7 +54,7 @@ pub use manifest::Field;
 pub use plan::{
     Check, CiStep, Edit, Origin, Plan, Proposal, Publish, Release, Sources, Status, Steps,
 };
-pub use record::{Reading, Record, Rigger, Shipped, Stage};
+pub use record::{Kept, Reading, Record, Rigger, Shipped, Stage};
 pub use registry::{Http, Registries};
 pub use run::{CHECKPOINT, ForgeFor, Report, Runner, STEPS, Step, StepStatus};
 pub use texts::Mention;

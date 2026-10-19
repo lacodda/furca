@@ -20,7 +20,7 @@ A repository without commits reads `On main, no commits yet`; a detached
 `HEAD` reads `HEAD detached at 3f1c2b9`.
 
 The state of the working tree - changed, staged and untracked files - is not
-part of `status` yet.
+part of `status` yet; [line](/furca/reference/line/) counts them.
 
 ## JSON
 
@@ -51,4 +51,5 @@ $ furca status --json
 ## Related
 
 - [refs](/furca/reference/refs/) - every branch and tag, not only the current one.
+- [line](/furca/reference/line/) - where many repositories stand at once.
 - [The engine](/furca/guides/the-engine/) - how the answer is computed.

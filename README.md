@@ -29,8 +29,21 @@ $ furca refs --json | jq '.branches[0]'
 { "name": "main", "target": "171154d…", "upstream": "origin/main", "head": true }
 ```
 
+<!-- The tags below are other repositories' own: the release bump leaves them. -->
+<!-- historical versions -->
+```console
+$ furca line "$HOME/src/*"
+REPOSITORY  BRANCH  UPSTREAM    TAG     TAGGED      SINCE  ONLY HERE
+api         main    up to date  v1.4.0  2026-10-02      0  -
+notes       main    3 ahead     v0.2.1  2026-09-28      5  2 changed, 1 untracked, 3 unpushed
+
+2 repositories: 1 settled, 1 with work only here.
+```
+<!-- /historical versions -->
+
 - **Fast, and it says so.** Opening a 100 000-commit repository and reading the first 500 rows of its graph takes about 25 ms against a budget of 100 ms. The budgets are part of the gate, and every release publishes what it measured on [the budgets page](https://lacodda.github.io/furca/concepts/budgets/).
 - **Parents after children, always.** `furca log` orders by the graph and uses time only to break ties, so a machine with a slow clock cannot put a parent above its child - the list draws as a graph top to bottom.
+- **Every repository at a glance.** `furca line` reads a whole set of repositories at once - the ones your [rigger](https://lacodda.github.io/rigger/) record keeps, or a pattern - and says what each holds that is nowhere else yet: uncommitted, unpushed, stashed, and what has not been released since the last tag. See [line](https://lacodda.github.io/furca/reference/line/).
 - **JSON for scripts and assistants.** Every command takes `--json`; the output is the engine's own types, not a second format kept in step by hand.
 - **A release that runs itself.** `furca release plan` proposes the next free version and checks every shop window before a tag; `furca release run` carries it out - bump, changelog, gate, commit, push, CI, tag, publish - then verifies the release page, registries and links, installs the release and proves the installed binary is its own build. It stops at the first red step; `resume` picks up after the fix. See [release](https://lacodda.github.io/furca/reference/release/).
 - **One engine, three doors.** `furca-core` is a plain Rust library; the CLI, the desktop window and - later - an MCP server are thin wrappers around it. See [ADR 0002](https://github.com/lacodda/furca/blob/main/docs/adr/0002-one-core-three-doors.md).
@@ -47,7 +60,7 @@ curl -fsSL https://raw.githubusercontent.com/lacodda/furca/main/tools/install.sh
 
 ## Status
 
-**v0.5.0** is the engine and the CLI - `status`, `refs` and `log` held to measured speed budgets, `push --wait-ci` and `checks` - and the release engine whole: `furca release plan`, `run`, `resume` and `verify`, which released this version itself and installed it. `furca-core` and `furca-release` are published as libraries; the CLI installs from the release. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
+**v0.5.0** is the engine and the CLI - `status`, `refs` and `log` held to measured speed budgets, `push --wait-ci`, `checks` and `line` across many repositories - and the release engine whole: `furca release plan`, `run`, `resume` and `verify`, which released this version itself and installed it. `furca-core` and `furca-release` are published as libraries; the CLI installs from the release. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 
