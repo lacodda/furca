@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0] - 2026-10-19
+
+### Features
+- Read where a repository stands, find repos by a pattern
+- Show where every repository of the line stands
+
 ## [0.5.0] - 2026-10-14
 
 ### Bug Fixes
