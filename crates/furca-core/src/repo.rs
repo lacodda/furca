@@ -55,14 +55,29 @@ impl Repository {
     /// Opens the repository containing `path`, discovering it the way `git`
     /// itself would — walking up through parent directories.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let mut inner = gix::discover(path.as_ref()).map_err(wrap(Error::Open))?;
+        Ok(Self::with(
+            gix::discover(path.as_ref()).map_err(wrap(Error::Open))?,
+        ))
+    }
+
+    /// Opens the repository at `path` exactly - the root of a working tree,
+    /// or a git directory - without walking up as [`Repository::open`]
+    /// does: for a path recorded as a repository, where a repository found
+    /// further up would be another one.
+    pub fn at(path: impl AsRef<Path>) -> Result<Self, Error> {
+        Ok(Self::with(
+            gix::open(path.as_ref()).map_err(wrap(Error::Open))?,
+        ))
+    }
+
+    fn with(mut inner: gix::Repository) -> Self {
         // A history walk reads every commit twice: once to order it, once to
         // describe it. Without a cache the second read decompresses again.
         inner.object_cache_size_if_unset(OBJECT_CACHE_BYTES);
-        Ok(Self {
+        Self {
             inner,
             commands: CommandLog::default(),
-        })
+        }
     }
 
     /// The root of the working tree; `None` for a bare repository.

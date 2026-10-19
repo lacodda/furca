@@ -133,11 +133,19 @@ fn person(signature: gix::actor::SignatureRef<'_>) -> Person {
     let signature = signature.trim();
     // A malformed date is shown as the epoch rather than failing the whole
     // log: one bad commit from an old import must not hide the history.
-    let time = signature.time().unwrap_or_default();
+    let (time, seconds) = moment(signature.time().unwrap_or_default());
     Person {
         name: signature.name.to_string(),
         email: signature.email.to_string(),
-        time: time.format_or_unix(gix::date::time::format::ISO8601_STRICT),
-        seconds: time.seconds,
+        time,
+        seconds,
     }
+}
+
+/// A moment as RFC 3339 with its own UTC offset, and as Unix seconds.
+pub(crate) fn moment(time: gix::date::Time) -> (String, i64) {
+    (
+        time.format_or_unix(gix::date::time::format::ISO8601_STRICT),
+        time.seconds,
+    )
 }
