@@ -13,11 +13,13 @@ keywords = ["git", "gitoxide", "log", "refs"]
 categories = ["development-tools"]
 
 [dependencies]
-# `sha1` is a feature of its own, outside `max-performance-safe`: without it
+# `sha1` is a feature of its own, outside `max-performance`: without it
 # gix-hash fails with a cascade of type errors that hide the real cause.
+# `max-performance` is pure Rust since gix 0.90, which retired the C zlib and
+# the `-safe` twin that used to stand for that.
 # `basic` brings objects and references, `revision` the history walk,
 # `status` the working tree's changes.
-gix = { version = "0.89.0", default-features = false, features = ["max-performance-safe", "sha1", "basic", "revision", "status"] }
+gix = { version = "0.90.0", default-features = false, features = ["max-performance", "sha1", "basic", "revision", "status"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
