@@ -36,10 +36,10 @@ jobs:
             })
             return data.id
 
-  # The CLI is what ships until the window exists (v0.7): the desktop shell in
-  # src-tauri is scaffolding, and an installer of scaffolding would put a
-  # non-product on the release page under the product's name. CI still builds
-  # it on every push so it cannot rot in the meantime.
+  # The CLI is what the release page carries. The window exists since v0.7,
+  # but its installers wait for signing (v0.23): an unsigned installer on the
+  # release page is one SmartScreen and Gatekeeper refuse. CI bundles it on
+  # every push, for every platform, so packaging cannot rot in the meantime.
   cli:
     name: cli (${{ matrix.target }})
     needs: draft
@@ -134,10 +134,60 @@ jobs:
               data: fs.readFileSync('target/budgets.json'),
             })
 
+  # The window's budgets travel the same way, measured on the built app.
+  window-budgets:
+    name: window budgets (${{ matrix.target }})
+    needs: draft
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Linux build deps (webkit2gtk for Tauri) and a display
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Measure the window
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; else run=""; fi
+          $run cargo bench -p furca-desktop --bench window --features custom-protocol
+      - name: Upload to the draft release
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs')
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.draft.outputs.release_id }},
+              name: 'budgets-window-${{ matrix.target }}.json',
+              data: fs.readFileSync('target/budgets-window.json'),
+            })
+
   publish:
     name: publish
-    # `cli` and `budgets` for the ordering, `draft` for the release id.
-    needs: [draft, cli, budgets]
+    # The builds and the measurements for the ordering, `draft` for the
+    # release id.
+    needs: [draft, cli, budgets, window-budgets]
     runs-on: ubuntu-latest
     permissions:
       contents: write
