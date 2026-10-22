@@ -1,11 +1,152 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-density="compact">
+  <!--
+    The whole window is compact, as a git client's screen is: controls stand
+    on 32px rows rather than 36. On <html> rather than the app's root, because
+    menus and dialogs portal to the body and are part of the window too.
+  -->
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Furca</title>
+    <!--
+      The first thing the window shows, before a line of the application has
+      run: the mark, the name, the promise and the version, on the window's own
+      background. It is here and not in React because React is what is still
+      loading; the React half (src/shell/Splash.tsx) draws the same picture
+      with the same geometry and takes this one down on its first render.
+
+      Inline styles rather than a stylesheet: the stylesheet arrives with the
+      bundle, which is the thing being waited for. The colours are dowel's
+      ground and ink with furca's 6% tint mixed in, as the theme computes
+      them, written out because the theme file is in that same bundle.
+    -->
+    <style>
+      html {
+        background: #1d181a;
+        color: #ece2e5;
+      }
+      @media (prefers-color-scheme: light) {
+        html {
+          background: #f5eded;
+          color: #2d252a;
+        }
+      }
+      #splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-family:
+          'Segoe UI Variable Text',
+          'Segoe UI',
+          system-ui,
+          -apple-system,
+          sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #splash .mark {
+        width: 56px;
+        height: 56px;
+        margin-bottom: 6px;
+      }
+      #splash .name {
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        line-height: 1;
+      }
+      #splash .tagline {
+        font-size: 13px;
+        opacity: 0.62;
+      }
+      #splash .version {
+        margin-top: 6px;
+        font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
+        font-size: 11px;
+        opacity: 0.45;
+      }
+      #splash .bar {
+        position: relative;
+        width: 160px;
+        height: 2px;
+        margin-top: 18px;
+        border-radius: 999px;
+        background: rgba(128, 128, 128, 0.18);
+        overflow: hidden;
+      }
+      #splash .bar::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -40%;
+        width: 40%;
+        height: 100%;
+        border-radius: 999px;
+        background: #d9704a;
+        animation: splash-sweep 1.1s ease-in-out infinite;
+      }
+      @keyframes splash-sweep {
+        to {
+          left: 100%;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #splash .bar::after {
+          animation: none;
+          left: 0;
+          width: 100%;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="splash" aria-hidden="true">
+      <!-- furca's mark at the M level, as dowel ships it (dowel-ui/marks):
+           the same picture the React half draws with ProductMark. -->
+      <svg class="mark" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id="splash-mark" gradientUnits="userSpaceOnUse" x1="11" y1="5" x2="89" y2="95">
+            <stop offset="0" stop-color="#D9704A" />
+            <stop offset="1" stop-color="#C0B83A" />
+          </linearGradient>
+        </defs>
+        <polygon
+          points="50,5 89,27.5 89,72.5 50,95 11,72.5 11,27.5"
+          fill="#1B2126"
+          stroke="#1B2126"
+          stroke-width="9"
+          stroke-linejoin="round"
+        />
+        <polygon
+          points="50,5 89,27.5 89,72.5 50,95 11,72.5 11,27.5"
+          fill="none"
+          stroke="url(#splash-mark)"
+          stroke-opacity="0.75"
+          stroke-width="3.5"
+          stroke-linejoin="round"
+        />
+        <text
+          x="50"
+          y="64"
+          text-anchor="middle"
+          font-family='"Cascadia Code","JetBrains Mono",Consolas,ui-monospace,monospace'
+          font-weight="700"
+          font-size="40"
+          fill="url(#splash-mark)"
+        >
+          fr
+        </text>
+      </svg>
+      <div class="name">Furca</div>
+      <div class="tagline">A fast git client that stays out of your way.</div>
+      <div class="version">v__APP_VERSION__</div>
+      <div class="bar"></div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,0 +1,4 @@
+# The wire carries plain JSON numbers: i64 and u64 would otherwise generate
+# TypeScript `bigint` (ADR 0009). Read by ts-rs when the bindings test runs.
+[env]
+TS_RS_LARGE_INT = "number"

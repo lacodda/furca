@@ -3,12 +3,109 @@
     "name": "Furca",
     "tagline": "A fast git client that stays out of your way."
   },
-  "shell": {
-    "openRepository": "Open repository",
-    "noRepository": "No repository open yet.",
-    "branch": "Branch",
-    "commit": "Commit",
+  "splash": {
+    "opening": "Opening the window…",
+    "reading": "Reading {{name}}…",
+    "tip": "Drop a folder on the window to open the repository in it."
+  },
+  "window": {
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore",
+    "close": "Close"
+  },
+  "tabs": {
+    "label": "Open repositories",
+    "close": "Close {{name}}"
+  },
+  "open": {
+    "menu": "Open a repository",
+    "browse": "Open repository…",
+    "recent": "Recent",
+    "sessions": "Sessions",
+    "line": "The line",
+    "lineHint": "Every repository rigger records, read fresh each time",
+    "saveSession": "Save tabs as a session…",
+    "forgetSession": "Forget a session"
+  },
+  "session": {
+    "title": "Save the open tabs",
+    "name": "Name",
+    "help": "Opening the session later brings back these tabs, in this order.",
+    "replaces": "A session of this name is saved already: this replaces it.",
+    "cancel": "Cancel",
+    "save": "Save",
+    "replace": "Replace"
+  },
+  "home": {
+    "title": "No repository open",
+    "body": "Open one, pick one you had open lately, or drop a folder on the window."
+  },
+  "column": {
+    "label": "Branches, remotes, tags, stashes and submodules",
+    "reading": "Reading the repository",
+    "failed": "Could not read this repository",
+    "branches": "Branches",
+    "remotes": "Remotes",
+    "tags": "Tags",
+    "stashes": "Stashes",
+    "submodules": "Submodules",
+    "gone": "gone",
+    "notCheckedOut": "not checked out",
+    "moved": "moved"
+  },
+  "overview": {
+    "reading": "Reading where the repository stands",
+    "failed": "Could not read where this repository stands",
     "detached": "Detached HEAD",
-    "failed": "Could not open the repository: {{message}}"
+    "noCommits": "No commits yet.",
+    "operation": {
+      "merge": "A merge is halfway",
+      "rebase": "A rebase is halfway",
+      "cherry-pick": "A cherry-pick is halfway",
+      "revert": "A revert is halfway",
+      "bisect": "A bisect is under way",
+      "am": "Applying patches is halfway"
+    },
+    "operationBody": "git started it and has not finished: continue or abort it in a terminal.",
+    "upstream": "Upstream",
+    "followsNothing": "follows nothing",
+    "gone": "gone from the remote",
+    "upToDate": "up to date",
+    "ahead_one": "{{count}} ahead",
+    "ahead_other": "{{count}} ahead",
+    "behind_one": "{{count}} behind",
+    "behind_other": "{{count}} behind",
+    "workingTree": "Working tree",
+    "clean": "clean",
+    "changed_one": "{{count}} changed",
+    "changed_other": "{{count}} changed",
+    "untracked_one": "{{count}} untracked",
+    "untracked_other": "{{count}} untracked",
+    "unpushed": "Not pushed",
+    "nothing": "nothing",
+    "commits_one": "{{count}} commit",
+    "commits_other": "{{count}} commits",
+    "stashes": "Stash",
+    "entries_one": "{{count}} entry",
+    "entries_other": "{{count}} entries",
+    "tag": "Last tag",
+    "since_one": "{{count}} commit since",
+    "since_other": "{{count}} commits since",
+    "noTag": "none in its history",
+    "settled": "Nothing exists only on this machine",
+    "unsettled": "Some of this exists only on this machine"
+  },
+  "status": {
+    "writingGraph": "git is writing the commit-graph, so the history opens fast…",
+    "wroteGraph": "git wrote the commit-graph in {{seconds}} s",
+    "graphFailed": "git could not write the commit-graph: {{reason}}"
+  },
+  "shell": {
+    "broken": "The window could not read what it had open",
+    "notOpened_one": "{{count}} repository did not open: {{paths}}",
+    "notOpened_other": "{{count}} repositories did not open: {{paths}}",
+    "dismiss": "Dismiss",
+    "drop": "Drop to open the repository"
   }
 }

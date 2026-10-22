@@ -6,7 +6,17 @@ import { version } from './package.json'
 
 // Tauri serves the frontend from a fixed port and expects a static build in dist/.
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // The splash in index.html prints the version before the bundle - and
+    // `define` below - has loaded, so the number is written into the page
+    // itself at build time.
+    {
+      name: 'furca:splash-version',
+      transformIndexHtml: (html) => html.replace('__APP_VERSION__', version),
+    },
+  ],
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },

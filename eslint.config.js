@@ -11,12 +11,19 @@ export default tseslint.config(
   // lives there is generated. `target` is Cargo's build output: the workspace
   // root here (unlike kilna's) so it needs its own ignore rather than riding
   // along with `src-tauri`.
-  { ignores: ['dist', 'src-tauri', 'docs', 'target'] },
+  // `src/lib/generated` is written by ts-rs from the Rust types (ADR 0009).
+  { ignores: ['dist', 'src-tauri', 'docs', 'target', 'src/lib/generated'] },
   js.configs.recommended,
   tseslint.configs.recommended,
   // The `flat` variant; the top-level one is still in the legacy shape.
   reactHooks.configs.flat['recommended-latest'],
   ...dowel.configs.recommended,
+  // The registry's copies are dowel's, as `shadcn add @dowel/...` wrote them:
+  // what they draw is answered in dowel, not here.
+  {
+    files: ['src/components/ui/**'],
+    rules: { 'dowel/no-arbitrary-scale': 'off' },
+  },
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {

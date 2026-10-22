@@ -13,12 +13,19 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "create": false,
         "title": "Furca",
         "width": 1280,
         "height": 800,
         "minWidth": 960,
         "minHeight": 600,
-        "dragDropEnabled": false
+        "decorations": false,
+        "shadow": true,
+        "visible": false,
+        "backgroundColor": "#1d181a",
+        "dragDropEnabled": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,ElasticOverscroll"
       }
     ],
     "security": {
