@@ -47,3 +47,29 @@ body {
     animation: none !important;
   }
 }
+
+/*
+ * The styles two components would insert at run time, supplied from the
+ * bundle instead.
+ *
+ * Tauri adds hashes for the bundled code to the page's CSP, and a
+ * `style-src` with a hash in it ignores `'unsafe-inline'`: a `<style>` made
+ * at run time is refused without a word. Base UI hides a scroll area's own
+ * bars with a class whose rule it inserts that way - refused, every scroller
+ * drew a classic bar with arrows beside its overlay one - so `CSPProvider` in
+ * main.tsx tells it not to, and the rule is here. dowel's Splash declares its
+ * sweep the same way, and the sweep would stand still.
+ */
+.base-ui-disable-scrollbar {
+  scrollbar-width: none;
+}
+
+.base-ui-disable-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes dowel-splash-sweep {
+  to {
+    left: 100%;
+  }
+}

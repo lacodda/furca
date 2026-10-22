@@ -118,8 +118,17 @@ fn every_type_a_command_names_is_generated() {
     if std::env::var_os("FURCA_BLESS").is_some() {
         return;
     }
-    // Tauri's and std's names, which are not shapes on the wire.
-    const NOT_ON_THE_WIRE: [&str; 6] = ["State", "AppHandle", "Store", "Result", "String", "Vec"];
+    // Tauri's and std's names, and the app's managed state, which are not
+    // shapes on the wire.
+    const NOT_ON_THE_WIRE: [&str; 7] = [
+        "State",
+        "AppHandle",
+        "Store",
+        "Early",
+        "Result",
+        "String",
+        "Vec",
+    ];
 
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let committed = read_tree(&generated_dir());

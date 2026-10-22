@@ -7,7 +7,8 @@
 //!
 //! The promises themselves live in `benches/budgets.json`, which the docs
 //! site reads too: one list, so the page cannot promise what the gate does not
-//! hold.
+//! hold. This harness measures the core's; the window's are measured by
+//! `src-tauri/benches/window.rs`, which starts the built app.
 //!
 //! A plain harness rather than criterion: the gate needs a median compared to
 //! a number, not a statistical report, and that is a few lines.
@@ -38,9 +39,14 @@ struct Promises {
 #[derive(Deserialize)]
 struct Promise {
     name: String,
+    /// Which door's harness measures it: `core` here, `window` in the app's.
+    door: String,
     what: String,
     layout: String,
-    limit_ms: Option<u64>,
+    /// The most it may take, in `unit`; `None` when it is measured and
+    /// published but not promised.
+    limit: Option<f64>,
+    unit: String,
     status: String,
 }
 
@@ -59,9 +65,10 @@ struct Measured {
     name: String,
     what: String,
     layout: String,
-    budget_ms: Option<f64>,
-    median_ms: f64,
-    p90_ms: f64,
+    unit: &'static str,
+    budget: Option<f64>,
+    median: f64,
+    p90: f64,
     within: bool,
 }
 
@@ -104,11 +111,17 @@ fn measure(run: fn(&Path), path: &Path) -> (Duration, Duration) {
 
 fn main() {
     let promises: Promises = serde_json::from_str(PROMISES).expect("budgets.json parses");
+    let ours = |p: &&Promise| p.status == "measured" && p.door == "core";
     // Checked on every run, `cargo test` included: a promise the harness
     // cannot measure is caught before anyone reads it on the docs site.
-    for promise in promises.budgets.iter().filter(|p| p.status == "measured") {
+    for promise in promises.budgets.iter().filter(ours) {
         runner(&promise.name);
         layout(&promise.layout);
+        assert_eq!(
+            promise.unit, "ms",
+            "{} times, so its unit is ms",
+            promise.name
+        );
     }
 
     // `cargo bench` passes `--bench`; `cargo test --benches` runs the target
@@ -119,10 +132,10 @@ fn main() {
 
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let mut results = Vec::new();
-    for promise in promises.budgets.iter().filter(|p| p.status == "measured") {
+    for promise in promises.budgets.iter().filter(ours) {
         let path = fixture::ensure(&root, promises.commits, layout(&promise.layout));
         let run = runner(&promise.name);
-        let limit = promise.limit_ms.map(Duration::from_millis);
+        let limit = promise.limit.map(|ms| Duration::from_secs_f64(ms / 1000.0));
 
         let (mut median, mut p90) = measure(run, &path);
         // Known flake: a busy machine - a browser, a build, the antivirus on
@@ -137,19 +150,20 @@ fn main() {
             name: promise.name.clone(),
             what: promise.what.clone(),
             layout: promise.layout.clone(),
-            budget_ms: promise.limit_ms.map(|limit| limit as f64),
-            median_ms: ms(median),
-            p90_ms: ms(p90),
+            unit: "ms",
+            budget: promise.limit,
+            median: ms(median),
+            p90: ms(p90),
             within: limit.is_none_or(|limit| median <= limit),
         };
-        let verdict = match (measured.budget_ms, measured.within) {
+        let verdict = match (measured.budget, measured.within) {
             (None, _) => "measured, not promised".to_owned(),
             (Some(limit), true) => format!("ok, budget {limit:.0} ms"),
             (Some(limit), false) => format!("OVER budget {limit:.0} ms"),
         };
         println!(
             "{:<18} {:<20} median {:>8.1} ms  p90 {:>8.1} ms  {verdict}",
-            measured.name, measured.layout, measured.median_ms, measured.p90_ms,
+            measured.name, measured.layout, measured.median, measured.p90,
         );
         results.push(measured);
     }

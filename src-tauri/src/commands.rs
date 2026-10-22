@@ -4,10 +4,11 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::thread::JoinHandle;
 
 use furca_core::{HeadSummary, Refs, Remote, Repository, Standing, Stash, Submodule};
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::maintenance;
 use crate::state::{self, Tab, WindowState};
@@ -22,7 +23,7 @@ impl Store {
     /// Applies `change` to the state, saves it and returns what the window
     /// draws next. A failed save is reported, not hidden: the change stands
     /// on the screen but would not survive a restart.
-    fn change<T>(
+    pub(crate) fn change<T>(
         &self,
         change: impl FnOnce(&mut WindowState) -> T,
     ) -> Result<(WindowState, T), String> {
@@ -34,6 +35,48 @@ impl Store {
         state::save(&self.dir, &state)
             .map_err(|e| format!("could not save the window's state: {e}"))?;
         Ok((state.clone(), out))
+    }
+}
+
+/// The event the window hears when repositories were opened from outside it:
+/// furca started again with a path, and handed it to the window already open.
+pub const OPENED: &str = "opened";
+
+impl Store {
+    /// Opens the repositories at `paths`, each in a tab of its own and the
+    /// last one in front, as a drop of several folders does; what does not
+    /// open is reported, not thrown.
+    pub fn open_paths(&self, app: &AppHandle, paths: &[PathBuf]) -> Result<Opened, String> {
+        let mut failed = Vec::new();
+        let mut tabs = Vec::new();
+        for path in paths {
+            match tab_for(path) {
+                Ok(tab) => tabs.push(tab),
+                Err(reason) => failed.push(Failure {
+                    path: path.to_string_lossy().into_owned(),
+                    reason,
+                }),
+            }
+        }
+        for tab in &tabs {
+            maintenance::commit_graph(app, &tab.path);
+        }
+        let (state, ()) = self.change(|state| {
+            for tab in tabs {
+                state.open(tab);
+            }
+        })?;
+        Ok(Opened { state, failed })
+    }
+
+    /// The same, from another start of furca: the window draws the result.
+    pub fn open_from_outside(&self, app: &AppHandle, paths: &[PathBuf]) {
+        match self.open_paths(app, paths) {
+            Ok(opened) => {
+                let _ = app.emit(OPENED, opened);
+            }
+            Err(reason) => eprintln!("furca: {reason}"),
+        }
     }
 }
 
@@ -226,18 +269,63 @@ pub async fn open_line(app: AppHandle, store: State<'_, Store>) -> Result<Opened
     }
 }
 
+/// Reads what the left column shows of the repository at `path`.
+fn read_sidebar(path: &str) -> Result<Sidebar, String> {
+    let repo = Repository::at(path).map_err(|e| e.to_string())?;
+    let text = |e: furca_core::Error| e.to_string();
+    Ok(Sidebar {
+        head: repo.head().map_err(text)?,
+        refs: repo.refs().map_err(text)?,
+        remotes: repo.remotes().map_err(text)?,
+        stashes: repo.stashes().map_err(text)?,
+        submodules: repo.submodules().map_err(text)?,
+    })
+}
+
+/// The column of the tab in front, read while the webview starts: the
+/// webview takes hundreds of milliseconds to come up, and the read need not
+/// wait for it to ask.
+#[derive(Default)]
+pub struct Early(Mutex<Option<(String, Reading)>>);
+
+/// A read of a column under way on a thread of its own.
+type Reading = JoinHandle<Result<Sidebar, String>>;
+
+impl Early {
+    /// Starts reading the column of the tab in front of `state`, if any.
+    pub fn start(state: &WindowState) -> Self {
+        let Some(tab) = state.active.and_then(|index| state.tabs.get(index)) else {
+            return Self::default();
+        };
+        let path = tab.path.clone();
+        let reading = std::thread::spawn({
+            let path = path.clone();
+            move || read_sidebar(&path)
+        });
+        Self(Mutex::new(Some((path, reading))))
+    }
+
+    /// The early read of `path`, once: a later ask reads afresh.
+    fn take(&self, path: &str) -> Option<Reading> {
+        let mut early = self.0.lock().ok()?;
+        match early.take() {
+            Some((read, reading)) if read == path => Some(reading),
+            other => {
+                *early = other;
+                None
+            }
+        }
+    }
+}
+
 #[tauri::command]
-pub async fn sidebar(path: String) -> Result<Sidebar, String> {
-    off_thread(move || {
-        let repo = Repository::at(&path).map_err(|e| e.to_string())?;
-        let text = |e: furca_core::Error| e.to_string();
-        Ok(Sidebar {
-            head: repo.head().map_err(text)?,
-            refs: repo.refs().map_err(text)?,
-            remotes: repo.remotes().map_err(text)?,
-            stashes: repo.stashes().map_err(text)?,
-            submodules: repo.submodules().map_err(text)?,
-        })
+pub async fn sidebar(early: State<'_, Early>, path: String) -> Result<Sidebar, String> {
+    let reading = early.take(&path);
+    off_thread(move || match reading {
+        Some(reading) => reading
+            .join()
+            .unwrap_or_else(|_| Err("the early read stopped".to_owned())),
+        None => read_sidebar(&path),
     })
     .await
 }

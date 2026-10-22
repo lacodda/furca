@@ -23,6 +23,10 @@ commands = [
     "cargo test --workspace",
     "cargo bench -p furca-core --bench budgets",
     "pnpm lint",
+    # The window as `tauri build` makes it, built and measured in one step:
+    # the benchmark's build is the release build of the app.
+    "pnpm build",
+    "cargo bench -p furca-desktop --bench window --features custom-protocol",
     "cd docs && pnpm build",
 ]
 

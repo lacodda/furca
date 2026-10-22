@@ -28,7 +28,11 @@ export const api = {
   sidebar: (path: string) => invoke<Sidebar>('sidebar', { path }),
   standing: (path: string) => invoke<Standing>('standing', { path }),
   maintain: (path: string) => invoke<null>('maintain', { path }),
-  measured: (stage: 'first-frame' | 'settled') => invoke<null>('measured', { stage }),
+  /** Tells a measurement the window reached `stage`; nothing otherwise. The
+   * stages between the start and the first frame say where a slow start
+   * spent its time. */
+  measured: (stage: 'script' | 'state' | 'read' | 'first-frame' | 'settled') =>
+    invoke<null>('measured', { stage }),
 }
 
 /** A command's failure as the window shows it: Tauri hands over the Rust

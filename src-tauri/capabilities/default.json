@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions granted to the main window. furca draws its own title bar, as scheda and kilna do: dragging, resizing and the window buttons are the page's, and the page shows the window once it has painted so that nothing white is ever seen.",
+  "description": "Permissions granted to the main window. furca draws its own title bar, as scheda and kilna do: dragging, resizing and the window buttons are the page's.",
   "windows": [
     "main"
   ],
@@ -13,7 +13,6 @@
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
     "core:window:allow-start-resize-dragging",
-    "core:window:allow-show",
     "dialog:allow-open",
     "opener:allow-open-url"
   ]

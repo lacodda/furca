@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
@@ -41,10 +42,12 @@ export default function App() {
     let cancelled = false
     api.windowState().then(
       async (state) => {
+        void api.measured('state')
         const front = state.active === null ? undefined : state.tabs[state.active]
         if (front) {
           setStatus(t('splash.reading', { name: front.name }))
           await sidebars.load(front.path)
+          void api.measured('read')
         }
         if (!cancelled) setBoot({ state })
       },
@@ -178,6 +181,18 @@ function Shell({ initial }: { initial: WindowState }) {
   }, [initial.tabs])
 
   useEffect(() => listenForMaintenance(), [])
+
+  // furca started again with a path hands it to this window, which draws
+  // the tabs the store now holds.
+  useEffect(() => {
+    if (!inTauri()) return
+    const stop = listen<Opened>('opened', ({ payload }) => {
+      void applyOpened(Promise.resolve(payload))
+    })
+    return () => {
+      void stop.then((unlisten) => unlisten())
+    }
+  }, [applyOpened])
 
   // Coming back to the window reads the tab in front again: something may
   // have been committed in a terminal meanwhile, and nothing watches the
