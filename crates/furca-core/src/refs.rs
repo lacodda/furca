@@ -2,10 +2,12 @@ use serde::Serialize;
 
 use crate::Repository;
 use crate::error::{Error, wrap};
+use crate::standing::Tracking;
 
 /// Every named pointer into the history: local branches, remote-tracking
 /// branches and tags, each sorted by name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Refs {
     pub branches: Vec<Branch>,
     pub remote_branches: Vec<RemoteBranch>,
@@ -14,19 +16,22 @@ pub struct Refs {
 
 /// A local branch.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Branch {
     /// The short name, such as `main` or `feature/login`.
     pub name: String,
     /// The commit the branch points at.
     pub target: String,
-    /// The remote-tracking branch it follows, such as `origin/main`.
-    pub upstream: Option<String>,
+    /// The remote-tracking branch it follows, such as `origin/main`, and
+    /// how far apart the two are, counted from the last fetch.
+    pub upstream: Option<Tracking>,
     /// Whether `HEAD` is on this branch.
     pub head: bool,
 }
 
 /// A remote-tracking branch, such as `origin/main`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RemoteBranch {
     /// The short name including the remote, such as `origin/main`.
     pub name: String,
@@ -38,6 +43,7 @@ pub struct RemoteBranch {
 
 /// A tag.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Tag {
     /// The short name, such as `v1.0.0`.
     pub name: String,
@@ -50,6 +56,9 @@ pub struct Tag {
 
 impl Repository {
     /// Lists the branches, remote-tracking branches and tags.
+    ///
+    /// A branch that follows a remote-tracking branch says how many commits
+    /// each has that the other does not, as `git branch -vv` does.
     ///
     /// Symbolic references among the remotes (`origin/HEAD`) are left out:
     /// they name another remote branch that is already in the list. A
@@ -72,8 +81,12 @@ impl Repository {
                 continue;
             };
             let name = reference.name().shorten().to_string();
+            let upstream = match self.upstream_of(reference.name()) {
+                Some(upstream) => Some(self.tracking(upstream, Some(target.detach()))?),
+                None => None,
+            };
             branches.push(Branch {
-                upstream: self.upstream_of(reference.name()),
+                upstream,
                 head: head.as_deref() == Some(name.as_str()),
                 target: target.to_string(),
                 name,

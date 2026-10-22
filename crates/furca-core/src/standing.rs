@@ -12,6 +12,7 @@ use crate::log::{Commit, moment};
 /// Read from this machine alone, with no fetch: `behind` counts what the
 /// last fetch brought, not what the remote has now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Standing {
     /// The branch `HEAD` is on; `None` when it is detached.
     pub branch: Option<String>,
@@ -38,8 +39,9 @@ pub struct Standing {
     pub operation: Option<Operation>,
 }
 
-/// The current branch against the remote-tracking branch it follows.
+/// A branch against the remote-tracking branch it follows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Tracking {
     /// The remote-tracking branch, such as `origin/main`.
     pub name: String,
@@ -53,6 +55,7 @@ pub struct Tracking {
 
 /// A tag, and what `HEAD` has added since it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct NearestTag {
     /// The short name, such as `v1.2.0`.
     pub name: String,
@@ -68,6 +71,7 @@ pub struct NearestTag {
 
 /// An operation git leaves halfway until it is continued or aborted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum Operation {
     Merge,
@@ -123,7 +127,7 @@ impl Repository {
             changed,
             untracked,
             unpushed: self.count(local, remote)?,
-            stashes: self.stashes()?,
+            stashes: self.stashes()?.len(),
             tag: head_id
                 .map(|id| self.nearest_tag(id))
                 .transpose()?
@@ -171,8 +175,13 @@ impl Repository {
         Ok((changed.len(), untracked))
     }
 
-    /// The current branch against the remote-tracking branch `name`.
-    fn tracking(&self, name: String, head: Option<gix::ObjectId>) -> Result<Tracking, Error> {
+    /// The branch whose tip is `head` against the remote-tracking branch
+    /// `name`.
+    pub(crate) fn tracking(
+        &self,
+        name: String,
+        head: Option<gix::ObjectId>,
+    ) -> Result<Tracking, Error> {
         let full = format!("refs/remotes/{name}");
         let tip = match self
             .inner
@@ -236,19 +245,6 @@ impl Repository {
             count += 1;
         }
         Ok(count)
-    }
-
-    fn stashes(&self) -> Result<usize, Error> {
-        let Some(stash) = self
-            .inner
-            .try_find_reference("refs/stash")
-            .map_err(wrap(Error::References))?
-        else {
-            return Ok(0);
-        };
-        let mut log = stash.log_iter();
-        let lines = log.all().map_err(wrap(Error::References))?;
-        Ok(lines.map_or(0, Iterator::count))
     }
 
     /// The tag `git describe --tags` would name for `head`, with the commits

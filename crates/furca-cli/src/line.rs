@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 
-use furca_core::{Repository, Standing};
+use furca_core::{Repository, Standing, Tracking};
 use serde::Serialize;
 
 /// Where the list of repositories came from.
@@ -245,10 +245,7 @@ fn row(name: &str, standing: &Standing) -> [String; 7] {
         .unwrap_or_else(|| "(detached)".to_owned());
     let upstream = match &standing.upstream {
         None => "-".to_owned(),
-        Some(tracking) => match (tracking.ahead, tracking.behind) {
-            (Some(ahead), Some(behind)) => sync(ahead, behind),
-            _ => "gone".to_owned(),
-        },
+        Some(tracking) => sync(tracking),
     };
     let (tag, tagged, since) = match &standing.tag {
         None => ("-".to_owned(), "-".to_owned(), "-".to_owned()),
@@ -269,12 +266,15 @@ fn row(name: &str, standing: &Standing) -> [String; 7] {
     ]
 }
 
-fn sync(ahead: usize, behind: usize) -> String {
-    match (ahead, behind) {
-        (0, 0) => "up to date".to_owned(),
-        (ahead, 0) => format!("{ahead} ahead"),
-        (0, behind) => format!("{behind} behind"),
-        (ahead, behind) => format!("{ahead} ahead, {behind} behind"),
+/// A branch against its upstream, in words: `up to date`, `2 ahead`,
+/// `1 ahead, 3 behind`, or `gone` when the upstream was pruned.
+pub(crate) fn sync(tracking: &Tracking) -> String {
+    match (tracking.ahead, tracking.behind) {
+        (Some(0), Some(0)) => "up to date".to_owned(),
+        (Some(ahead), Some(0)) => format!("{ahead} ahead"),
+        (Some(0), Some(behind)) => format!("{behind} behind"),
+        (Some(ahead), Some(behind)) => format!("{ahead} ahead, {behind} behind"),
+        _ => "gone".to_owned(),
     }
 }
 

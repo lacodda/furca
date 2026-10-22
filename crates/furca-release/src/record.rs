@@ -200,7 +200,19 @@ fn stage_version(text: &str) -> Option<Version> {
 }
 
 fn rigger(args: &[&str]) -> Result<serde_json::Value, String> {
-    let output = match Command::new("rigger").args(args).output() {
+    let mut command = Command::new("rigger");
+    command.args(args);
+    // The window asks the record for the line, and a console program started
+    // from a window is given a console window of its own on Windows: a black
+    // box flashed over furca every time. The output is captured either way.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        /// `CREATE_NO_WINDOW`, from the Windows process creation flags.
+        const NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(NO_WINDOW);
+    }
+    let output = match command.output() {
         Ok(output) => output,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err("rigger is not installed here".to_owned());

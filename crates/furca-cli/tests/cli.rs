@@ -141,6 +141,39 @@ fn refs_marks_the_current_branch() {
 }
 
 #[test]
+fn refs_say_how_far_a_branch_is_from_its_upstream() {
+    let dir = repo_with(&["first", "second"]);
+    git(
+        dir.path(),
+        &["remote", "add", "origin", "https://example.com/r.git"],
+    );
+    git(
+        dir.path(),
+        &["update-ref", "refs/remotes/origin/main", "HEAD~1"],
+    );
+    git(dir.path(), &["config", "branch.main.remote", "origin"]);
+    git(
+        dir.path(),
+        &["config", "branch.main.merge", "refs/heads/main"],
+    );
+
+    let text = stdout(&furca(dir.path(), &["refs"]));
+    assert!(
+        text.lines()
+            .next()
+            .unwrap_or_default()
+            .ends_with(" main -> origin/main (1 ahead)"),
+        "{text}"
+    );
+
+    let value = json(&furca(dir.path(), &["refs", "--json"]));
+    let upstream = &value["branches"][0]["upstream"];
+    assert_eq!(upstream["name"], "origin/main");
+    assert_eq!(upstream["ahead"], 1);
+    assert_eq!(upstream["behind"], 0);
+}
+
+#[test]
 fn outside_a_repository_it_fails_with_a_message_and_a_nonzero_exit() {
     let dir = tempfile::tempdir().expect("temp dir");
     let output = furca(&dir.path().join("missing"), &["status"]);

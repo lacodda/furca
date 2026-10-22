@@ -16,6 +16,7 @@ pub enum Tips {
 
 /// The first commits of a history walk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Log {
     /// Commits with no parent listed before any of its children; otherwise
     /// newest commit time first (`git log --date-order`).
@@ -26,6 +27,7 @@ pub struct Log {
 
 /// One commit, with just enough to draw a graph row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Commit {
     /// The full hex object id.
     pub id: String,
@@ -39,6 +41,7 @@ pub struct Commit {
 
 /// Who made a commit and when.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Person {
     pub name: String,
     pub email: String,
@@ -87,7 +90,7 @@ impl Repository {
     }
 
     /// The object ids a walk from `tips` starts at.
-    fn tips(&self, tips: Tips) -> Result<Vec<gix::ObjectId>, Error> {
+    pub(crate) fn tips(&self, tips: Tips) -> Result<Vec<gix::ObjectId>, Error> {
         let mut ids = Vec::new();
         let head = self.inner.head().map_err(wrap(Error::Head))?;
         if let Some(id) = head.id() {

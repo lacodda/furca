@@ -575,11 +575,13 @@ fn refs_text(refs: &Refs) -> String {
     let mut lines = Vec::new();
     for branch in &refs.branches {
         let mark = if branch.head { '*' } else { ' ' };
-        let upstream = branch
-            .upstream
-            .as_deref()
-            .map(|u| format!(" -> {u}"))
-            .unwrap_or_default();
+        let upstream = match &branch.upstream {
+            None => String::new(),
+            Some(tracking) => match line::sync(tracking).as_str() {
+                "up to date" => format!(" -> {}", tracking.name),
+                sync => format!(" -> {} ({sync})", tracking.name),
+            },
+        };
         lines.push(format!(
             "{mark} {} {}{upstream}",
             short(&branch.target),

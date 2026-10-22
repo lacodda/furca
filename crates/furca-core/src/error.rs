@@ -34,6 +34,8 @@ pub enum Error {
     },
     #[error("could not read the working tree's changes: {0}")]
     Status(#[source] Source),
+    #[error("could not read the submodules: {0}")]
+    Submodules(#[source] Source),
     #[error("could not run git: {source}; is it installed and on PATH?")]
     GitMissing {
         #[source]

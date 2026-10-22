@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::error::{Error, wrap};
 use crate::git_cmd::CommandLog;
+use crate::remote::shown;
 
 /// A repository: read in-process, changed through the system `git`.
 ///
@@ -22,6 +23,7 @@ const OBJECT_CACHE_BYTES: usize = 4 * 1024 * 1024;
 
 /// Where a branch goes when it is pushed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Upstream {
     /// The local branch, such as `main`.
     pub branch: String,
@@ -39,6 +41,7 @@ pub struct Upstream {
 
 /// A summary of the repository's `HEAD`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HeadSummary {
     /// The branch `HEAD` points at, if it is not detached.
     pub branch: Option<String>,
@@ -145,10 +148,7 @@ impl Repository {
             .inner
             .try_find_remote(remote.as_str())
             .and_then(Result::ok)
-            .and_then(|r| {
-                r.url(gix::remote::Direction::Push)
-                    .map(|u| u.to_bstring().to_string())
-            })
+            .and_then(|r| r.url(gix::remote::Direction::Push).map(shown))
             // A branch may name a URL instead of a configured remote.
             .unwrap_or_else(|| remote.clone());
         Ok(Some(Upstream {
@@ -166,9 +166,7 @@ impl Repository {
         match self.inner.try_find_remote(name) {
             None => Ok(None),
             Some(Err(error)) => Err(Error::References(error.into())),
-            Some(Ok(remote)) => Ok(remote
-                .url(gix::remote::Direction::Fetch)
-                .map(|url| url.to_bstring().to_string())),
+            Some(Ok(remote)) => Ok(remote.url(gix::remote::Direction::Fetch).map(shown)),
         }
     }
 

@@ -111,6 +111,13 @@ impl Git<'_> {
         self.run(&args).map(drop)
     }
 
+    /// Has git write the commit-graph file for every commit reachable from
+    /// a ref, as a new layer over what is there (ADR 0010).
+    pub fn write_commit_graph(&self) -> Result<(), Error> {
+        self.run(&["commit-graph", "write", "--reachable", "--split"])
+            .map(drop)
+    }
+
     /// The object a reference names on `remote` right now, asked over the
     /// network; `None` when the remote has no such reference. An annotated
     /// tag is peeled to what it points at.
@@ -166,12 +173,24 @@ impl Git<'_> {
 
 /// `git` set up to run unattended in `dir`: a missing credential fails at
 /// once instead of waiting for an answer at a prompt nobody is watching.
+///
+/// On Windows it also runs without a console window of its own. A program
+/// built for the console, started from one that is not - the desktop app -
+/// is given a fresh console by Windows, and every read the window had git
+/// make flashed a black box over it. The output is captured either way.
 fn git_command(dir: &Path) -> Command {
     let mut command = Command::new("git");
     command
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        /// `CREATE_NO_WINDOW`, from the Windows process creation flags.
+        const NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(NO_WINDOW);
+    }
     command
 }
 

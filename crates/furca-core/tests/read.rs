@@ -273,7 +273,7 @@ fn refs_list_branches_remotes_and_tags_with_what_they_point_at() {
             (
                 b.name.as_str(),
                 b.target.as_str(),
-                b.upstream.as_deref(),
+                b.upstream.as_ref().map(|u| u.name.as_str()),
                 b.head,
             )
         })
@@ -285,6 +285,11 @@ fn refs_list_branches_remotes_and_tags_with_what_they_point_at() {
             ("main", second.as_str(), Some("origin/main"), true),
         ]
     );
+    let main = refs.branches[1]
+        .upstream
+        .as_ref()
+        .expect("main follows origin/main");
+    assert_eq!((main.ahead, main.behind), (Some(1), Some(0)));
 
     assert_eq!(refs.remote_branches.len(), 1, "origin/HEAD is not listed");
     let remote = &refs.remote_branches[0];
@@ -455,4 +460,216 @@ fn a_commit_is_read_by_any_revision_that_names_it() {
             "{missing} names no commit"
         );
     }
+}
+
+#[test]
+fn every_branch_says_how_far_it_is_from_its_upstream() {
+    let fixture = Fixture::new();
+    let base = fixture.commit("base", 1_700_000_000);
+    let local = fixture.commit("only here", 1_700_000_100);
+    fixture.git(&["checkout", "--quiet", "-b", "behind", &base]);
+    let remote = fixture.commit("only there", 1_700_000_200);
+    fixture.git(&["checkout", "--quiet", "main"]);
+    fixture.git(&["remote", "add", "origin", "https://example.com/repo.git"]);
+    // origin/main has one commit main lacks and lacks the one main has;
+    // origin/behind is ahead of `behind`; origin/gone was pruned.
+    fixture.git(&["update-ref", "refs/remotes/origin/main", &remote]);
+    fixture.git(&["update-ref", "refs/remotes/origin/behind", &remote]);
+    fixture.git(&["branch", "--force", "behind", &base]);
+    fixture.git(&["branch", "gone", &local]);
+    for branch in ["main", "behind", "gone"] {
+        fixture.git(&["config", &format!("branch.{branch}.remote"), "origin"]);
+        fixture.git(&[
+            "config",
+            &format!("branch.{branch}.merge"),
+            &format!("refs/heads/{branch}"),
+        ]);
+    }
+
+    let refs = fixture.open().refs().expect("refs");
+    let tracking: Vec<(&str, &str, Option<usize>, Option<usize>)> = refs
+        .branches
+        .iter()
+        .filter_map(|b| {
+            let u = b.upstream.as_ref()?;
+            Some((b.name.as_str(), u.name.as_str(), u.ahead, u.behind))
+        })
+        .collect();
+    assert_eq!(
+        tracking,
+        [
+            ("behind", "origin/behind", Some(0), Some(1)),
+            ("gone", "origin/gone", None, None),
+            ("main", "origin/main", Some(1), Some(1)),
+        ]
+    );
+}
+
+#[test]
+fn the_stash_lists_newest_first_with_what_git_wrote() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.path().join("notes.txt"), "one\n").expect("written");
+    fixture.git(&["add", "notes.txt"]);
+    fixture.commit("notes", 1_700_000_000);
+    assert!(fixture.open().stashes().expect("no stash yet").is_empty());
+
+    std::fs::write(fixture.path().join("notes.txt"), "two\n").expect("written");
+    fixture.git_at(&["stash", "push", "--quiet"], "1700000100 +0300");
+    std::fs::write(fixture.path().join("notes.txt"), "three\n").expect("written");
+    fixture.git_at(
+        &["stash", "push", "--quiet", "-m", "half a thought"],
+        "1700000200 +0300",
+    );
+    let newest = fixture.git(&["rev-parse", "stash@{0}"]);
+
+    let stashes = fixture.open().stashes().expect("stashes");
+    assert_eq!(stashes.len(), 2);
+    assert_eq!(stashes[0].index, 0);
+    assert_eq!(stashes[1].index, 1);
+    assert_eq!(stashes[0].commit, newest);
+    assert_eq!(stashes[0].message, "On main: half a thought");
+    assert!(
+        stashes[1].message.starts_with("WIP on main: "),
+        "{}",
+        stashes[1].message
+    );
+    assert_eq!(stashes[0].seconds, 1_700_000_200);
+    assert_eq!(stashes[0].time, "2023-11-15T01:16:40+03:00");
+
+    let standing = fixture.open().standing().expect("standing");
+    assert_eq!(standing.stashes, 2, "the count is the list's length");
+}
+
+#[test]
+fn remotes_show_their_addresses_without_a_password() {
+    let fixture = Fixture::new();
+    fixture.commit("first", 1_700_000_000);
+    fixture.git(&[
+        "remote",
+        "add",
+        "origin",
+        "https://ada:s3cret@example.com/team/repo.git",
+    ]);
+    fixture.git(&["remote", "add", "backup", "/srv/git/repo.git"]);
+    fixture.git(&[
+        "config",
+        "remote.backup.pushurl",
+        "ssh://git@example.com/repo.git",
+    ]);
+
+    let repo = fixture.open();
+    let remotes = repo.remotes().expect("remotes");
+    let seen: Vec<(&str, Option<&str>, Option<&str>)> = remotes
+        .iter()
+        .map(|r| (r.name.as_str(), r.url.as_deref(), r.push_url.as_deref()))
+        .collect();
+    assert_eq!(
+        seen,
+        [
+            (
+                "backup",
+                Some("/srv/git/repo.git"),
+                Some("ssh://git@example.com/repo.git")
+            ),
+            (
+                "origin",
+                Some("https://ada@example.com/team/repo.git"),
+                None
+            ),
+        ]
+    );
+    let url = repo.remote_url("origin").expect("read").expect("there");
+    assert!(!url.contains("s3cret"), "{url}");
+}
+
+#[test]
+fn submodules_say_what_is_recorded_and_what_is_checked_out() {
+    let library = Fixture::new();
+    let pinned = library.commit("library", 1_700_000_000);
+    let fixture = Fixture::new();
+    fixture.commit("first", 1_700_000_000);
+    assert!(fixture.open().submodules().expect("none").is_empty());
+
+    let source = library.path().to_string_lossy().replace('\\', "/");
+    fixture.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "--quiet",
+        &source,
+        "libs/core",
+    ]);
+    fixture.commit("add the library", 1_700_000_100);
+
+    let modules = fixture.open().submodules().expect("submodules");
+    assert_eq!(modules.len(), 1);
+    let module = &modules[0];
+    assert_eq!(
+        (module.name.as_str(), module.path.as_str()),
+        ("libs/core", "libs/core")
+    );
+    assert_eq!(module.recorded.as_deref(), Some(pinned.as_str()));
+    assert_eq!(module.checked_out.as_deref(), Some(pinned.as_str()));
+    assert!(module.url.is_some());
+
+    fixture.git(&["submodule", "deinit", "--quiet", "--force", "libs/core"]);
+    let modules = fixture.open().submodules().expect("submodules");
+    assert_eq!(modules[0].recorded.as_deref(), Some(pinned.as_str()));
+    assert_eq!(
+        modules[0].checked_out, None,
+        "deinit leaves nothing checked out"
+    );
+}
+
+#[test]
+fn the_commit_graph_is_missing_then_written_then_behind_or_off() {
+    use furca_core::CommitGraph;
+
+    let fixture = Fixture::new();
+    fixture.commit("first", 1_700_000_000);
+    fixture.commit("second", 1_700_000_100);
+    let repo = fixture.open();
+    assert_eq!(repo.commit_graph().expect("read"), CommitGraph::Missing);
+    assert!(CommitGraph::Missing.worth_writing());
+
+    repo.git().write_commit_graph().expect("git writes it");
+    assert!(
+        repo.git_log()
+            .iter()
+            .any(|run| run.command().starts_with("git commit-graph write")),
+        "the write is in the command log"
+    );
+    assert_eq!(
+        fixture.open().commit_graph().expect("read"),
+        CommitGraph::Covers { outside: 0 }
+    );
+
+    fixture.commit("third", 1_700_000_200);
+    fixture.git(&["branch", "side"]);
+    fixture.commit("fourth", 1_700_000_300);
+    let behind = fixture.open().commit_graph().expect("read");
+    assert_eq!(
+        behind,
+        CommitGraph::Covers { outside: 2 },
+        "each commit counted once, however many refs reach it"
+    );
+    assert!(
+        !behind.worth_writing(),
+        "two commits are not worth a git run"
+    );
+    assert!(
+        CommitGraph::Covers {
+            outside: CommitGraph::BEHIND
+        }
+        .worth_writing()
+    );
+
+    fixture.git(&["config", "core.commitGraph", "false"]);
+    let off = fixture.open().commit_graph().expect("read");
+    assert_eq!(off, CommitGraph::Off);
+    assert!(
+        !off.worth_writing(),
+        "a repository that turned it off is left alone"
+    );
 }
