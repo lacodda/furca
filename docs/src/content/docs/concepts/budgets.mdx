@@ -30,21 +30,27 @@ A median over the budget is measured once more after a pause before the build
 fails. A machine that is busy elsewhere slows every run for seconds at a time;
 a regression stays over the budget on the second try.
 
-## Why the commit-graph matters
+## How the window is measured
 
-The graph is listed so that no commit comes before any of its children. Knowing
-that a commit has no children left to list means having looked at every commit
-that could be one. Generation numbers - stored in the commit-graph file that
-`git gc` writes - bound that search, so the first 500 commits of a long history
-touch a few thousand commits rather than all of them. Without the file, the
-exact order needs the whole history walked first; `git log --date-order` pays
-the same. See
-[ADR 0005](https://github.com/lacodda/furca/blob/main/docs/adr/0005-a-lazy-walk-over-generation-numbers.md).
+The window's budgets are measured on the app as `tauri build` makes it, started
+the way a person starts it: a fresh process that opens the repository it had
+open. A process cannot see how long it took to be started, so the benchmark
+times it from the outside, and the window says when it got to each stage by
+writing to a file the benchmark watches.
 
-## Next to Fork
-
-One measurement by hand, on one machine, on the repository above. The three
-tools do different amounts of work - Fork draws a window - so this is where the
-time goes for someone opening a repository, not a like-for-like benchmark.
-
-<ForkComparison />
+- **On the screen** is from the start of the process to the window shown, in
+  the ground of the system's theme, before the webview inside it has started.
+  This is the promise. The window is made apart from its webview to keep it -
+  see [ADR 0011](https://github.com/lacodda/furca/blob/main/docs/adr/0011-the-window-is-on-the-screen-before-its-webview.md).
+- **First repository** is from the start to the first frame that shows the
+  repository - its tab in the title bar and its branches in the left column.
+  Measured and published, not promised: most of it is the system's webview
+  starting.
+- Both come from the same 21 starts, after three that warm the webview's
+  profile; the median is the number.
+- **Memory** is read with three copies of the repository open, each one read,
+  and two seconds to settle: the private working set of the app and of every
+  process under it, the webview's included - what Task Manager counts on
+  Windows - and the resident set on Linux. The median of three. It is not read
+  on macOS, where the webview's processes are the system's rather than the
+  app's.

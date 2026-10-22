@@ -13,6 +13,10 @@
 
 Most git clients either reimplement git badly (breaking hooks, credential helpers, LFS, signing) or shell out to `git` for everything (paying a process-spawn cost on every read). Furca does neither: reads run through [gitoxide](https://github.com/GitoxideLabs/gitoxide) in-process, while mutations go through the system `git` CLI, so your config, hooks and credentials work exactly as they do in a terminal. See [ADR 0001](https://github.com/lacodda/furca/blob/main/docs/adr/0001-hybrid-git-engine.md).
 
+## In a window
+
+<p align="center"><img src="https://raw.githubusercontent.com/lacodda/furca/main/assets/window.png" alt="furca's window: repositories in tabs, branches in folders with their distance from the upstream, and where the repository stands" width="860"></p>
+
 ## In a terminal
 
 ```console
@@ -25,8 +29,8 @@ d402e85 2026-09-17 Ada Author  chore: point components.json at the dowel registr
 c8292c5 2026-09-04 Ada Author  build: raise the MSRV to 1.88
 ... more history; raise --limit (now 3)
 
-$ furca refs --json | jq '.branches[0]'
-{ "name": "main", "target": "171154d…", "upstream": "origin/main", "head": true }
+$ furca refs --json | jq '.branches[0].upstream'
+{ "name": "origin/main", "ahead": 1, "behind": 0 }
 ```
 
 <!-- The tags below are other repositories' own: the release bump leaves them. -->
@@ -46,6 +50,7 @@ notes       main    3 ahead     v0.2.1  2026-09-28      5  2 changed, 1 untracke
 - **Every repository at a glance.** `furca line` reads a whole set of repositories at once - the ones your [rigger](https://lacodda.github.io/rigger/) record keeps, or a pattern - and says what each holds that is nowhere else yet: uncommitted, unpushed, stashed, and what has not been released since the last tag. See [line](https://lacodda.github.io/furca/reference/line/).
 - **JSON for scripts and assistants.** Every command takes `--json`; the output is the engine's own types, not a second format kept in step by hand.
 - **A release that runs itself.** `furca release plan` proposes the next free version and checks every shop window before a tag; `furca release run` carries it out - bump, changelog, gate, commit, push, CI, tag, publish - then verifies the release page, registries and links, installs the release and proves the installed binary is its own build. It stops at the first red step; `resume` picks up after the fix. See [release](https://lacodda.github.io/furca/reference/release/).
+- **Repositories in tabs.** The window opens a folder, one opened lately, a folder dropped on it, or a whole set at once - a session saved under a name, or every repository your rigger record keeps. Its left column is Fork's: branches in folders with how far each is from its upstream, remotes, tags newest first, stashes, submodules. See [the window](https://lacodda.github.io/furca/guides/the-window/).
 - **One engine, three doors.** `furca-core` is a plain Rust library; the CLI, the desktop window and - later - an MCP server are thin wrappers around it. See [ADR 0002](https://github.com/lacodda/furca/blob/main/docs/adr/0002-one-core-three-doors.md).
 
 ## Install
@@ -60,7 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/lacodda/furca/main/tools/install.sh
 
 ## Status
 
-**v0.6.0** is the engine and the CLI - `status`, `refs` and `log` held to measured speed budgets, `push --wait-ci`, `checks` and `line` across many repositories - and the release engine whole: `furca release plan`, `run`, `resume` and `verify`, which released this version itself and installed it. `furca-core` and `furca-release` are published as libraries; the CLI installs from the release. The desktop window and the working-tree status come in later releases - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
+**v0.6.0** is the engine, the CLI and the first window. The CLI - `status`, `refs`, `log`, `push --wait-ci`, `checks`, `line` - and the release engine whole, which released this version itself, install from the release; `furca-core` and `furca-release` are published as libraries. The window opens repositories in tabs and sessions and shows their refs, held to its own budgets for start and memory; it builds from a checkout until its installers are signed. The graph, a commit's diff and the working tree come next - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 

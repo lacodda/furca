@@ -5,7 +5,8 @@ description: Install the furca CLI and read your first repository.
 
 ## Install
 
-The `furca` CLI ships today; the desktop window follows in a later release.
+The `furca` CLI installs from the release. The desktop window builds from a
+checkout until its installers are signed - see [The window](/furca/guides/the-window/).
 
 One line on Windows (PowerShell):
 

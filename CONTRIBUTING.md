@@ -16,10 +16,14 @@ The crates on crates.io build on the workspace's `rust-version`; the window
 declares its own, because it follows Tauri.
 
 ```sh
-cargo test --workspace                 # engine, CLI and the release gate
+cargo test --workspace                 # engine, CLI, window store and the release gate
 cargo run -p furca -- log -n 5         # the CLI against this repository
-pnpm install && pnpm tauri dev         # the desktop shell
+pnpm install && pnpm tauri dev         # the desktop window
 ```
+
+`FURCA_DESKTOP_DATA=<dir>` runs the window on a data directory of its own -
+its tabs, sessions and webview profile - so a run from the source never
+touches the window you use.
 
 Before a commit, all of these are green:
 
@@ -29,11 +33,24 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo bench -p furca-core --bench budgets   # the speed budgets; red when one is broken
 pnpm lint
+pnpm tauri build --no-bundle
+cargo bench -p furca-desktop --bench window --features custom-protocol
 ```
 
 The budgets are listed in `crates/furca-core/benches/budgets.json`, which
-the docs site reads as well. The first benchmark run generates a 100 000-commit
-fixture under `target/tmp` and takes a few minutes; later runs reuse it.
+the docs site reads as well; the core's are measured by its benchmark, the
+window's by starting the built app. The first benchmark run generates a
+100 000-commit fixture under `target/tmp` and takes a few minutes; later runs
+reuse it. The window's benchmark needs a desktop session: it opens the window
+some thirty times.
+
+The types the window reads are generated from the Rust ones (ADR 0009) into
+`src/lib/generated/`. A change to one of them fails `cargo test` until the
+folder is written again:
+
+```sh
+FURCA_BLESS=1 cargo test -p furca-desktop --test bindings
+```
 
 Engine tests build their repositories with `git` in a temporary directory and
 never read a repository on your machine. The release engine's tests play the

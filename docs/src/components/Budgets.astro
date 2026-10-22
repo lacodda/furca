@@ -5,19 +5,44 @@
 // JSON per platform, and this page is rebuilt when a release is published.
 import promises from '../../../crates/furca-core/benches/budgets.json';
 
+// Reports from v0.7 on carry a unit - a window's memory is MB, not ms - and
+// name their numbers without one; the reports before it were all ms and said
+// so in every field name. Both are read, and turned into the one shape.
+interface Written {
+	name: string;
+	layout: string;
+	within: boolean;
+	unit?: string;
+	budget?: number | null;
+	median?: number;
+	p90?: number;
+	budget_ms?: number | null;
+	median_ms?: number;
+	p90_ms?: number;
+}
 interface Result {
 	name: string;
 	layout: string;
-	budget_ms: number | null;
-	median_ms: number;
-	p90_ms: number;
+	unit: string;
+	budget: number | null;
+	median: number;
+	p90: number;
 	within: boolean;
 }
+const read = (r: Written): Result => ({
+	name: r.name,
+	layout: r.layout,
+	within: r.within,
+	unit: r.unit ?? 'ms',
+	budget: r.budget ?? r.budget_ms ?? null,
+	median: r.median ?? r.median_ms ?? 0,
+	p90: r.p90 ?? r.p90_ms ?? 0,
+});
 interface Report {
 	version: string;
 	os: string;
 	arch: string;
-	results: Result[];
+	results: Written[];
 }
 interface Row {
 	release: string;
@@ -49,7 +74,7 @@ async function releaseReports(): Promise<Row[]> {
 			}
 			const report: Report = await file.json();
 			for (const result of report.results) {
-				rows.push({ release: release.tag_name, platform: `${report.os} ${report.arch}`, result });
+				rows.push({ release: release.tag_name, platform: `${report.os} ${report.arch}`, result: read(result) });
 			}
 		}
 	}
@@ -71,7 +96,7 @@ try {
 }
 const measured = promises.budgets.filter((b) => b.status === 'measured');
 const planned = promises.budgets.filter((b) => b.status === 'planned');
-const ms = (value: number) => `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })} ms`;
+const amount = (value: number, unit: string) => `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })} ${unit}`;
 const commits = promises.commits.toLocaleString('en-US');
 ---
 
@@ -84,19 +109,19 @@ const commits = promises.commits.toLocaleString('en-US');
 			<tr>
 				<td>{b.what}</td>
 				<td><code>{b.layout}</code></td>
-				<td>{b.limit_ms === null ? <em>measured, not promised</em> : `< ${b.limit_ms} ms`}</td>
+				<td>{b.limit === null ? <em>measured, not promised</em> : `< ${amount(b.limit, b.unit)}`}</td>
 			</tr>
 		))}
 		{planned.map((b) => (
 			<tr>
 				<td>{b.what}</td>
 				<td><code>{b.layout}</code></td>
-				<td>{`< ${b.limit_ms} ms`}, measured from {b.arrives}</td>
+				<td>{`< ${amount(b.limit ?? 0, b.unit)}`}, measured from {b.arrives}</td>
 			</tr>
 		))}
 	</tbody>
 </table>
-{measured.filter((b) => b.note).map((b) => <p><strong><code>{b.layout}</code>:</strong> {b.note}</p>)}
+{measured.filter((b) => b.note).map((b) => <p><strong>{b.what}, on <code>{b.layout}</code>:</strong> {b.note}</p>)}
 
 <h2 id="measured">Measured</h2>
 {unread !== null ? (
@@ -105,16 +130,17 @@ const commits = promises.commits.toLocaleString('en-US');
 	<p>No release carries measurements yet.</p>
 ) : (
 	<table>
-		<thead><tr><th>Release</th><th>Platform</th><th>Repository</th><th>Median</th><th>90th percentile</th><th>Budget</th></tr></thead>
+		<thead><tr><th>Release</th><th>Platform</th><th>Budget</th><th>Repository</th><th>Median</th><th>90th percentile</th><th>Kept</th></tr></thead>
 		<tbody>
 			{rows.map((row) => (
 				<tr>
 					<td>{row.release}</td>
 					<td>{row.platform}</td>
+					<td><code>{row.result.name}</code></td>
 					<td><code>{row.result.layout}</code></td>
-					<td>{ms(row.result.median_ms)}</td>
-					<td>{ms(row.result.p90_ms)}</td>
-					<td>{row.result.budget_ms === null ? '-' : row.result.within ? `kept (< ${row.result.budget_ms} ms)` : `broken (< ${row.result.budget_ms} ms)`}</td>
+					<td>{amount(row.result.median, row.result.unit)}</td>
+					<td>{amount(row.result.p90, row.result.unit)}</td>
+					<td>{row.result.budget === null ? '-' : row.result.within ? `kept (< ${amount(row.result.budget, row.result.unit)})` : `broken (< ${amount(row.result.budget, row.result.unit)})`}</td>
 				</tr>
 			))}
 		</tbody>
