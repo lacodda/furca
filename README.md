@@ -65,7 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/lacodda/furca/main/tools/install.sh
 
 ## Status
 
-**v0.6.0** is the engine, the CLI and the first window. The CLI - `status`, `refs`, `log`, `push --wait-ci`, `checks`, `line` - and the release engine whole, which released this version itself, install from the release; `furca-core` and `furca-release` are published as libraries. The window opens repositories in tabs and sessions and shows their refs, held to its own budgets for start and memory; it builds from a checkout until its installers are signed. The graph, a commit's diff and the working tree come next - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
+**v0.7.0** is the engine, the CLI and the first window. The CLI - `status`, `refs`, `log`, `push --wait-ci`, `checks`, `line` - and the release engine whole, which released this version itself, install from the release; `furca-core` and `furca-release` are published as libraries. The window opens repositories in tabs and sessions and shows their refs, held to its own budgets for start and memory; it builds from a checkout until its installers are signed. The graph, a commit's diff and the working tree come next - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 

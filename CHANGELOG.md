@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0] - 2026-10-23
+
+### CI
+- Bundle and measure the window on three platforms
+
+### Documentation
+- Document the window, its sessions and its budgets
+
+### Features
+- Read what the window's left column shows
+- Open repositories in tabs, in the line's own window
+
+### Performance
+- Put the window on the screen before its webview
+
+### Testing
+- Hold the tab in front when another moves past it
+
+### Breaking Changes
+- `branches[].upstream` in `furca refs --json` is an
+object with `name`, `ahead` and `behind`, not the branch name.
+
 ## [0.6.0] - 2026-10-19
 
 ### Features
