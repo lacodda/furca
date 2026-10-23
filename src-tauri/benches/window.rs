@@ -43,6 +43,9 @@ const MEMORY_RUNS: usize = 3;
 const SETTLE: Duration = Duration::from_secs(2);
 /// How long a start may take before it is called a hang.
 const PATIENCE: Duration = Duration::from_secs(60);
+/// A start slower than this is printed whole, stage by stage: where the time
+/// went is the first question a slow machine raises.
+const SLOW: Duration = Duration::from_secs(5);
 
 #[derive(Deserialize)]
 struct Promises {
@@ -132,6 +135,7 @@ fn main() {
     }
 
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    println!("the fixture: {} commits", promises.commits);
     let repository = fixture::ensure(&root, promises.commits, Layout::PackedWithGraph);
     let work = root.join("window-budget");
     if work.exists() {
@@ -230,6 +234,7 @@ fn main() {
 /// Starts the app with `repository` open, to its first frame, timing every
 /// stage it reports on the way from the start of the process.
 fn time_starts(data: &Path, repository: &Path) -> Vec<Vec<(String, f64)>> {
+    println!("starting the window {} times", WARMUP + RUNS);
     remember(data, &[repository]);
     let marks = data.join("marks");
     for _ in 0..WARMUP {
@@ -281,6 +286,7 @@ fn copies(root: &Path, repository: &Path) -> Vec<PathBuf> {
 /// Reads what the app and its webview hold with `repositories` open, each
 /// read, after a moment to settle.
 fn memory(data: &Path, repositories: &[PathBuf]) -> (f64, f64) {
+    println!("reading the memory {MEMORY_RUNS} times");
     let repositories: Vec<&Path> = repositories.iter().map(PathBuf::as_path).collect();
     remember(data, &repositories);
     let marks = data.join("marks");
@@ -335,13 +341,15 @@ fn start_to(
 ) -> (Vec<(String, f64)>, Option<Child>) {
     for attempt in 0..2 {
         let _ = std::fs::remove_file(marks);
+        let said = data.join("app.log");
+        let log = std::fs::File::create(&said).expect("the app's log");
         let mut command = Command::new(APP);
         command
             .env("FURCA_DESKTOP_DATA", data)
             .env("FURCA_DESKTOP_MEASURE", marks)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(log);
         if exit {
             command.env("FURCA_DESKTOP_MEASURE_EXIT", stage);
         }
@@ -367,18 +375,32 @@ fn start_to(
             }
             std::thread::sleep(Duration::from_millis(1));
         };
+        let took = started.elapsed();
         if !reached {
             // Known flake: the webview's profile is still held by the last
             // start's helper processes for a moment after it exits, and a
             // start in that moment fails to create its webview. Once more,
             // after the profile is let go; a second failure is real.
             stop_tree(&mut child);
+            eprintln!(
+                "a start did not reach `{stage}` in {:.1} s; it reported {seen:?} and said:\n{}",
+                took.as_secs_f64(),
+                std::fs::read_to_string(&said).unwrap_or_default()
+            );
             assert!(attempt == 0, "the app never reached `{stage}`");
             std::thread::sleep(Duration::from_secs(3));
             continue;
         }
+        if took > SLOW {
+            println!("  a slow start: {seen:?}");
+        }
         if exit {
-            let _ = child.wait();
+            // An app that reached its stage and does not close is stopped,
+            // not waited on for ever.
+            if !exits_within(&mut child, PATIENCE) {
+                eprintln!("the app did not close after `{stage}`; stopped");
+                stop_tree(&mut child);
+            }
             // The webview's helpers outlive the app by a moment; the next
             // start must not meet them.
             std::thread::sleep(Duration::from_millis(500));
@@ -387,6 +409,18 @@ fn start_to(
         return (seen, Some(child));
     }
     unreachable!("the loop returns or asserts")
+}
+
+/// Whether `child` exits within `limit`.
+fn exits_within(child: &mut Child, limit: Duration) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < limit {
+        if child.try_wait().expect("the app can be asked").is_some() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
 }
 
 /// The process `root` and every process under it, by id.
