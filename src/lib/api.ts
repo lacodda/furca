@@ -1,4 +1,8 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, type Channel } from '@tauri-apps/api/core'
+import type { Finder } from './generated/Finder'
+import type { Found } from './generated/Found'
+import type { GraphRow } from './generated/GraphRow'
+import type { GraphState } from './generated/GraphState'
 import type { Line } from './generated/Line'
 import type { Opened } from './generated/Opened'
 import type { Sidebar } from './generated/Sidebar'
@@ -28,6 +32,17 @@ export const api = {
   sidebar: (path: string) => invoke<Sidebar>('sidebar', { path }),
   standing: (path: string) => invoke<Standing>('standing', { path }),
   maintain: (path: string) => invoke<null>('maintain', { path }),
+  /** The graph of `path`, of one branch (a full ref name) or of everything. */
+  graph: (path: string, branch: string | null) => invoke<GraphState>('graph', { path, branch }),
+  graphRows: (path: string, generation: number, from: number, count: number) =>
+    invoke<GraphRow[]>('graph_rows', { path, generation, from, count }),
+  graphPosition: (path: string, generation: number, id: string) =>
+    invoke<number | null>('graph_position', { path, generation, id }),
+  /** Starts a search; what it finds arrives on `found`, and the answer says
+   * who is searching. */
+  graphFind: (path: string, generation: number, query: string, found: Channel<Found>) =>
+    invoke<Finder[]>('graph_find', { path, generation, query, found }),
+  forgetGraph: (path: string) => invoke<null>('forget_graph', { path }),
   /** Tells a measurement the window reached `stage`; nothing otherwise. The
    * stages between the start and the first frame say where a slow start
    * spent its time. */

@@ -14,6 +14,7 @@ import { api, failure } from '@/lib/api'
 import type { Line } from '@/lib/generated/Line'
 import type { Opened } from '@/lib/generated/Opened'
 import type { WindowState } from '@/lib/generated/WindowState'
+import { openGraph } from '@/lib/graph'
 import { forget, listenForMaintenance, readAll, refresh, sidebars } from '@/lib/repos'
 import { Home } from '@/home/Home'
 import { RepoView } from '@/repo/RepoView'
@@ -29,9 +30,10 @@ type Boot = { state: WindowState } | { error: string }
 /**
  * The window: the splash while it opens what was open, then the shell.
  *
- * The splash stays until the tab in front has its column read, so the first
- * frame of the shell is a repository rather than a spinner inside one - the
- * open and the first read are what the splash is there to cover.
+ * The splash stays until the tab in front has its column and the first rows
+ * of its graph read, so the first frame of the shell is a repository rather
+ * than a spinner inside one - the open and the first read are what the
+ * splash is there to cover.
  */
 export default function App() {
   const { t } = useTranslation()
@@ -46,7 +48,7 @@ export default function App() {
         const front = state.active === null ? undefined : state.tabs[state.active]
         if (front) {
           setStatus(t('splash.reading', { name: front.name }))
-          await sidebars.load(front.path)
+          await Promise.all([sidebars.load(front.path), openGraph(front.path)])
           void api.measured('read')
         }
         if (!cancelled) setBoot({ state })

@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { api, failure } from './api'
+import { forgetGraph, graphComplete, openGraph } from './graph'
 import type { Maintenance } from './generated/Maintenance'
 import type { Sidebar } from './generated/Sidebar'
 import type { Standing } from './generated/Standing'
@@ -97,25 +98,31 @@ export const useSidebar = (path: string) => useRead(sidebars, path)
 /** Where the repository at `path` stands. */
 export const useStanding = (path: string) => useRead(standings, path)
 
-/** Reads the repository at `path` again, both halves. */
+/** Reads the repository at `path` again: its column, where it stands, and
+ * its graph, which is begun again only if the refs moved. */
 export function refresh(path: string): void {
   void sidebars.refresh(path)
   void standings.refresh(path)
+  void openGraph(path)
 }
 
 /** Forgets what was read of the repository at `path`. */
 export function forget(path: string): void {
   sidebars.forget(path)
   standings.forget(path)
+  forgetGraph(path)
 }
 
 /** Reads every one of `paths` in turn, one after another rather than all at
  * once: the line is eighteen repositories, and the one in front was already
- * read first. */
+ * read first. A graph counts as read once it is laid out to its end, so
+ * going to any tab shows its history at once. */
 export async function readAll(paths: readonly string[]): Promise<void> {
   for (const path of paths) {
     await sidebars.load(path)
     await standings.load(path)
+    await openGraph(path)
+    await graphComplete(path)
   }
 }
 

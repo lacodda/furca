@@ -9,6 +9,7 @@ import type { TreeNode } from '@/components/ui/tree-rows'
 import type { Branch } from '@/lib/generated/Branch'
 import type { RemoteBranch } from '@/lib/generated/RemoteBranch'
 import type { Sidebar as SidebarData } from '@/lib/generated/Sidebar'
+import { commitOfColumnRow } from '@/lib/graph-labels'
 import { aheadBehind, byVersionDescending, nameTree, type NameNode } from '@/lib/names'
 import { useSidebar } from '@/lib/repos'
 import { cn } from 'dowel-ui'
@@ -23,16 +24,18 @@ const openByRepository = new Map<string, Set<string>>()
 
 /**
  * The left column: Branches, Remotes, Tags, Stashes and Submodules, as Fork
- * lays them out - one tree with one tab stop, arrows to move. Read only in
- * this version; the counts beside a branch are how far it is from its
- * upstream, as of the last fetch.
+ * lays them out - one tree with one tab stop, arrows to move. Choosing a
+ * branch, a tag or a stash entry takes the graph to its commit (`onJump`).
+ * The counts beside a branch are how far it is from its upstream, as of the
+ * last fetch.
  */
-export function Sidebar({ path }: { path: string }) {
+export function Sidebar({ path, onJump }: { path: string; onJump?: (commit: string) => void }) {
   const { t } = useTranslation()
   const read = useSidebar(path)
   const [open, setOpen] = useState<Set<string>>(
     () => openByRepository.get(path) ?? new Set(FIRST_OPEN),
   )
+  const [chosen, setChosen] = useState<string | undefined>(undefined)
 
   if (read.state === 'reading') {
     return (
@@ -60,6 +63,12 @@ export function Sidebar({ path }: { path: string }) {
         onOpenChange={(next) => {
           openByRepository.set(path, next)
           setOpen(next)
+        }}
+        selected={chosen}
+        onSelect={(id) => {
+          setChosen(id)
+          const commit = commitOfColumnRow(read.value, id)
+          if (commit !== null) onJump?.(commit)
         }}
         className="p-1.5"
       />

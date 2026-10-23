@@ -14,10 +14,11 @@
 //! anywhere write into the tree. This is the one place that exports, and only
 //! when asked to.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::any::TypeId;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
-use ts_rs::{Config, TS};
+use ts_rs::{Config, TS, TypeVisitor};
 
 /// Where the window keeps its copy.
 fn generated_dir() -> PathBuf {
@@ -27,27 +28,83 @@ fn generated_dir() -> PathBuf {
         .join("src/lib/generated")
 }
 
-/// Exports every root type, and what it depends on, into `dir`: what the
-/// commands in `src/commands.rs` return and the payload of the maintenance
-/// event. Their dependencies are followed by `export_all` itself.
+/// Hands every root type to `$each`: what the commands in `src/commands.rs`
+/// and `src/graph.rs` return, what a search sends down its channel, and the
+/// payloads of the maintenance and graph events. What they depend on is
+/// followed from them.
+macro_rules! for_each_root {
+    ($each:ident) => {
+        $each! {
+            furca_desktop_lib::state::WindowState,
+            furca_desktop_lib::commands::Opened,
+            furca_desktop_lib::commands::Sidebar,
+            furca_desktop_lib::commands::Line,
+            furca_core::Standing,
+            furca_desktop_lib::maintenance::Maintenance,
+            furca_desktop_lib::graph::GraphState,
+            furca_desktop_lib::graph::Grown,
+            furca_desktop_lib::graph::GraphRow,
+            furca_desktop_lib::graph::Found,
+        }
+    };
+}
+
+/// Exports every root type, and what it depends on, into `dir`.
 fn export_all(dir: &Path) -> Result<(), ts_rs::ExportError> {
     let cfg = Config::from_env().with_out_dir(dir);
-
     macro_rules! export {
         ($($ty:ty),* $(,)?) => {
             $(<$ty as TS>::export_all(&cfg)?;)*
         };
     }
-
-    export! {
-        furca_desktop_lib::state::WindowState,
-        furca_desktop_lib::commands::Opened,
-        furca_desktop_lib::commands::Sidebar,
-        furca_desktop_lib::commands::Line,
-        furca_core::Standing,
-        furca_desktop_lib::maintenance::Maintenance,
-    }
+    for_each_root!(export);
     Ok(())
+}
+
+/// The Rust types behind each file the export writes.
+#[derive(Default)]
+struct Files {
+    seen: HashSet<TypeId>,
+    by_file: BTreeMap<PathBuf, BTreeSet<&'static str>>,
+}
+
+impl TypeVisitor for Files {
+    fn visit<T: TS + 'static + ?Sized>(&mut self) {
+        if !self.seen.insert(TypeId::of::<T>()) {
+            return;
+        }
+        if let Some(file) = T::output_path() {
+            self.by_file
+                .entry(file)
+                .or_default()
+                .insert(std::any::type_name::<T>());
+        }
+        T::visit_dependencies(self);
+    }
+}
+
+/// Two Rust types of one name would be written to one file, the second over
+/// the first, and every import of the first would get the second - which a
+/// comparison of files cannot see, since the export writes them the same
+/// way every time.
+#[test]
+fn no_two_types_are_written_to_one_file() {
+    let mut files = Files::default();
+    macro_rules! visit {
+        ($($ty:ty),* $(,)?) => {
+            $(files.visit::<$ty>();)*
+        };
+    }
+    for_each_root!(visit);
+    let shared: Vec<_> = files
+        .by_file
+        .iter()
+        .filter(|(_, types)| types.len() > 1)
+        .collect();
+    assert!(
+        shared.is_empty(),
+        "types share a generated file: {shared:?}; rename one"
+    );
 }
 
 /// Every file under `dir`, relative to it, with its contents; `\r\n` folded
@@ -120,12 +177,15 @@ fn every_type_a_command_names_is_generated() {
     }
     // Tauri's and std's names, and the app's managed state, which are not
     // shapes on the wire.
-    const NOT_ON_THE_WIRE: [&str; 7] = [
+    const NOT_ON_THE_WIRE: [&str; 10] = [
         "State",
         "AppHandle",
         "Store",
         "Early",
+        "Graphs",
+        "Channel",
         "Result",
+        "Option",
         "String",
         "Vec",
     ];
@@ -133,7 +193,7 @@ fn every_type_a_command_names_is_generated() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let committed = read_tree(&generated_dir());
     let mut named = BTreeSet::new();
-    for file in ["commands.rs", "measure.rs"] {
+    for file in ["commands.rs", "graph.rs", "measure.rs"] {
         let text = std::fs::read_to_string(src.join(file)).expect("the source reads");
         let mut rest = text.as_str();
         while let Some(at) = rest.find("#[tauri::command]") {

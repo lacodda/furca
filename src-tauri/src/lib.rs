@@ -5,8 +5,10 @@
 //! it off the main thread, and remembers what was open (`state`).
 
 pub mod commands;
+pub mod graph;
 pub mod maintenance;
 pub mod measure;
+mod nooma;
 pub mod state;
 
 use std::path::{Path, PathBuf};
@@ -87,12 +89,17 @@ pub fn run() {
                     eprintln!("furca: {}: {}", failed.path, failed.reason);
                 }
             }
+            let graphs = graph::Graphs::default();
             let early = match store.state.lock() {
-                Ok(state) => commands::Early::start(&state),
+                Ok(state) => {
+                    graphs.begin_early(&state);
+                    commands::Early::start(&state)
+                }
                 Err(_) => commands::Early::default(),
             };
             app.manage(store);
             app.manage(early);
+            app.manage(graphs);
 
             // The window is on the screen before its webview is (ADR 0011):
             // the webview takes some 350 ms to start, and a window that waits
@@ -142,6 +149,11 @@ pub fn run() {
             commands::sidebar,
             commands::standing,
             commands::maintain,
+            graph::graph,
+            graph::graph_rows,
+            graph::graph_position,
+            graph::graph_find,
+            graph::forget_graph,
             measure::measured,
         ])
         .run(tauri::generate_context!())
