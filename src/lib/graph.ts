@@ -18,7 +18,8 @@ import type { Grown } from './generated/Grown'
  * hundred does.
  */
 
-/** Rows asked for at once. */
+/** Rows asked for at once: the size furca-desktop sends a new graph's
+ * first page in, so that page is page 0 here. */
 export const PAGE = 100
 /** Pages kept per repository: forty screens or so. */
 const KEPT = 40
@@ -122,7 +123,12 @@ export async function openGraph(path: string, branch: string | null = entry(path
       update(payload.path, { state: payload.state })
     })
     await listening
-    take(path, await api.graph(path, branch))
+    const answer = await api.graph(path, branch)
+    take(path, answer.state)
+    if (answer.first.length > 0) {
+      at.pages.set(0, answer.first)
+      update(path, { version: at.view.version + 1 })
+    }
     await loadPage(path, 0)
   } catch (cause) {
     update(path, { failed: failure(cause) })

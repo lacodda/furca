@@ -11,6 +11,7 @@
 //! it again.
 
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::thread::JoinHandle;
@@ -36,6 +37,10 @@ const CHUNK: usize = 10_000;
 const SEARCHED: usize = 4_096;
 /// The most rows one ask returns.
 const MOST_ROWS: usize = 1_000;
+/// The rows of a graph's first page, sent with the graph itself when it is
+/// begun: the window's first frame needs them, and they are read while the
+/// repository is open anyway. The window reads its pages in the same size.
+const FIRST_PAGE: usize = 100;
 
 /// Every graph the window holds, by the path of its repository.
 #[derive(Default)]
@@ -52,6 +57,8 @@ pub(crate) struct Entry {
     generation: u64,
     branch: Option<String>,
     graph: Mutex<Graph>,
+    /// The first page, read when the graph was begun, until it is sent.
+    first: Mutex<Vec<GraphRow>>,
     /// The newest search's ticket: an older search that sees a newer one
     /// stops.
     search: AtomicU64,
@@ -76,6 +83,16 @@ pub struct GraphState {
     pub width: u16,
     /// Whether the history is laid out to its end.
     pub complete: bool,
+}
+
+/// What the window is told when it asks for a graph.
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+pub struct GraphAnswer {
+    pub state: GraphState,
+    /// The first page of rows, when the graph was begun for this answer;
+    /// empty when the graph held is still current and the window has its
+    /// rows already.
+    pub first: Vec<GraphRow>,
 }
 
 /// A graph grew: what the window hears.
@@ -124,10 +141,12 @@ impl Entry {
         };
         let mut graph = repo.graph(tips).map_err(|e| e.to_string())?;
         graph.extend(&repo, FIRST).map_err(|e| e.to_string())?;
+        let first = page(&graph, &repo, 0..FIRST_PAGE)?;
         Ok(Arc::new(Self {
             generation: GENERATION.fetch_add(1, Ordering::Relaxed),
             branch,
             graph: Mutex::new(graph),
+            first: Mutex::new(first),
             search: AtomicU64::new(0),
         }))
     }
@@ -197,6 +216,17 @@ impl Graphs {
     }
 }
 
+/// The rows in `range` with their commits, as far as they are laid out.
+fn page(graph: &Graph, repo: &Repository, range: Range<usize>) -> Result<Vec<GraphRow>, String> {
+    let rows = graph.rows(range.clone());
+    let commits = graph.commits(repo, range).map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .zip(commits)
+        .map(|(row, commit)| GraphRow { row, commit })
+        .collect())
+}
+
 /// Lays out the rest of the graph on a thread of its own, a chunk at a time,
 /// telling the window after each. Stops when the graph is closed or begun
 /// again: the window then holds no reference to it.
@@ -256,7 +286,7 @@ pub async fn graph(
     graphs: State<'_, Graphs>,
     path: String,
     branch: Option<String>,
-) -> Result<GraphState, String> {
+) -> Result<GraphAnswer, String> {
     if let Some(entry) = graphs.get(&path)?.filter(|entry| entry.branch == branch) {
         let held = entry.clone();
         let at = path.clone();
@@ -268,7 +298,10 @@ pub async fn graph(
         })
         .await?;
         if let Some(state) = current {
-            return Ok(state);
+            return Ok(GraphAnswer {
+                state,
+                first: Vec::new(),
+            });
         }
     }
 
@@ -292,7 +325,12 @@ pub async fn graph(
     if !state.complete {
         grow(app, path, Arc::downgrade(&entry));
     }
-    Ok(state)
+    let first = entry
+        .first
+        .lock()
+        .map(|mut first| std::mem::take(&mut *first))
+        .unwrap_or_default();
+    Ok(GraphAnswer { state, first })
 }
 
 /// The rows `from` to `from + count` of a graph, with their commits, as far
@@ -309,14 +347,11 @@ pub async fn graph_rows(
     off_thread(move || {
         let repo = Repository::at(&path).map_err(|e| e.to_string())?;
         let graph = entry.graph()?;
-        let range = from..from.saturating_add(count.min(MOST_ROWS));
-        let rows = graph.rows(range.clone());
-        let commits = graph.commits(&repo, range).map_err(|e| e.to_string())?;
-        Ok(rows
-            .into_iter()
-            .zip(commits)
-            .map(|(row, commit)| GraphRow { row, commit })
-            .collect())
+        page(
+            &graph,
+            &repo,
+            from..from.saturating_add(count.min(MOST_ROWS)),
+        )
     })
     .await
 }

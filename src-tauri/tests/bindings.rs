@@ -41,7 +41,7 @@ macro_rules! for_each_root {
             furca_desktop_lib::commands::Line,
             furca_core::Standing,
             furca_desktop_lib::maintenance::Maintenance,
-            furca_desktop_lib::graph::GraphState,
+            furca_desktop_lib::graph::GraphAnswer,
             furca_desktop_lib::graph::Grown,
             furca_desktop_lib::graph::GraphRow,
             furca_desktop_lib::graph::Found,

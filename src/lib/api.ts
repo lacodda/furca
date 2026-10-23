@@ -1,8 +1,8 @@
 import { invoke, type Channel } from '@tauri-apps/api/core'
 import type { Finder } from './generated/Finder'
 import type { Found } from './generated/Found'
+import type { GraphAnswer } from './generated/GraphAnswer'
 import type { GraphRow } from './generated/GraphRow'
-import type { GraphState } from './generated/GraphState'
 import type { Line } from './generated/Line'
 import type { Opened } from './generated/Opened'
 import type { Sidebar } from './generated/Sidebar'
@@ -33,7 +33,7 @@ export const api = {
   standing: (path: string) => invoke<Standing>('standing', { path }),
   maintain: (path: string) => invoke<null>('maintain', { path }),
   /** The graph of `path`, of one branch (a full ref name) or of everything. */
-  graph: (path: string, branch: string | null) => invoke<GraphState>('graph', { path, branch }),
+  graph: (path: string, branch: string | null) => invoke<GraphAnswer>('graph', { path, branch }),
   graphRows: (path: string, generation: number, from: number, count: number) =>
     invoke<GraphRow[]>('graph_rows', { path, generation, from, count }),
   graphPosition: (path: string, generation: number, id: string) =>
