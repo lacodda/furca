@@ -139,6 +139,9 @@ jobs:
     name: window budgets (${{ matrix.target }})
     needs: draft
     runs-on: ${{ matrix.os }}
+    # A start that hangs is stopped by the benchmark; this is the net under
+    # that, well past a run that works (about ten minutes with the build).
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -167,6 +170,11 @@ jobs:
       - run: pnpm build
       - name: Measure the window
         shell: bash
+        env:
+          # WebKitGTK on a runner with no GPU: without these it waits on a
+          # renderer the virtual display cannot give. Read on Linux only.
+          WEBKIT_DISABLE_DMABUF_RENDERER: 1
+          WEBKIT_DISABLE_COMPOSITING_MODE: 1
         run: |
           if [ "$RUNNER_OS" = Linux ]; then run="xvfb-run -a"; else run=""; fi
           $run cargo bench -p furca-desktop --bench window --features custom-protocol
