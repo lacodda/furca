@@ -76,6 +76,13 @@ cargo add furca-core
 ```rust
 let repo = furca_core::Repository::open(".")?;
 let log = repo.log(furca_core::Tips::All, 500)?;
+
+// The graph the window draws: lanes laid out a chunk at a time.
+let mut graph = repo.graph(furca_core::Tips::All)?;
+graph.extend(&repo, 500)?;
+for row in graph.rows(0..20) {
+    println!("lane {} with {} segments", row.column, row.segments.len());
+}
 ```
 
 ## Build from source

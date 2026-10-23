@@ -33,9 +33,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo bench -p furca-core --bench budgets   # the speed budgets; red when one is broken
 pnpm lint
-pnpm tauri build --no-bundle
+pnpm build                                  # the frontend the window's benchmark serves
 cargo bench -p furca-desktop --bench window --features custom-protocol
+cd docs && pnpm build
 ```
+
+That is the gate (`rigger gate furca`), in its order. The window's benchmark
+builds the app as `tauri build` does - its build is the release build of the
+window - so the gate does not build the window a second time.
 
 The budgets are listed in `crates/furca-core/benches/budgets.json`, which
 the docs site reads as well; the core's are measured by its benchmark, the

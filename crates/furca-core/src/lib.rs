@@ -12,6 +12,13 @@
 //! for commit in &log.commits {
 //!     println!("{} {}", &commit.id[..7], commit.subject);
 //! }
+//!
+//! // The graph the window draws: lanes laid out a chunk at a time.
+//! let mut graph = repo.graph(furca_core::Tips::All)?;
+//! graph.extend(&repo, 500)?;
+//! for row in graph.rows(0..20) {
+//!     println!("lane {} with {} segments", row.column, row.segments.len());
+//! }
 //! # Ok::<(), furca_core::Error>(())
 //! ```
 
