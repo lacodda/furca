@@ -25,7 +25,7 @@ All notable changes to this project are documented in this file.
 - Hold the graph to holes, merges right of a commit and every row alone
 - Measure the window's memory on Linux without promising it
 
-### revert
+### Reverts
 - Keep the window's IPC on Tauri's own protocol on macOS too
 
 ### Breaking Changes
