@@ -298,9 +298,9 @@ fn memory(data: &Path, repositories: &[PathBuf]) -> (f64, f64) {
             let (_, child) = start_to(data, &marks, "settled", false);
             let mut child = child.expect("a running app");
             std::thread::sleep(SETTLE);
-            let megabytes = tree_memory(child.id()) as f64 / (1024.0 * 1024.0);
+            let held = tree_memory(child.id());
             stop_tree(&mut child);
-            megabytes
+            held
         })
         .collect();
     spread(&mut readings)
@@ -423,35 +423,42 @@ fn exits_within(child: &mut Child, limit: Duration) -> bool {
     false
 }
 
-/// The process `root` and every process under it, by id.
-fn tree(root: u32) -> Vec<(u32, u64)> {
+/// One process: its id, its parent's, what it holds and its name.
+struct Process {
+    pid: u32,
+    parent: u32,
+    bytes: u64,
+    name: String,
+}
+
+/// The process `root` and every process under it.
+fn tree(root: u32) -> Vec<Process> {
     let table = processes();
     let mut ids = vec![root];
     let mut found = true;
     while found {
         found = false;
-        for (pid, parent, _) in &table {
-            if ids.contains(parent) && !ids.contains(pid) {
-                ids.push(*pid);
+        for process in &table {
+            if ids.contains(&process.parent) && !ids.contains(&process.pid) {
+                ids.push(process.pid);
                 found = true;
             }
         }
     }
     table
         .into_iter()
-        .filter(|(pid, _, _)| ids.contains(pid))
-        .map(|(pid, _, bytes)| (pid, bytes))
+        .filter(|process| ids.contains(&process.pid))
         .collect()
 }
 
-/// Every process as (id, parent, memory in bytes): the private working set
-/// on Windows - what Task Manager shows - and the resident set elsewhere.
-fn processes() -> Vec<(u32, u32, u64)> {
+/// Every process, with what it holds: the private working set on Windows -
+/// what Task Manager shows - and the resident set elsewhere.
+fn processes() -> Vec<Process> {
     if cfg!(windows) {
         let script = "$ws = @{}; Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | \
             ForEach-Object { $ws[[int]$_.IDProcess] = $_.WorkingSetPrivate }; \
             Get-CimInstance Win32_Process | ForEach-Object { \
-            \"$($_.ProcessId) $($_.ParentProcessId) $([uint64]$ws[[int]$_.ProcessId])\" }";
+            \"$($_.ProcessId) $($_.ParentProcessId) $([uint64]$ws[[int]$_.ProcessId]) $($_.Name)\" }";
         let out = Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
             .output()
@@ -459,7 +466,7 @@ fn processes() -> Vec<(u32, u32, u64)> {
         parse(&String::from_utf8_lossy(&out.stdout), 1)
     } else {
         let out = Command::new("ps")
-            .args(["-A", "-o", "pid=,ppid=,rss="])
+            .args(["-A", "-o", "pid=,ppid=,rss=,comm="])
             .output()
             .expect("ps runs");
         let mut table = parse(&String::from_utf8_lossy(&out.stdout), 1024);
@@ -469,9 +476,9 @@ fn processes() -> Vec<(u32, u32, u64)> {
         // The proportional set divides each shared page among its users -
         // the counterpart of Windows' private working set.
         if cfg!(target_os = "linux") {
-            for (pid, _, bytes) in &mut table {
-                if let Some(pss) = proportional(*pid) {
-                    *bytes = pss;
+            for process in &mut table {
+                if let Some(pss) = proportional(process.pid) {
+                    process.bytes = pss;
                 }
             }
         }
@@ -487,27 +494,36 @@ fn proportional(pid: u32) -> Option<u64> {
     Some(kilobytes * 1024)
 }
 
-fn parse(text: &str, scale: u64) -> Vec<(u32, u32, u64)> {
+fn parse(text: &str, scale: u64) -> Vec<Process> {
     text.lines()
         .filter_map(|line| {
             let mut fields = line.split_whitespace();
-            Some((
-                fields.next()?.parse().ok()?,
-                fields.next()?.parse().ok()?,
-                fields.next()?.parse::<u64>().ok()? * scale,
-            ))
+            Some(Process {
+                pid: fields.next()?.parse().ok()?,
+                parent: fields.next()?.parse().ok()?,
+                bytes: fields.next()?.parse::<u64>().ok()? * scale,
+                name: fields.collect::<Vec<_>>().join(" "),
+            })
         })
         .collect()
 }
 
-/// What the app and every process it started hold, together.
-fn tree_memory(root: u32) -> u64 {
+/// What the app and every process it started hold together, in megabytes;
+/// what each holds is printed, since which process grew is the first
+/// question a number over its budget raises.
+fn tree_memory(root: u32) -> f64 {
+    let megabytes = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
     let tree = tree(root);
     assert!(
         tree.len() > 1,
         "the app runs alone: its webview is not where it should be"
     );
-    tree.iter().map(|(_, bytes)| bytes).sum()
+    let parts: Vec<String> = tree
+        .iter()
+        .map(|process| format!("{} {:.1}", process.name, megabytes(process.bytes)))
+        .collect();
+    println!("  by process, MB: {}", parts.join(", "));
+    megabytes(tree.iter().map(|process| process.bytes).sum())
 }
 
 /// Stops the app and every process under it.
@@ -517,8 +533,10 @@ fn stop_tree(child: &mut Child) {
             .args(["/PID", &child.id().to_string(), "/T", "/F"])
             .output();
     } else {
-        for (pid, _) in tree(child.id()) {
-            let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
+        for process in tree(child.id()) {
+            let _ = Command::new("kill")
+                .args(["-9", &process.pid.to_string()])
+                .output();
         }
     }
     let _ = child.wait();
