@@ -462,8 +462,29 @@ fn processes() -> Vec<(u32, u32, u64)> {
             .args(["-A", "-o", "pid=,ppid=,rss="])
             .output()
             .expect("ps runs");
-        parse(&String::from_utf8_lossy(&out.stdout), 1024)
+        let mut table = parse(&String::from_utf8_lossy(&out.stdout), 1024);
+        // The resident set counts a library once in every process that maps
+        // it, and the webview's libraries are mapped by all of its
+        // processes: summed, they were counted three and four times over.
+        // The proportional set divides each shared page among its users -
+        // the counterpart of Windows' private working set.
+        if cfg!(target_os = "linux") {
+            for (pid, _, bytes) in &mut table {
+                if let Some(pss) = proportional(*pid) {
+                    *bytes = pss;
+                }
+            }
+        }
+        table
     }
+}
+
+/// The proportional set size of `pid`, from `/proc/PID/smaps_rollup`.
+fn proportional(pid: u32) -> Option<u64> {
+    let text = std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")).ok()?;
+    let line = text.lines().find(|line| line.starts_with("Pss:"))?;
+    let kilobytes: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kilobytes * 1024)
 }
 
 fn parse(text: &str, scale: u64) -> Vec<(u32, u32, u64)> {

@@ -51,6 +51,7 @@ writing to a file the benchmark watches.
 - **Memory** is read with three copies of the repository open, each one read,
   and two seconds to settle: the private working set of the app and of every
   process under it, the webview's included - what Task Manager counts on
-  Windows - and the resident set on Linux. The median of three. It is not read
-  on macOS, where the webview's processes are the system's rather than the
-  app's.
+  Windows - and the proportional set on Linux, which shares each library
+  among the processes that map it rather than counting it in every one. The
+  median of three. It is not read on macOS, where the webview's processes are
+  the system's rather than the app's.
