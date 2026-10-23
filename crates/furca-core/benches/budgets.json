@@ -4,7 +4,7 @@
     {
       "name": "graph-first-500",
       "door": "core",
-      "what": "Open a repository and read the first 500 commits of its graph, from every branch and tag",
+      "what": "Open a repository and lay out the first 500 rows of its graph, from every branch and tag, with the commits on them",
       "layout": "packed+commit-graph",
       "limit": 100,
       "unit": "ms",
@@ -32,7 +32,7 @@
     {
       "name": "window-first-repository",
       "door": "window",
-      "what": "Start the desktop app with a repository open, to the first frame that shows it: its tab in the title bar and its branches in the left column",
+      "what": "Start the desktop app with a repository open, to the first frame that shows it: its tab in the title bar, its branches in the left column and the first rows of its graph",
       "layout": "packed+commit-graph",
       "limit": null,
       "unit": "ms",
@@ -42,7 +42,7 @@
     {
       "name": "window-memory",
       "door": "window",
-      "what": "Three repositories open in the window, each one read: the memory the app and its webview hold together",
+      "what": "Three repositories open in the window, each one read and its whole graph laid out: the memory the app and its webview hold together",
       "layout": "packed+commit-graph",
       "limit": 300,
       "unit": "MB",

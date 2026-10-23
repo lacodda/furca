@@ -5,13 +5,19 @@ use crate::error::{Error, wrap};
 use crate::walk::Walk;
 
 /// Where a history walk starts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tips {
     /// From `HEAD` only, as `git log` does.
     Head,
     /// From `HEAD` and every branch, remote-tracking branch and tag, as
     /// `git log --all` does — the history a graph shows.
     All,
+    /// From these revisions only - branch names, tags, ids, anything git
+    /// understands, as `git log main feature` does: the history of one
+    /// branch, or of a few. A revision that names no commit is an error
+    /// rather than an empty history, so a mistyped name is not taken for a
+    /// branch without commits.
+    Revisions(Vec<String>),
 }
 
 /// The first commits of a history walk.
@@ -60,7 +66,7 @@ impl Repository {
     /// drawn as a graph top to bottom; within that, newer commits come first.
     /// A repository without commits yields an empty log, not an error.
     pub fn log(&self, tips: Tips, limit: usize) -> Result<Log, Error> {
-        let starts = self.tips(tips)?;
+        let starts = self.tips(&tips)?;
         if starts.is_empty() || limit == 0 {
             return Ok(Log {
                 truncated: !starts.is_empty(),
@@ -72,14 +78,14 @@ impl Repository {
             .inner
             .commit_graph_if_enabled()
             .map_err(wrap(Error::Walk))?;
-        let mut walk = Walk::new(&self.inner, graph);
+        let mut walk = Walk::new(graph);
         for id in starts {
-            walk.start(id)?;
+            walk.start(&self.inner, id)?;
         }
 
         let mut commits = Vec::with_capacity(limit.min(4096));
         while commits.len() < limit {
-            let Some(id) = walk.next_id()? else {
+            let Some(id) = walk.next_id(&self.inner)? else {
                 break;
             };
             commits.push(self.read_commit(id)?);
@@ -90,14 +96,20 @@ impl Repository {
     }
 
     /// The object ids a walk from `tips` starts at.
-    pub(crate) fn tips(&self, tips: Tips) -> Result<Vec<gix::ObjectId>, Error> {
+    pub(crate) fn tips(&self, tips: &Tips) -> Result<Vec<gix::ObjectId>, Error> {
+        if let Tips::Revisions(revisions) = tips {
+            return revisions
+                .iter()
+                .map(|revision| self.resolve(revision))
+                .collect();
+        }
         let mut ids = Vec::new();
         let head = self.inner.head().map_err(wrap(Error::Head))?;
         if let Some(id) = head.id() {
             ids.push(id.detach());
         }
 
-        if tips == Tips::All {
+        if *tips == Tips::All {
             let platform = self.inner.references().map_err(wrap(Error::References))?;
             let packed = self.packed_refs()?;
             let packed = packed.as_ref().map(|buffer| &***buffer);

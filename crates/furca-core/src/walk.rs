@@ -41,8 +41,10 @@ struct Node {
     listed: bool,
 }
 
-pub(crate) struct Walk<'repo> {
-    repo: &'repo gix::Repository,
+/// The walk owns no repository: each step is handed the one to read from,
+/// so a walk can be kept between calls - a graph is laid out a chunk at a
+/// time, from whichever thread asks for the next.
+pub(crate) struct Walk {
     graph: Option<gix::commitgraph::Graph>,
     nodes: Vec<Node>,
     index: gix::hashtable::HashMap<ObjectId, u32>,
@@ -54,15 +56,13 @@ pub(crate) struct Walk<'repo> {
     ready: BinaryHeap<(i64, Reverse<u64>, u32)>,
     sequence: u64,
     listed: usize,
+    /// The parents of the commit listed last, in order.
+    parents: Vec<ObjectId>,
 }
 
-impl<'repo> Walk<'repo> {
-    pub(crate) fn new(
-        repo: &'repo gix::Repository,
-        graph: Option<gix::commitgraph::Graph>,
-    ) -> Self {
+impl Walk {
+    pub(crate) fn new(graph: Option<gix::commitgraph::Graph>) -> Self {
         Self {
-            repo,
             graph,
             nodes: Vec::new(),
             index: Default::default(),
@@ -70,13 +70,14 @@ impl<'repo> Walk<'repo> {
             ready: BinaryHeap::new(),
             sequence: 0,
             listed: 0,
+            parents: Vec::new(),
         }
     }
 
     /// Adds a starting point. A tip that is not a commit — a tag on a tree or
     /// a blob — is not a place a history starts, and is skipped.
-    pub(crate) fn start(&mut self, id: ObjectId) -> Result<(), Error> {
-        let Some(node) = self.node(id)? else {
+    pub(crate) fn start(&mut self, repo: &gix::Repository, id: ObjectId) -> Result<(), Error> {
+        let Some(node) = self.node(repo, id)? else {
             return Ok(());
         };
         self.queue_explore(node);
@@ -89,14 +90,21 @@ impl<'repo> Walk<'repo> {
         self.listed < self.nodes.len()
     }
 
+    /// The parents of the commit [`Walk::next_id`] listed last, in the order
+    /// the commit names them; a parent missing from a shallow clone is left
+    /// out, as the walk leaves it out.
+    pub(crate) fn parents(&self) -> &[ObjectId] {
+        &self.parents
+    }
+
     /// The next commit to list, or `None` once the history is exhausted.
-    pub(crate) fn next_id(&mut self) -> Result<Option<ObjectId>, Error> {
+    pub(crate) fn next_id(&mut self, repo: &gix::Repository) -> Result<Option<ObjectId>, Error> {
         while let Some((_, _, node)) = self.ready.pop() {
             let at = node as usize;
             if self.nodes[at].listed {
                 continue;
             }
-            self.explore_down_to(self.nodes[at].generation)?;
+            self.explore_down_to(repo, self.nodes[at].generation)?;
             if self.nodes[at].indegree > 0 {
                 // A child turned up; the node comes back when that child
                 // has been listed.
@@ -105,8 +113,10 @@ impl<'repo> Walk<'repo> {
 
             self.nodes[at].listed = true;
             self.listed += 1;
+            self.parents.clear();
             for parent in std::mem::take(&mut self.nodes[at].parents) {
                 let entry = &mut self.nodes[parent as usize];
+                self.parents.push(entry.id);
                 entry.indegree -= 1;
                 if entry.indegree == 0 {
                     self.push_ready(parent);
@@ -119,18 +129,18 @@ impl<'repo> Walk<'repo> {
 
     /// Explores every queued node whose generation is at least `generation`,
     /// counting its edges and queueing its parents.
-    fn explore_down_to(&mut self, generation: u32) -> Result<(), Error> {
+    fn explore_down_to(&mut self, repo: &gix::Repository, generation: u32) -> Result<(), Error> {
         while let Some(&(top, node)) = self.explore.peek() {
             if top < generation {
                 break;
             }
             self.explore.pop();
-            let parents = self.parent_ids(node)?;
+            let parents = self.parent_ids(repo, node)?;
             let mut indices = Vec::with_capacity(parents.len());
             for id in parents {
                 // A parent that is not in the repository is the edge of a
                 // shallow clone: the history ends there, as it does for git.
-                let Some(parent) = self.node(id)? else {
+                let Some(parent) = self.node(repo, id)? else {
                     continue;
                 };
                 self.nodes[parent as usize].indegree += 1;
@@ -159,7 +169,7 @@ impl<'repo> Walk<'repo> {
 
     /// The node for `id`, created on first sight. `None` when `id` is not a
     /// commit in this repository.
-    fn node(&mut self, id: ObjectId) -> Result<Option<u32>, Error> {
+    fn node(&mut self, repo: &gix::Repository, id: ObjectId) -> Result<Option<u32>, Error> {
         if let Some(&node) = self.index.get(&id) {
             return Ok(Some(node));
         }
@@ -170,7 +180,7 @@ impl<'repo> Walk<'repo> {
                 i64::try_from(commit.committer_timestamp()).unwrap_or(i64::MAX),
             ),
             None => {
-                let object = match self.repo.try_find_object(id) {
+                let object = match repo.try_find_object(id) {
                     Ok(Some(object)) => object,
                     Ok(None) => return Ok(None),
                     Err(error) => return Err(walk_error(error)),
@@ -197,7 +207,7 @@ impl<'repo> Walk<'repo> {
         Ok(Some(node))
     }
 
-    fn parent_ids(&self, node: u32) -> Result<Vec<ObjectId>, Error> {
+    fn parent_ids(&self, repo: &gix::Repository, node: u32) -> Result<Vec<ObjectId>, Error> {
         let id = self.nodes[node as usize].id;
         if let Some(graph) = &self.graph
             && let Some(commit) = graph.commit_by_id(id)
@@ -211,7 +221,7 @@ impl<'repo> Walk<'repo> {
                 })
                 .collect();
         }
-        let commit = self.repo.find_commit(id).map_err(walk_error)?;
+        let commit = repo.find_commit(id).map_err(walk_error)?;
         Ok(commit.parent_ids().map(|parent| parent.detach()).collect())
     }
 }

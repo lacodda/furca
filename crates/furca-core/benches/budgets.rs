@@ -87,10 +87,16 @@ fn layout(name: &str) -> Layout {
         .unwrap_or_else(|| panic!("budgets.json names an unknown layout `{name}`"))
 }
 
+/// What the window does for the first screen of a repository, and more:
+/// begin the graph of every branch and tag, lay out 500 rows of it and read
+/// the commits on them.
 fn first_500(path: &Path) {
     let repo = Repository::open(path).expect("open the fixture");
-    let log = repo.log(Tips::All, 500).expect("walk the fixture");
-    assert_eq!(log.commits.len(), 500);
+    let mut graph = repo.graph(Tips::All).expect("begin the graph");
+    assert_eq!(graph.extend(&repo, 500).expect("lay out the graph"), 500);
+    assert_eq!(graph.rows(0..500).len(), 500);
+    let commits = graph.commits(&repo, 0..500).expect("read the commits");
+    assert_eq!(commits.len(), 500);
 }
 
 /// Median and 90th percentile of `RUNS` timed runs after `WARMUP` untimed.

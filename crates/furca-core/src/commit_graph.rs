@@ -63,7 +63,7 @@ impl Repository {
             Err(error) => return Err(Error::Walk(error.into())),
         };
 
-        let mut queue = self.tips(Tips::All)?;
+        let mut queue = self.tips(&Tips::All)?;
         let mut seen: HashSet<gix::ObjectId> = HashSet::new();
         let mut outside = 0;
         while let Some(id) = queue.pop() {
