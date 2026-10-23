@@ -265,7 +265,11 @@ fn time_starts(data: &Path, repository: &Path) -> Vec<Vec<(String, f64)>> {
     let stages: Vec<String> = starts[0]
         .iter()
         .map(|(stage, _)| {
-            let mut times = stage_times(&starts, stage);
+            let mut times: Vec<f64> = starts
+                .iter()
+                .filter_map(|seen| seen.iter().find(|(name, _)| name == stage))
+                .map(|(_, ms)| *ms)
+                .collect();
             format!("{stage} {:.0}", spread(&mut times).0)
         })
         .collect();

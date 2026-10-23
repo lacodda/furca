@@ -9,7 +9,7 @@
 //! written.
 
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 /// The file stages are written to, when this run is being measured.
@@ -20,6 +20,10 @@ const EXIT: &str = "FURCA_DESKTOP_MEASURE_EXIT";
 
 /// When `run` began: the first moment the app's own code runs.
 static STARTED: OnceLock<Instant> = OnceLock::new();
+/// Held while the file is rewritten: stages arrive from the main thread and
+/// from commands on other threads at once, and two rewrites at a time would
+/// each keep only their own line.
+static WRITING: Mutex<()> = Mutex::new(());
 
 /// Marks the start of the app's own code; the stages are counted from here.
 pub fn start() {
@@ -35,6 +39,7 @@ pub fn mark(stage: &str) -> bool {
     let millis = STARTED
         .get()
         .map_or(0, |started| started.elapsed().as_millis());
+    let _writing = WRITING.lock();
     // Written beside and renamed, so the benchmark never reads half a line.
     let mut text = std::fs::read_to_string(&file).unwrap_or_default();
     text.push_str(&format!("{stage} {millis}\n"));
