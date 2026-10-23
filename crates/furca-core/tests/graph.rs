@@ -477,18 +477,73 @@ fn unrelated_histories_end_their_lanes_at_their_own_roots() {
 
 #[test]
 fn a_tip_takes_the_leftmost_free_column_not_the_far_end() {
-    // Three branches from one root; the middle one forks off the oldest, so
-    // its lane ends early and leaves a hole the next tip below must take.
+    // m2 and b1 both wait for m1 in columns 0 and 1, c2 waits for c1 in
+    // column 2. At m1 the lane in column 1 ends and leaves a hole between
+    // two open lanes; the tip t below must take it.
     let repo = Repo::new();
     let root = repo.commit("main", &[], "root", 1);
-    let short = repo.commit("short", &[&root], "short", 2);
-    repo.commit("main", &[&root], "main", 10);
-    repo.commit("long", &[&root], "long", 9);
-    let base = repo.commit("late", &[&short], "late base", 3);
-    repo.commit("late", &[&base], "late tip", 8);
+    let m1 = repo.commit("main", &[&root], "m1", 7);
+    repo.commit("main", &[&m1], "m2", 10);
+    repo.commit("b", &[&m1], "b1", 9);
+    let c1 = repo.commit("c", &[&root], "c1", 5);
+    repo.commit("c", &[&c1], "c2", 8);
+    let t = repo.commit("t", &[&root], "t", 6);
     let opened = repo.open();
     let graph = whole(&opened, Tips::All);
     check(&opened, &graph);
+
+    let at = graph.position(&t).unwrap();
+    assert_eq!(
+        graph.rows(at..at + 1)[0].column,
+        1,
+        "the hole, not a fourth column"
+    );
+    assert_eq!(graph.width(), 3);
+}
+
+#[test]
+fn a_merge_opens_its_new_lane_right_of_itself() {
+    // The lane in column 0 ends at a root of another history, so column 0
+    // is free when the merge below comes in column 1: its second parent
+    // goes to column 2, to the right, not back across to column 0.
+    let repo = Repo::new();
+    let r1 = repo.commit("other", &[], "r1", 8);
+    repo.commit("other", &[&r1], "r2", 10);
+    let p2 = repo.commit("side", &[], "p2", 5);
+    let p1 = repo.commit("main", &[], "p1", 6);
+    let merge = repo.commit("main", &[&p1, &p2], "merge", 7);
+    repo.commit("y", &[&merge], "y", 9);
+    repo.git(&["branch", "-D", "side"]);
+    let opened = repo.open();
+    let graph = whole(&opened, Tips::All);
+    check(&opened, &graph);
+
+    let at = graph.position(&merge).unwrap();
+    let row = &graph.rows(at..at + 1)[0];
+    assert_eq!(row.column, 1);
+    let out: Vec<u16> = row
+        .segments
+        .iter()
+        .filter(|s| s.kind == SegmentKind::Out)
+        .map(|s| s.to)
+        .collect();
+    assert_eq!(out, vec![1, 2]);
+}
+
+#[test]
+fn a_lane_no_commit_sits_in_still_counts_in_the_width() {
+    // The merge's second parent is its first parent's own parent: the lane
+    // opened for it runs beside the mainline and ends at it in column 0, so
+    // no commit ever sits in column 1 - and the graph is still two wide.
+    let repo = Repo::new();
+    let c = repo.commit("main", &[], "c", 1);
+    let b = repo.commit("main", &[&c], "b", 2);
+    repo.commit("main", &[&b, &c], "a", 3);
+    let opened = repo.open();
+    let graph = whole(&opened, Tips::All);
+    check(&opened, &graph);
+    assert!(graph.rows(0..graph.len()).iter().all(|row| row.column == 0));
+    assert_eq!(graph.width(), 2);
 }
 
 #[test]
@@ -517,6 +572,46 @@ fn a_shallow_clone_ends_its_lanes_where_the_history_was_cut() {
     check(&opened, &graph);
     let last = &graph.rows(1..2)[0];
     assert!(last.segments.iter().all(|l| l.kind != SegmentKind::Out));
+}
+
+#[test]
+fn a_parent_named_twice_is_one_line() {
+    // git will not write such a commit itself, but an old import can hold
+    // one: written here byte for byte, past git's checks.
+    let repo = Repo::new();
+    let a = repo.commit("main", &[], "a", 1);
+    let tree = repo.git(&["rev-parse", &format!("{a}^{{tree}}")]);
+    let body = [
+        format!("tree {tree}"),
+        format!("parent {a}"),
+        format!("parent {a}"),
+        "author Ada <ada@example.com> 1700000120 +0000".to_owned(),
+        "committer Ada <ada@example.com> 1700000120 +0000".to_owned(),
+        String::new(),
+        "twice".to_owned(),
+        String::new(),
+    ]
+    .join("\n");
+    let path = repo.path().join(".commit");
+    std::fs::write(&path, body).expect("write the commit");
+    let twice = repo.git(&[
+        "hash-object",
+        "-t",
+        "commit",
+        "-w",
+        "--literally",
+        path.to_str().unwrap(),
+    ]);
+    repo.git(&["update-ref", "refs/heads/main", &twice]);
+    let opened = repo.open();
+    let graph = whole(&opened, Tips::All);
+    check(&opened, &graph);
+    let first = &graph.rows(0..1)[0];
+    assert_eq!(
+        first.segments.len(),
+        1,
+        "one line down, not two on top of each other"
+    );
 }
 
 #[test]
@@ -614,11 +709,20 @@ fn a_search_finds_words_in_the_subject_and_the_author_and_the_start_of_an_id() {
     assert!(find("nothing like it").is_empty());
     assert_eq!(Query::new("   "), None, "a blank query looks for nothing");
 
-    // A window of the rows is searched alone.
+    // Rows by commit: an id the graph does not hold is left out.
+    assert_eq!(
+        graph.positions(&[b.clone(), "not an id".into(), a.clone()]),
+        vec![at_b.min(at_a), at_b.max(at_a)]
+    );
+    assert!(graph.positions(&["0".repeat(40)]).is_empty());
+
+    // A window of the rows is searched alone, and answers in rows of the
+    // whole graph.
+    let older = at_a.max(at_b);
     let only = graph
-        .find(&opened, &Query::new("ada").unwrap(), at_b..at_b + 1)
+        .find(&opened, &Query::new("ada").unwrap(), older..older + 1)
         .unwrap();
-    assert_eq!(only, vec![at_b]);
+    assert_eq!(only, vec![older]);
 }
 
 #[test]
@@ -646,15 +750,13 @@ fn fixture_graph(layout: Layout) {
     let all = graph.rows(0..graph.len());
     assert_eq!(stepwise.rows(0..stepwise.len()), all);
 
-    // A window is drawn the same on its own as within the whole.
-    for range in [
-        0..1,
-        63..65,
-        64..128,
-        100..300,
-        1_000..1_001,
-        graph.len() - 5..graph.len() + 10,
-    ] {
+    // A window is drawn the same on its own as within the whole: every row
+    // alone, each played forward from the mark before it, and windows across
+    // marks and past the end.
+    for at in 0..graph.len() {
+        assert_eq!(graph.rows(at..at + 1), all[at..at + 1], "row {at}");
+    }
+    for range in [63..65, 64..128, 100..300, graph.len() - 5..graph.len() + 10] {
         let end = range.end.min(graph.len());
         assert_eq!(
             graph.rows(range.clone()),
