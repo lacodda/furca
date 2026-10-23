@@ -257,9 +257,20 @@ fn time_starts(data: &Path, repository: &Path) -> Vec<Vec<(String, f64)>> {
     for _ in 0..WARMUP {
         start_to(data, &marks, "first-frame", true);
     }
-    (0..RUNS)
+    let starts: Vec<Vec<(String, f64)>> = (0..RUNS)
         .map(|_| start_to(data, &marks, "first-frame", true).0)
-        .collect()
+        .collect();
+    // Every stage's median, in the order reached: which step grew is the
+    // first question a slower start raises.
+    let stages: Vec<String> = starts[0]
+        .iter()
+        .map(|(stage, _)| {
+            let mut times = stage_times(&starts, stage);
+            format!("{stage} {:.0}", spread(&mut times).0)
+        })
+        .collect();
+    println!("  stages, median ms: {}", stages.join(", "));
+    starts
 }
 
 /// The milliseconds each start took to reach `stage`.
