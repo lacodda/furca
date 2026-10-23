@@ -48,6 +48,19 @@ struct Promise {
     limit: Option<f64>,
     unit: String,
     status: String,
+    /// Platforms - as `std::env::consts::OS` names them - where the budget
+    /// is measured and published but not promised; its note says why.
+    #[serde(default)]
+    unpromised_on: Vec<String>,
+}
+
+impl Promise {
+    /// The limit held on this platform, if any.
+    fn limit_here(&self) -> Option<f64> {
+        let here = std::env::consts::OS;
+        self.limit
+            .filter(|_| !self.unpromised_on.iter().any(|os| os == here))
+    }
 }
 
 #[derive(Serialize)]
@@ -141,7 +154,9 @@ fn main() {
     for promise in promises.budgets.iter().filter(ours) {
         let path = fixture::ensure(&root, promises.commits, layout(&promise.layout));
         let run = runner(&promise.name);
-        let limit = promise.limit.map(|ms| Duration::from_secs_f64(ms / 1000.0));
+        let limit = promise
+            .limit_here()
+            .map(|ms| Duration::from_secs_f64(ms / 1000.0));
 
         let (mut median, mut p90) = measure(run, &path);
         // Known flake: a busy machine - a browser, a build, the antivirus on
@@ -157,7 +172,7 @@ fn main() {
             what: promise.what.clone(),
             layout: promise.layout.clone(),
             unit: "ms",
-            budget: promise.limit,
+            budget: promise.limit_here(),
             median: ms(median),
             p90: ms(p90),
             within: limit.is_none_or(|limit| median <= limit),

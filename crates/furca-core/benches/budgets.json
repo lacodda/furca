@@ -46,7 +46,9 @@
       "layout": "packed+commit-graph",
       "limit": 300,
       "unit": "MB",
-      "status": "measured"
+      "status": "measured",
+      "unpromised_on": ["linux"],
+      "note": "Not promised on Linux, where it is measured on a CI machine with no GPU: WebKitGTK draws in software on a virtual display, and that costs most of the number before the window shows anything - some 300 MB with nothing but the left column on the screen. The promise is held where the webview draws as it does on a desktop, and every platform's number is published."
     },
     {
       "name": "status-after-save",

@@ -96,6 +96,7 @@ try {
 }
 const measured = promises.budgets.filter((b) => b.status === 'measured');
 const planned = promises.budgets.filter((b) => b.status === 'planned');
+const platform = (os: string) => ({ linux: 'Linux', macos: 'macOS', windows: 'Windows' })[os] ?? os;
 const amount = (value: number, unit: string) => `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })} ${unit}`;
 const commits = promises.commits.toLocaleString('en-US');
 ---
@@ -109,7 +110,10 @@ const commits = promises.commits.toLocaleString('en-US');
 			<tr>
 				<td>{b.what}</td>
 				<td><code>{b.layout}</code></td>
-				<td>{b.limit === null ? <em>measured, not promised</em> : `< ${amount(b.limit, b.unit)}`}</td>
+				<td>
+					{b.limit === null ? <em>measured, not promised</em> : `< ${amount(b.limit, b.unit)}`}
+					{'unpromised_on' in b && b.unpromised_on.length > 0 && <em>, not on {b.unpromised_on.map(platform).join(', ')}</em>}
+				</td>
 			</tr>
 		))}
 		{planned.map((b) => (

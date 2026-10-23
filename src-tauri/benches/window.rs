@@ -62,6 +62,19 @@ struct Promise {
     limit: Option<f64>,
     unit: String,
     status: String,
+    /// Platforms - as `std::env::consts::OS` names them - where the budget
+    /// is measured and published but not promised; its note says why.
+    #[serde(default)]
+    unpromised_on: Vec<String>,
+}
+
+impl Promise {
+    /// The limit held on this platform, if any.
+    fn limit_here(&self) -> Option<f64> {
+        let here = std::env::consts::OS;
+        self.limit
+            .filter(|_| !self.unpromised_on.iter().any(|os| os == here))
+    }
 }
 
 #[derive(Serialize)]
@@ -158,7 +171,7 @@ fn main() {
                 // antivirus looking at a fresh binary - slows every start for
                 // seconds at a time. The starts are taken once more after a
                 // pause; a regression stays slow.
-                if promise.limit.is_some_and(|limit| median > limit) {
+                if promise.limit_here().is_some_and(|limit| median > limit) {
                     std::thread::sleep(Duration::from_secs(5));
                     let again = time_starts(&work.join("starts"), &repository);
                     times = stage_times(&again, stage);
@@ -179,8 +192,12 @@ fn main() {
             }
             Kind::Memory => memory(&work.join("memory"), &copies(&root, &repository)),
         };
-        let within = promise.limit.is_none_or(|limit| median <= limit);
-        let verdict = match (promise.limit, within) {
+        let limit = promise.limit_here();
+        let within = limit.is_none_or(|limit| median <= limit);
+        let verdict = match (limit, within) {
+            (None, _) if promise.limit.is_some() => {
+                format!("measured, not promised on {}", std::env::consts::OS)
+            }
             (None, _) => "measured, not promised".to_owned(),
             (Some(limit), true) => format!("ok, budget {limit:.0} {unit}"),
             (Some(limit), false) => format!("OVER budget {limit:.0} {unit}"),
@@ -194,7 +211,7 @@ fn main() {
             what: promise.what.clone(),
             layout: promise.layout.clone(),
             unit: unit.to_owned(),
-            budget: promise.limit,
+            budget: limit,
             median: round(median),
             p90: round(p90),
             within,

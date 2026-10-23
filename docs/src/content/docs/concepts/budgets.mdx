@@ -43,15 +43,18 @@ writing to a file the benchmark watches.
   This is the promise. The window is made apart from its webview to keep it -
   see [ADR 0011](https://github.com/lacodda/furca/blob/main/docs/adr/0011-the-window-is-on-the-screen-before-its-webview.md).
 - **First repository** is from the start to the first frame that shows the
-  repository - its tab in the title bar and its branches in the left column.
-  Measured and published, not promised: most of it is the system's webview
-  starting.
+  repository - its tab in the title bar, its branches in the left column and
+  the first rows of its graph. Measured and published, not promised: most of
+  it is the system's webview starting.
 - Both come from the same 21 starts, after three that warm the webview's
   profile; the median is the number.
-- **Memory** is read with three copies of the repository open, each one read,
-  and two seconds to settle: the private working set of the app and of every
+- **Memory** is read with three copies of the repository open, each one read
+  and its whole graph laid out, and two seconds to settle: the private working set of the app and of every
   process under it, the webview's included - what Task Manager counts on
   Windows - and the proportional set on Linux, which shares each library
   among the processes that map it rather than counting it in every one. The
-  median of three. It is not read on macOS, where the webview's processes are
-  the system's rather than the app's.
+  median of three, with what each process holds printed beside it. It is not
+  read on macOS, where the webview's processes are the system's rather than
+  the app's, and on Linux it is published but not promised: CI has no GPU
+  there, and WebKitGTK drawing in software on a virtual display is most of
+  the number before the window shows anything.
