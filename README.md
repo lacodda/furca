@@ -15,7 +15,7 @@ Most git clients either reimplement git badly (breaking hooks, credential helper
 
 ## In a window
 
-<p align="center"><img src="https://raw.githubusercontent.com/lacodda/furca/main/assets/window.png" alt="furca's window: repositories in tabs, branches in folders with their distance from the upstream, and where the repository stands" width="860"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/lacodda/furca/main/assets/window.png" alt="furca's window: repositories in tabs, branches in folders on the left, and the graph of the history with its branches and tags" width="860"></p>
 
 ## In a terminal
 
@@ -50,7 +50,7 @@ notes       main    3 ahead     v0.2.1  2026-09-28      5  2 changed, 1 untracke
 - **Every repository at a glance.** `furca line` reads a whole set of repositories at once - the ones your [rigger](https://lacodda.github.io/rigger/) record keeps, or a pattern - and says what each holds that is nowhere else yet: uncommitted, unpushed, stashed, and what has not been released since the last tag. See [line](https://lacodda.github.io/furca/reference/line/).
 - **JSON for scripts and assistants.** Every command takes `--json`; the output is the engine's own types, not a second format kept in step by hand.
 - **A release that runs itself.** `furca release plan` proposes the next free version and checks every shop window before a tag; `furca release run` carries it out - bump, changelog, gate, commit, push, CI, tag, publish - then verifies the release page, registries and links, installs the release and proves the installed binary is its own build. It stops at the first red step; `resume` picks up after the fix. See [release](https://lacodda.github.io/furca/reference/release/).
-- **Repositories in tabs.** The window opens a folder, one opened lately, a folder dropped on it, or a whole set at once - a session saved under a name, or every repository your rigger record keeps. Its left column is Fork's: branches in folders with how far each is from its upstream, remotes, tags newest first, stashes, submodules. See [the window](https://lacodda.github.io/furca/guides/the-window/).
+- **Repositories in tabs, history as a graph.** The window opens a folder, one opened lately, a folder dropped on it, or a whole set at once - a session saved under a name, or every repository your rigger record keeps. Its left column is Fork's; beside it the graph of the history, drawn on a canvas and read a screen at a time, so 100 000 commits open like 100. Search it by subject, author or id - and with [nooma](https://github.com/lacodda/nooma) installed, by the words in the body of a message. See [the window](https://lacodda.github.io/furca/guides/the-window/).
 - **One engine, three doors.** `furca-core` is a plain Rust library; the CLI, the desktop window and - later - an MCP server are thin wrappers around it. See [ADR 0002](https://github.com/lacodda/furca/blob/main/docs/adr/0002-one-core-three-doors.md).
 
 ## Install
@@ -65,7 +65,7 @@ curl -fsSL https://raw.githubusercontent.com/lacodda/furca/main/tools/install.sh
 
 ## Status
 
-**v0.7.0** is the engine, the CLI and the first window. The CLI - `status`, `refs`, `log`, `push --wait-ci`, `checks`, `line` - and the release engine whole, which released this version itself, install from the release; `furca-core` and `furca-release` are published as libraries. The window opens repositories in tabs and sessions and shows their refs, held to its own budgets for start and memory; it builds from a checkout until its installers are signed. The graph, a commit's diff and the working tree come next - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
+**v0.8.0** is the engine, the CLI and a window that draws the history. The CLI - `status`, `refs`, `log`, `push --wait-ci`, `checks`, `line` - and the release engine whole, which released this version itself, install from the release; `furca-core` and `furca-release` are published as libraries. The window opens repositories in tabs and sessions, shows their refs and the graph of their history, searches it and shows one branch's history, held to its own budgets for start and memory; it builds from a checkout until its installers are signed. A commit's files and diff, then the working tree, come next - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 
