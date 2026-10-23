@@ -309,6 +309,15 @@ mod tests {
             ["b", "c", "a"],
             "an index past the end moves nothing"
         );
+
+        // A tab moved past the one in front shifts it, and it stays in front.
+        state.activate(0);
+        state.move_tab(1, 2);
+        assert_eq!(names(&state), ["b", "a", "c"]);
+        assert_eq!(state.active, Some(0), "b, which did not move");
+        state.move_tab(2, 0);
+        assert_eq!(names(&state), ["c", "b", "a"]);
+        assert_eq!(state.active, Some(1), "b, pushed right by c");
     }
 
     #[test]
