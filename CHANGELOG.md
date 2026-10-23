@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.0] - 2026-10-23
+
+### Bug Fixes
+- Let the window's IPC use Tauri's own protocol
+- Keep every stage a measured start reports
+
+### Documentation
+- Describe the graph, its search and the history of one branch
+- Show the graph as a library and list the gate as it runs
+
+### Features
+- Lay out the graph of a history in lanes
+- Draw the graph, search it and show one branch's history
+
+### Performance
+- Send a new graph's first page with it
+- Keep the window's IPC on messages on macOS
+
+### Testing
+- Print what each of the window's processes holds
+- Hold the graph to holes, merges right of a commit and every row alone
+- Measure the window's memory on Linux without promising it
+
+### revert
+- Keep the window's IPC on Tauri's own protocol on macOS too
+
+### Breaking Changes
+- Tips is no longer Copy and has a third variant.
+
 ## [0.7.0] - 2026-10-23
 
 ### CI

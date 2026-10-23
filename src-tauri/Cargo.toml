@@ -30,10 +30,10 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 # `ts`: the core's types are the window's types, generated (ADR 0009).
-furca-core = { path = "../crates/furca-core", version = "0.7.0", features = ["ts"] }
+furca-core = { path = "../crates/furca-core", version = "0.8.0", features = ["ts"] }
 # The record's list of the owner's projects, which the window opens as the
 # line - the one place furca talks to rigger.
-furca-release = { path = "../crates/furca-release", version = "0.7.0" }
+furca-release = { path = "../crates/furca-release", version = "0.8.0" }
 # `unstable`: a window made apart from its webview, so it is on the screen
 # before the webview has started (ADR 0011).
 tauri = { version = "2.12", features = ["unstable"] }
