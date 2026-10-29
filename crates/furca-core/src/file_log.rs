@@ -124,10 +124,13 @@ impl Repository {
                 .map_err(|e| failed(e.into()))
         };
         let (before, after) = (tree(parent)?, tree(commit)?);
-        let changes = self
+        let mut cache = self
             .inner
-            .diff_tree_to_tree(Some(&before), Some(&after), None)
+            .diff_resource_cache_for_tree_diff()
             .map_err(|e| failed(e.into()))?;
+        let changes = self
+            .tree_changes(Some(&before), &after, &mut cache)
+            .map_err(failed)?;
         Ok(changes.into_iter().find_map(|change| match change {
             gix::object::tree::diff::ChangeDetached::Rewrite {
                 source_location,

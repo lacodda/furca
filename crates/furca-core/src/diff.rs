@@ -248,15 +248,16 @@ impl Repository {
             ),
             None => None,
         };
-        let changes = self
-            .inner
-            .diff_tree_to_tree(before.as_ref(), Some(&after), None)
-            .map_err(|e| failed(e.into()))?;
-
+        // One cache for the tree diff's rename checks and the line counts:
+        // making one reads the index and the attributes, which is most of
+        // what a small commit costs.
         let mut cache = self
             .inner
             .diff_resource_cache_for_tree_diff()
             .map_err(|e| failed(e.into()))?;
+        let changes = self
+            .tree_changes(before.as_ref(), &after, &mut cache)
+            .map_err(failed)?;
         let mut files = Vec::with_capacity(changes.len());
         for change in changes {
             let Some(mut file) = file_change(change) else {
@@ -274,6 +275,43 @@ impl Repository {
             parent: parent.map(|parent| parent.to_string()),
             files,
         })
+    }
+
+    /// The changes between two trees, renames found under the repository's
+    /// `diff.renames` - on unless it says otherwise, as in git - with
+    /// `cache` reading the blobs a rename is judged by.
+    pub(crate) fn tree_changes(
+        &self,
+        before: Option<&gix::Tree<'_>>,
+        after: &gix::Tree<'_>,
+        cache: &mut gix::diff::blob::Platform,
+    ) -> Result<Vec<ChangeDetached>, Source> {
+        let config = self.inner.config_snapshot();
+        // A diff.renames that cannot be read is taken as unset rather than
+        // failing the commit: it is a fact about the configuration.
+        let (rewrites, configured) = gix::diff::new_rewrites(config.plumbing(), true)?;
+        let rewrites = if configured {
+            rewrites
+        } else {
+            Some(Default::default())
+        };
+        let options = gix::diff::Options::default().with_rewrites(rewrites);
+        let empty = self.inner.empty_tree();
+        let before = before.unwrap_or(&empty);
+        let mut changes = Vec::new();
+        gix::diff::tree_with_rewrites(
+            gix::objs::TreeRefIter::from_bytes(&before.data, before.id.kind()),
+            gix::objs::TreeRefIter::from_bytes(&after.data, after.id.kind()),
+            cache,
+            &mut Default::default(),
+            &self.inner.objects,
+            |change| {
+                changes.push(change.into_owned());
+                Ok(std::ops::ControlFlow::Continue(()))
+            },
+            options.into(),
+        )?;
+        Ok(changes)
     }
 
     /// A commit as a reader opens it: [`Repository::commit`], the whole
