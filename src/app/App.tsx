@@ -191,10 +191,15 @@ function Shell({ initial }: { initial: WindowState }) {
     const stop = listen<Opened>('opened', ({ payload }) => {
       void applyOpened(Promise.resolve(payload))
     })
+    // A start that handed its paths over between the window reading its
+    // state and this listener being there sent its event to no one. The
+    // store has the tabs all the same: read it once more, now that nothing
+    // after this moment can be missed.
+    void stop.then(() => apply(api.windowState()))
     return () => {
       void stop.then((unlisten) => unlisten())
     }
-  }, [applyOpened])
+  }, [applyOpened, apply])
 
   // Coming back to the window reads the tab in front again: something may
   // have been committed in a terminal meanwhile, and nothing watches the
