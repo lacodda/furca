@@ -19,11 +19,20 @@
 //! for row in graph.rows(0..20) {
 //!     println!("lane {} with {} segments", row.column, row.segments.len());
 //! }
+//!
+//! // What a commit changed, and one file's lines.
+//! let changes = repo.changes("HEAD")?;
+//! if let Some(file) = changes.files.first() {
+//!     let diff = repo.diff(file)?;
+//!     println!("{}: {} hunks", file.path, diff.hunks.len());
+//! }
 //! # Ok::<(), furca_core::Error>(())
 //! ```
 
 mod commit_graph;
+mod diff;
 mod error;
+mod file_log;
 mod find;
 mod git_cmd;
 mod graph;
@@ -39,7 +48,12 @@ mod walk;
 mod worktree;
 
 pub use commit_graph::CommitGraph;
+pub use diff::{
+    Changes, Content, Details, Endings, FileChange, FileDiff, FileMode, FileStatus, Hunk,
+    LineCount, LineKind, LineRange, Patch, PatchHunk, PatchLine, Side,
+};
 pub use error::Error;
+pub use file_log::{FileLog, FileRevision};
 pub use find::repositories;
 pub use git_cmd::{Git, GitRun};
 pub use graph::{COLORS, Graph, Query, Row, Segment, SegmentKind};

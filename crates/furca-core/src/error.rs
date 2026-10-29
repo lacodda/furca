@@ -32,6 +32,18 @@ pub enum Error {
         #[source]
         source: Source,
     },
+    #[error("could not read what {commit} changed: {source}")]
+    Changes {
+        commit: String,
+        #[source]
+        source: Source,
+    },
+    #[error("could not compare {path}: {source}")]
+    Diff {
+        path: String,
+        #[source]
+        source: Source,
+    },
     #[error("could not read the working tree's changes: {0}")]
     Status(#[source] Source),
     #[error("could not read the submodules: {0}")]
