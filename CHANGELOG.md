@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.0] - 2026-10-29
+
+### Bug Fixes
+- Keep a tab another start handed over before the window listened
+
+### Build
+- Give reverts a heading of their own
+
+### Documentation
+- Describe a commit's details, its change and the binaries named
+- Show the window with a commit's details open
+
+### Features
+- Read what a commit changed, a file's lines, and a file's history
+- Show a commit, its patches, and the history of one file
+- Show a commit's details and a file's change under the graph
+
+### Performance
+- Read a commit's changes through one diff cache
+
+### Testing
+- Hold a 5 000-line diff to its 30 ms budget
+- Time the first diff the window opens
+
 ## [0.8.0] - 2026-10-23
 
 ### Bug Fixes
