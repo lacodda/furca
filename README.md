@@ -15,7 +15,7 @@ Most git clients either reimplement git badly (breaking hooks, credential helper
 
 ## In a window
 
-<p align="center"><img src="https://raw.githubusercontent.com/lacodda/furca/main/assets/window.png" alt="furca's window: repositories in tabs, branches in folders on the left, and the graph of the history with its branches and tags" width="860"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/lacodda/furca/main/assets/window.png" alt="furca's window: repositories in tabs, branches in folders on the left, the graph of the history, and under it the chosen commit - its files, a binary and a git LFS file named with their sizes, and a change side by side" width="860"></p>
 
 ## In a terminal
 

@@ -10,7 +10,7 @@ tabs of repositories along the top, a column of refs on the left, the graph of
 the history beside it - and it draws its own title bar, so the tabs sit in it
 rather than in a band under it.
 
-![The window with three repositories open: the branches in folders on the left, the graph of the history with its branches and tags beside it](../../../assets/window.png)
+![The window with two repositories open: the branches in folders on the left, the graph of the history with its branches and tags beside it, and under the graph the chosen commit - its files, a binary and a git LFS file named with their sizes, and the change of one file side by side](../../../assets/window.png)
 
 ## Get it
 
