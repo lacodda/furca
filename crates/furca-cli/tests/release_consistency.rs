@@ -121,7 +121,7 @@ fn the_brand_svgs_are_identical_copies() {
 
 /// The icon the application ships with is the one in `assets/`.
 ///
-/// Both are written by `docs/export-assets.mjs`; if this fails, run it.
+/// Both are written by `lyrn assets`; if this fails, run it.
 #[test]
 fn the_application_icon_matches_the_brand_icon() {
     let root = repo_root();
@@ -131,7 +131,7 @@ fn the_application_icon_matches_the_brand_icon() {
 
     assert_eq!(
         ours, brand,
-        "src-tauri/icons/icon.ico has fallen behind assets/icon.ico — re-run docs/export-assets.mjs"
+        "src-tauri/icons/icon.ico has fallen behind assets/icon.ico — re-run `lyrn assets`"
     );
 }
 
@@ -163,12 +163,12 @@ fn the_largest_icon_image_comes_first() {
 
     assert_eq!(
         widths, descending,
-        "icon.ico must list its images largest first. Re-run docs/export-assets.mjs"
+        "icon.ico must list its images largest first. Re-run `lyrn assets`"
     );
 }
 
 /// One entry of an `.ico` directory: just enough to find and decode its
-/// payload. Mirrors the layout `docs/export-assets.mjs` writes.
+/// payload. Mirrors the layout `lyrn assets` writes.
 struct IcoEntry {
     size: u32,
     offset: usize,
@@ -210,9 +210,10 @@ fn ico_entries(ico: &[u8]) -> Vec<IcoEntry> {
 /// (measured ~230-300 on R+G+B at 16-24px), the near-black plate is dark
 /// (~100 at every size M and up).
 ///
-/// Proven by rejection: temporarily pointing a plated size (32px+) at the S
-/// export in `docs/export-assets.mjs` and rebuilding `assets/icon.ico` makes
-/// this test fail; reverting and rebuilding makes it pass again.
+/// Proven by rejection when the icons were drawn by a script of furca's own:
+/// pointing a plated size (32px+) at the S master and rebuilding
+/// `assets/icon.ico` made this test fail. `lyrn assets` draws them by the
+/// same canon now, and this holds its output to it.
 #[test]
 fn every_size_carries_the_level_that_reads_at_it() {
     let ico =
