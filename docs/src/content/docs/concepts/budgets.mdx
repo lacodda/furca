@@ -48,6 +48,12 @@ writing to a file the benchmark watches.
   it is the system's webview starting.
 - Both come from the same 21 starts, after three that warm the webview's
   profile; the median is the number.
+- **The first diff** is the window opening a change: the repository opens on
+  the commit `HEAD` is on with its first file chosen, and the fixture's newest
+  commit is the one the core's diff budget reads - a 5 000-line file with one
+  line in four rewritten. It is timed from the window asking for the change to
+  the frame that shows it side by side and highlighted, by the app's own clock,
+  so how long the process took to start does not touch it.
 - **Memory** is read with three copies of the repository open, each one read
   and its whole graph laid out, and two seconds to settle: the private working set of the app and of every
   process under it, the webview's included - what Task Manager counts on

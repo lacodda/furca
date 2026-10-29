@@ -105,6 +105,7 @@ fn kind(name: &str) -> (&'static str, Kind) {
         "window-on-screen" => ("ms", Kind::Start("shown")),
         "window-first-repository" => ("ms", Kind::Start("first-frame")),
         "window-memory" => ("MB", Kind::Memory),
+        "window-diff-5000-lines" => ("ms", Kind::Between("diff-asked", "diff-shown")),
         other => panic!(
             "budgets.json measures `{other}` in the window, which window.rs has no runner for"
         ),
@@ -115,6 +116,8 @@ fn kind(name: &str) -> (&'static str, Kind) {
 enum Kind {
     /// The time from the start of the process to a stage the app reports.
     Start(&'static str),
+    /// The time between two stages of one run, by the app's own clock.
+    Between(&'static str, &'static str),
     Memory,
 }
 
@@ -191,6 +194,10 @@ fn main() {
                 continue;
             }
             Kind::Memory => memory(&work.join("memory"), &copies(&root, &repository)),
+            Kind::Between(from, to) => {
+                let mut times = time_between(&work.join(&promise.name), &repository, from, to);
+                spread(&mut times)
+            }
         };
         let limit = promise.limit_here();
         let within = limit.is_none_or(|limit| median <= limit);
@@ -275,6 +282,35 @@ fn time_starts(data: &Path, repository: &Path) -> Vec<Vec<(String, f64)>> {
         .collect();
     println!("  stages, median ms: {}", stages.join(", "));
     starts
+}
+
+/// Starts the app with `repository` open until it reaches `to`, and times
+/// each run from `from` to `to` by the app's own clock: two moments inside
+/// one run, which how long the process took to start does not touch.
+///
+/// The fixture's newest commit is the long file's rewrite, and the window
+/// opens a repository on the commit `HEAD` is on with its first file chosen:
+/// the first diff it opens is the one the core's budget reads.
+fn time_between(data: &Path, repository: &Path, from: &str, to: &str) -> Vec<f64> {
+    println!("starting the window {} times to `{to}`", WARMUP + RUNS);
+    remember(data, &[repository]);
+    let marks = data.join("marks");
+    let gap = || {
+        start_to(data, &marks, to, true);
+        let text = std::fs::read_to_string(&marks).expect("the app's marks");
+        let at = |stage: &str| {
+            text.lines()
+                .filter_map(|line| line.split_once(' '))
+                .find(|(name, _)| *name == stage)
+                .and_then(|(_, ms)| ms.parse::<f64>().ok())
+                .unwrap_or_else(|| panic!("a run never reported `{stage}`: {text}"))
+        };
+        at(to) - at(from)
+    };
+    for _ in 0..WARMUP {
+        gap();
+    }
+    (0..RUNS).map(|_| gap()).collect()
 }
 
 /// The milliseconds each start took to reach `stage`.
