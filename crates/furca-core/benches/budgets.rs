@@ -89,6 +89,7 @@ struct Measured {
 fn runner(name: &str) -> fn(&Path) {
     match name {
         "graph-first-500" => first_500,
+        "diff-5000-lines" => diff_5000,
         other => panic!("budgets.json measures `{other}`, which has no runner in budgets.rs"),
     }
 }
@@ -110,6 +111,21 @@ fn first_500(path: &Path) {
     assert_eq!(graph.rows(0..500).len(), 500);
     let commits = graph.commits(&repo, 0..500).expect("read the commits");
     assert_eq!(commits.len(), 500);
+}
+
+/// What the window does when a file of a commit is chosen: read what the
+/// commit changed, then both sides of the file and the hunks between them.
+/// The fixture's newest commit rewrote one line in four of a long file.
+fn diff_5000(path: &Path) {
+    let repo = Repository::open(path).expect("open the fixture");
+    let changes = repo.changes("main").expect("read what the commit changed");
+    let file = changes
+        .files
+        .iter()
+        .find(|file| file.path == fixture::LONG_FILE)
+        .expect("the long file changed");
+    let diff = repo.diff(file).expect("diff the long file");
+    assert_eq!(diff.hunks.len(), (fixture::LONG_LINES / 4) as usize);
 }
 
 /// Median and 90th percentile of `RUNS` timed runs after `WARMUP` untimed.

@@ -17,10 +17,36 @@ use std::process::{Command, Stdio};
 
 /// Bumped whenever the shape below changes, so a stale fixture on disk is
 /// rebuilt instead of measured.
-const SHAPE_VERSION: u32 = 4;
+const SHAPE_VERSION: u32 = 5;
 
 /// The branch every feature commit goes through while it is being written.
 const SCRATCH: &str = "furca-fixture-scratch";
+
+/// The long file the last two commits of the history write: added whole,
+/// then one line in four rewritten - the diff the budgets time.
+pub const LONG_FILE: &str = "src/long.rs";
+/// Its lines.
+pub const LONG_LINES: u32 = 5000;
+/// Commits the long file takes at the end of the history.
+const LONG_COMMITS: u32 = 2;
+
+/// The long file's text: a line of code per line, every fourth one changed
+/// once `rewritten`.
+pub fn long_file(rewritten: bool) -> String {
+    let mut text = String::with_capacity(LONG_LINES as usize * 48);
+    for line in 0..LONG_LINES {
+        let weight = if rewritten && line % 4 == 0 {
+            line * 7 + 3
+        } else {
+            line
+        };
+        text.push_str(&format!(
+            "    let value_{line} = weigh({weight}, \"part {}\");\n",
+            line / 100
+        ));
+    }
+    text
+}
 
 /// Files the history touches; each commit edits one of them.
 const FILES: u32 = 200;
@@ -138,6 +164,27 @@ impl<W: Write> Stream<W> {
     /// Writes one commit on `branch` with the given parents and returns its
     /// mark.
     fn commit(&mut self, branch: &str, parents: &[u32], subject: &str) -> u32 {
+        let file = self.rng.below(u64::from(FILES));
+        let content = format!("revision {}\n", self.next_mark);
+        self.commit_file(
+            branch,
+            parents,
+            subject,
+            &format!("src/module_{file}.rs"),
+            &content,
+        )
+    }
+
+    /// Writes one commit on `branch` that sets `path` to `content`, and
+    /// returns its mark.
+    fn commit_file(
+        &mut self,
+        branch: &str,
+        parents: &[u32],
+        subject: &str,
+        path: &str,
+        content: &str,
+    ) -> u32 {
         let mark = self.next_mark;
         self.next_mark += 1;
         self.written += 1;
@@ -155,8 +202,6 @@ impl<W: Write> Stream<W> {
             self.time
         };
         let author = self.rng.below(12);
-        let file = self.rng.below(u64::from(FILES));
-        let content = format!("revision {mark}\n");
 
         let out = &mut self.out;
         writeln!(out, "commit refs/heads/{branch}").unwrap();
@@ -178,7 +223,7 @@ impl<W: Write> Stream<W> {
                 writeln!(out, "merge :{parent}").unwrap();
             }
         }
-        writeln!(out, "M 100644 inline src/module_{file}.rs").unwrap();
+        writeln!(out, "M 100644 inline {path}").unwrap();
         writeln!(out, "data {}\n{content}", content.len()).unwrap();
         mark
     }
@@ -217,6 +262,8 @@ fn import(dir: &Path, commits: u32) {
         rng: Rng(0x9E37_79B9_7F4A_7C15),
     };
 
+    // The history proper, and then the long file's two commits on main.
+    let commits = commits - LONG_COMMITS;
     let mut main = s.commit("main", &[], "initial commit");
     let mut feature = 0u32;
     let mut open = Vec::new();
@@ -261,6 +308,21 @@ fn import(dir: &Path, commits: u32) {
             s.tag(&format!("v{}.0.0", released), main);
         }
     }
+
+    main = s.commit_file(
+        "main",
+        &[main],
+        "feat: add a long file",
+        LONG_FILE,
+        &long_file(false),
+    );
+    main = s.commit_file(
+        "main",
+        &[main],
+        "refactor: rewrite one line in four of the long file",
+        LONG_FILE,
+        &long_file(true),
+    );
 
     // Only the last few open branches keep a local ref; all of them keep a
     // remote-tracking one, as after a fetch.
