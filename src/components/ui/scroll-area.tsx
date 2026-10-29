@@ -66,6 +66,9 @@ export const scrollAreaViewportVariants = cva(
   cn(
     'size-full rounded-[inherit] outline-none',
     'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
+    // On paper nothing scrolls: what was below the fold is printed below it.
+    // Important, because Base UI writes the overflow inline.
+    'print:h-auto print:overflow-visible!',
   ),
   {
     variants: {
@@ -92,7 +95,7 @@ export const scrollAreaViewportVariants = cva(
  * while the thumb is being dragged, since the pointer may leave the area
  * mid-drag. */
 const scrollbar = cn(
-  'group/bar flex p-0.5 opacity-0 [transition:opacity_var(--duration-slow)_var(--ease-out)]',
+  'group/bar flex p-0.5 opacity-0 print:hidden [transition:opacity_var(--duration-slow)_var(--ease-out)]',
   'data-[hovering]:opacity-100 data-[scrolling]:opacity-100 active:opacity-100',
   'data-[orientation=vertical]:w-2.5 data-[orientation=vertical]:justify-end',
   'data-[orientation=horizontal]:h-2.5 data-[orientation=horizontal]:flex-col data-[orientation=horizontal]:justify-end',
@@ -134,7 +137,7 @@ export function ScrollArea({
   children,
 }: ScrollAreaProps) {
   return (
-    <Base.Root className={cn('relative min-h-0 min-w-0 overflow-hidden', className)}>
+    <Base.Root className={cn('relative min-h-0 min-w-0 overflow-hidden print:overflow-visible', className)}>
       <Base.Viewport
         ref={viewportRef}
         // Base UI gives the viewport `presentation`, which is right for a box
