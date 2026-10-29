@@ -549,3 +549,116 @@ fn line_refuses_a_pattern_that_matches_nothing_and_exits_two() {
     assert!(stderr.contains("matches no repository"), "{stderr}");
     assert!(output.stdout.is_empty());
 }
+
+/// `furca` with the repository named right after the command, for commands
+/// whose paths come last, after `--`.
+fn furca_in(dir: &Path, command: &str, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_furca"))
+        .arg(command)
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .expect("furca runs")
+}
+
+/// A repository whose second commit changes a text file, adds a binary and
+/// renames a file.
+fn repo_with_changes() -> tempfile::TempDir {
+    let dir = repo_with(&[]);
+    let write =
+        |path: &str, content: &[u8]| std::fs::write(dir.path().join(path), content).expect("write");
+    write("notes.txt", b"one\ntwo\nthree\n");
+    write("old.md", b"a\nb\nc\nd\ne\nf\n");
+    git(dir.path(), &["add", "notes.txt", "old.md"]);
+    git(dir.path(), &["commit", "--quiet", "-m", "first"]);
+    write("notes.txt", b"one\n2\nthree\nfour\n");
+    write("logo.png", &[0x89, b'P', b'N', b'G', 0, 0, 0, 0, 1, 2]);
+    git(dir.path(), &["mv", "old.md", "new.md"]);
+    git(dir.path(), &["add", "notes.txt", "logo.png"]);
+    git(
+        dir.path(),
+        &["commit", "--quiet", "-m", "second", "-m", "With a body."],
+    );
+    dir
+}
+
+#[test]
+fn show_lists_what_a_commit_changed_with_lines_and_sizes() {
+    let dir = repo_with_changes();
+
+    let text = stdout(&furca(dir.path(), &["show"]));
+    assert!(text.starts_with("commit "), "{text}");
+    assert!(
+        text.contains("\n    second\n    \n    With a body.\n"),
+        "{text}"
+    );
+    assert!(text.contains(" A logo.png "), "{text}");
+    assert!(text.contains("binary, 10 B"), "{text}");
+    assert!(text.contains(" R old.md -> new.md "), "{text}");
+    assert!(text.contains(" M notes.txt "), "{text}");
+    assert!(text.contains("+2 -1"), "{text}");
+    assert!(text.trim_end().ends_with("3 files, +2 -1"), "{text}");
+
+    let value = json(&furca(dir.path(), &["show", "--json"]));
+    assert_eq!(value["message"], "second\n\nWith a body.");
+    let files = value["changes"]["files"].as_array().expect("files");
+    let logo = files
+        .iter()
+        .find(|f| f["path"] == "logo.png")
+        .expect("logo");
+    assert_eq!(logo["after"]["content"]["kind"], "binary");
+    assert_eq!(logo["after"]["size"], 10);
+    assert!(logo["lines"].is_null());
+}
+
+#[test]
+fn diff_prints_patches_and_refuses_a_path_the_commit_did_not_change() {
+    let dir = repo_with_changes();
+
+    let text = stdout(&furca_in(dir.path(), "diff", &["HEAD", "--", "notes.txt"]));
+    assert_eq!(
+        text.trim_end(),
+        "diff notes.txt\n--- a/notes.txt\n+++ b/notes.txt\n@@ -1,3 +1,4 @@\n one\n-two\n+2\n three\n+four"
+    );
+    let binary = stdout(&furca_in(dir.path(), "diff", &["HEAD", "--", "logo.png"]));
+    assert!(binary.contains("logo.png: binary, 10 B"), "{binary}");
+
+    let patches = json(&furca_in(dir.path(), "diff", &["--json", "-U", "0"]));
+    let patches = patches.as_array().expect("an array of patches");
+    assert_eq!(patches.len(), 3);
+    let notes = patches
+        .iter()
+        .find(|p| p["file"]["path"] == "notes.txt")
+        .expect("notes");
+    assert_eq!(
+        notes["hunks"].as_array().map(Vec::len),
+        Some(2),
+        "no context joins nothing"
+    );
+
+    let missing = furca_in(dir.path(), "diff", &["HEAD", "--", "nothing.txt"]);
+    assert_eq!(missing.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("did not change nothing.txt"));
+}
+
+#[test]
+fn log_after_a_double_dash_is_the_history_of_one_file_through_a_rename() {
+    let dir = repo_with_changes();
+
+    let text = stdout(&furca_in(dir.path(), "log", &["--", "new.md"]));
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert!(
+        lines[0].contains(" R ") && lines[0].ends_with("(old.md -> new.md)"),
+        "{text}"
+    );
+    assert!(
+        lines[1].contains(" A ") && lines[1].ends_with("(old.md)"),
+        "{text}"
+    );
+
+    let value = json(&furca_in(dir.path(), "log", &["--json", "--", "new.md"]));
+    assert_eq!(value["commits"][0]["status"], "renamed");
+    assert_eq!(value["commits"][1]["path"], "old.md");
+}

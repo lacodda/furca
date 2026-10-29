@@ -1,10 +1,11 @@
 ---
 title: log
-description: Show the history, newest first, parents after their children.
+description: Show the history, newest first, parents after their children - or the history of one file.
 ---
 
 ```sh
 furca log [-C PATH] [-n LIMIT] [--all] [--json]
+furca log [-C PATH] [-n LIMIT] [--json] -- PATH
 ```
 
 Walks the history from `HEAD` and prints one line per commit: short id, author
@@ -27,6 +28,27 @@ the order of `git log --date-order`.
 Commit times alone cannot give that guarantee: a machine with a slow clock
 records a child as older than its parent, and sorting by time would put the
 parent first. furca orders by the graph and uses time only to break ties.
+
+## The history of one file
+
+After `--`, a path: the commits that changed that file, newest first, each with
+what it did to it and the path the file had there.
+
+```console
+$ furca log -- docs/guide.md
+f9f9b99 2026-10-28 R Ada Author  feat: greet by name  (docs/intro.md -> docs/guide.md)
+352b6ca 2026-10-27 A Ada Author  feat: greet and say goodbye  (docs/intro.md)
+```
+
+The walk goes from `HEAD` down the first parents, so a merge counts when it
+changed the file against the line it was merged into. A rename is followed, as
+`git log --follow` does: past the commit that moved the file, its history goes
+on under the old path. A path that is not there now still has a history if it
+was there once - the commit that deleted it comes first.
+
+With `--json` each entry is `{ "commit": …, "path": …, "status": …, "from": … }`:
+the commit as below, the file's path in it, `added`, `deleted`, `modified` or
+`renamed`, and the path it was moved from.
 
 ## JSON
 
@@ -72,5 +94,6 @@ A repository without commits prints an empty `commits` list, not an error.
 | --- | --- |
 | `-C, --repo <PATH>` | A path inside the repository. Defaults to `.`. |
 | `-n, --limit <N>` | How many commits to show at most. Defaults to `100`. |
-| `--all` | Start from every branch, remote-tracking branch and tag as well as `HEAD`, as `git log --all` does - the history a graph shows. |
+| `--all` | Start from every branch, remote-tracking branch and tag as well as `HEAD`, as `git log --all` does - the history a graph shows. Not with a path. |
+| `-- PATH` | The history of one file instead, followed through its renames. |
 | `--json` | Print JSON instead of text. |

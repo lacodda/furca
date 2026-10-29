@@ -10,13 +10,14 @@
 //! not green), 2 when it could not answer at all - the same split as `grep`.
 
 mod line;
+mod show;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use furca_core::{HeadSummary, Log, Refs, Repository, Tips};
+use furca_core::{FileChange, HeadSummary, Log, Patch, Refs, Repository, Tips};
 use furca_release::hosting::{self, Forge, Place, Run, Waited};
 use furca_release::{
     Check, Config, Local, Plan, Provider, Release, Report, Runner, Shops, Sources, Status, Verified,
@@ -46,7 +47,7 @@ enum Command {
         #[command(flatten)]
         common: Common,
     },
-    /// Show the history, newest first, parents after their children.
+    /// Show the history, newest first, parents after their children; or, after `--`, the history of one file.
     Log {
         #[command(flatten)]
         common: Common,
@@ -54,8 +55,33 @@ enum Command {
         #[arg(short = 'n', long, default_value_t = 100)]
         limit: usize,
         /// Start from every branch and tag, not only HEAD.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "file")]
         all: bool,
+        /// The file whose history to show, followed through its renames.
+        #[arg(last = true, value_name = "PATH")]
+        file: Option<String>,
+    },
+    /// Show a commit: who made it, its message, and the files it changed with their lines and sizes.
+    Show {
+        #[command(flatten)]
+        common: Common,
+        /// The commit: an id, a branch, a tag. Defaults to HEAD.
+        #[arg(default_value = "HEAD")]
+        revision: String,
+    },
+    /// Show the lines a commit changed, as patches.
+    Diff {
+        #[command(flatten)]
+        common: Common,
+        /// The commit: an id, a branch, a tag. Defaults to HEAD.
+        #[arg(default_value = "HEAD")]
+        revision: String,
+        /// Only these files, by their path after the commit.
+        #[arg(last = true, value_name = "PATH")]
+        paths: Vec<String>,
+        /// Unchanged lines shown around each change.
+        #[arg(short = 'U', long, default_value_t = 3)]
+        context: u32,
     },
     /// Push the current branch to the remote it follows.
     Push {
@@ -155,12 +181,40 @@ fn run(command: Command) -> Result<Answer, String> {
             let refs = open(&common.repo)?.refs().map_err(|e| e.to_string())?;
             emit(common.json, &refs, refs_text)
         }
-        Command::Log { common, limit, all } => {
+        Command::Log {
+            common,
+            limit,
+            file: Some(file),
+            ..
+        } => {
+            let log = open(&common.repo)?
+                .file_log(&file, limit)
+                .map_err(|e| e.to_string())?;
+            emit(common.json, &log, show::file_log_text)
+        }
+        Command::Log {
+            common, limit, all, ..
+        } => {
             let tips = if all { Tips::All } else { Tips::Head };
             let log = open(&common.repo)?
                 .log(tips, limit)
                 .map_err(|e| e.to_string())?;
             emit(common.json, &log, log_text)
+        }
+        Command::Show { common, revision } => {
+            let details = open(&common.repo)?
+                .details(&revision)
+                .map_err(|e| e.to_string())?;
+            emit(common.json, &details, show::details_text)
+        }
+        Command::Diff {
+            common,
+            revision,
+            paths,
+            context,
+        } => {
+            let patches = patches(&open(&common.repo)?, &revision, &paths, context)?;
+            emit(common.json, patches.as_slice(), show::patches_text)
         }
         Command::Line { paths, json } => {
             let (source, targets) = if paths.is_empty() {
@@ -543,7 +597,11 @@ fn check_lines(checks: &[Check]) -> Vec<String> {
     out
 }
 
-fn emit<T: Serialize>(json: bool, value: &T, text: fn(&T) -> String) -> Result<Answer, String> {
+fn emit<T: Serialize + ?Sized>(
+    json: bool,
+    value: &T,
+    text: fn(&T) -> String,
+) -> Result<Answer, String> {
     let out = if json {
         serde_json::to_string_pretty(value).map_err(|e| e.to_string())?
     } else {
@@ -551,6 +609,37 @@ fn emit<T: Serialize>(json: bool, value: &T, text: fn(&T) -> String) -> Result<A
     };
     println!("{out}");
     Ok(Answer::Yes)
+}
+
+/// The patches of the files `revision` changed: every file, or the ones
+/// `paths` names - a path that names none of them is an error, not an empty
+/// answer, so a mistyped path is not taken for an unchanged file.
+fn patches(
+    repo: &Repository,
+    revision: &str,
+    paths: &[String],
+    context: u32,
+) -> Result<Vec<Patch>, String> {
+    let changes = repo.changes(revision).map_err(|e| e.to_string())?;
+    if let Some(missing) = paths
+        .iter()
+        .find(|path| !changes.files.iter().any(|file| &file.path == *path))
+    {
+        return Err(format!("{revision} did not change {missing}"));
+    }
+    let chosen: Vec<&FileChange> = changes
+        .files
+        .iter()
+        .filter(|file| paths.is_empty() || paths.contains(&file.path))
+        .collect();
+    chosen
+        .into_iter()
+        .map(|file| {
+            repo.diff(file)
+                .map(|diff| diff.patch(context))
+                .map_err(|e| e.to_string())
+        })
+        .collect()
 }
 
 fn short(id: &str) -> &str {
