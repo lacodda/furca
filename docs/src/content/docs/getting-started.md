@@ -58,6 +58,7 @@ exits 0 when it did what was asked, 1 when the answer is no - a release plan
 with something in its way, a release run that stopped, CI that is not green,
 a repository with work not pushed - and 2 when it could not answer at all. See [status](/furca/reference/status/),
 [refs](/furca/reference/refs/), [log](/furca/reference/log/),
+[show](/furca/reference/show/), [diff](/furca/reference/diff/),
 [push](/furca/reference/push/), [checks](/furca/reference/checks/),
 [line](/furca/reference/line/) and [release](/furca/reference/release/).
 
@@ -83,6 +84,18 @@ graph.extend(&repo, 500)?;
 for row in graph.rows(0..20) {
     println!("lane {} with {} segments", row.column, row.segments.len());
 }
+
+// What a commit changed, and one file's lines - both texts and the hunks.
+let changes = repo.changes("HEAD")?;
+if let Some(file) = changes.files.first() {
+    let diff = repo.diff(file)?;
+    println!("{}: {} hunks", file.path, diff.hunks.len());
+}
+
+// A file as it was, byte for byte, and the commits that changed it,
+// followed through its renames.
+let bytes = repo.file_at("HEAD~3", "README.md")?;
+let history = repo.file_log("README.md", 20)?;
 ```
 
 ## Build from source

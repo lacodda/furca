@@ -150,6 +150,41 @@ The window reads a tab again when it comes forward and when the window gets
 the focus back, so a commit made in a terminal meanwhile shows up; the graph is
 laid out again only when a branch, a tag or `HEAD` moved.
 
+## A commit's details
+
+Under the graph is the commit you chose - the one `HEAD` is on when a
+repository opens, as Fork opens one. Its header says who made it and when, its
+id (a click copies it), its parents (a click takes the graph there), the whole
+message, and how many files and lines it changed. The commit is compared with
+its first parent: a merge shows what it brought into the line it was merged
+into.
+
+Below the header, on the left, are the files it changed, in their folders - a
+folder that only holds another is one row, `src/lib`. Each says how it changed
+(**A** added, **M** modified, **D** deleted, **R** renamed, **C** copied) and,
+at the right edge, the lines it added and removed. A file that is not text says
+what it is and how large instead:
+
+| | |
+| --- | --- |
+| **BIN** | A binary committed as it is. Marked in the warning colour: every version of it stays in the history for good, which in a public repository is the most expensive mistake a commit can make. |
+| **LFS** | A file in git LFS. The size is the file's, not the pointer's. |
+| **SUB** | A submodule moved to another of its commits. |
+
+On the right is the change of the file chosen, as `git diff` counts it, with
+its language's colours: **Side by side** keeps the two versions level, line for
+line; **Inline** shows the removed lines over the added ones. A removed line is
+marked `−` and an added one `+`, so the change reads without colour too, and
+the characters that changed inside a line are marked again. Unchanged
+stretches fold away to a line saying how many there are - a click opens them -
+so a long file opens as fast as its changes allow. The header above the change
+names a rename and how alike the file stayed, a change of mode, and line
+endings that changed - `CRLF → LF` - which otherwise show as every line
+changed for no visible reason.
+
+The window keeps where you put the borders between the graph, the files and
+the change, and which way changes are drawn, with the tabs.
+
 ## What the window writes
 
 Nothing in your history. One file, in the background: when a repository has no
@@ -160,7 +195,8 @@ graph of a long history costs seconds to open; with it, milliseconds. A
 repository with `core.commitGraph` set to `false` is left alone. See
 [ADR 0010](https://github.com/lacodda/furca/blob/main/docs/adr/0010-the-window-has-git-write-the-commit-graph.md).
 
-What the window remembers - the open tabs, the recent list, the sessions - is
+What the window remembers - the open tabs, the recent list, the sessions, the
+layout - is
 one file, `state.json`, in the app's data directory: `%APPDATA%\com.lacodda.furca`
 on Windows, `~/Library/Application Support/com.lacodda.furca` on macOS and
 `~/.local/share/com.lacodda.furca` on Linux. A file that cannot be read is moved
@@ -179,4 +215,6 @@ in the colours of your theme, and the app and its webview hold under 300 MB
 with three repositories of 100 000 commits open, each graph laid out to its
 end - on Windows; Linux's number, measured without a GPU, is published but
 not promised. The first frame with a repository - its column and the first rows of its
-graph - is measured and published too. See [the budgets](/furca/concepts/budgets/).
+graph - is measured and published too, and so is the first diff the window
+opens: from asking for a 5 000-line change to the frame that shows it. See
+[the budgets](/furca/concepts/budgets/).
