@@ -1,5 +1,6 @@
 //! What the window remembers between runs: the open tabs, the repositories
-//! opened lately, and the sessions saved under a name.
+//! opened lately, the sessions saved under a name, and how a repository's
+//! view is divided.
 //!
 //! The store is the one truth about the tabs. The window sends intents -
 //! open this, close that, save these as a session - and draws the state each
@@ -21,7 +22,7 @@ const FILE: &str = "state.json";
 const BROKEN: &str = "state.broken.json";
 
 /// Everything the window remembers.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 pub struct WindowState {
     /// The open repositories, in the order of their tabs.
     pub tabs: Vec<Tab>,
@@ -31,6 +32,73 @@ pub struct WindowState {
     pub recent: Vec<Tab>,
     /// Sets of tabs saved under a name, sorted by name.
     pub sessions: Vec<Session>,
+    /// How a repository's view is divided, as the person left it. A state
+    /// saved before there was one opens with the first layout.
+    #[serde(default)]
+    pub layout: Layout,
+}
+
+/// How a repository's view is divided: one layout for every tab, as Fork
+/// keeps it, since the person's screen is the same whichever tab is in
+/// front.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+pub struct Layout {
+    /// The graph above and the chosen commit's details below, in percent of
+    /// the height.
+    pub details: Vec<f64>,
+    /// The changed files and the diff beside them, in percent of the width.
+    pub files: Vec<f64>,
+    /// How a file's change is drawn.
+    pub diff: DiffLayout,
+}
+
+/// How a file's change is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiffLayout {
+    /// Before and after in two columns kept level.
+    Split,
+    /// One column, the removed lines over the added ones.
+    Inline,
+}
+
+impl Default for Layout {
+    fn default() -> Self {
+        Self {
+            details: vec![55.0, 45.0],
+            files: vec![30.0, 70.0],
+            diff: DiffLayout::Split,
+        }
+    }
+}
+
+impl Layout {
+    /// The layout to keep: a division the window sent that is not two shares
+    /// of the whole - a hand-edited file, a window from another version - is
+    /// put back to the first one rather than drawn as a pane of no size.
+    pub fn held(self) -> Self {
+        let first = Self::default();
+        let fits = |shares: &[f64]| {
+            shares.len() == 2
+                && shares
+                    .iter()
+                    .all(|share| share.is_finite() && *share >= 0.0)
+                && (shares.iter().sum::<f64>() - 100.0).abs() < 0.5
+        };
+        Self {
+            details: if fits(&self.details) {
+                self.details
+            } else {
+                first.details
+            },
+            files: if fits(&self.files) {
+                self.files
+            } else {
+                first.files
+            },
+            diff: self.diff,
+        }
+    }
 }
 
 /// An open repository.
@@ -398,5 +466,45 @@ mod tests {
         assert_eq!(normalize(&inner).unwrap(), normalize(&around).unwrap());
         let text = normalize(&inner).unwrap().to_string_lossy().into_owned();
         assert!(!text.starts_with(r"\\?\"), "{text}");
+    }
+
+    #[test]
+    fn a_state_saved_before_the_layout_opens_with_the_first_one() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let tabs =
+            r#"{"tabs":[{"path":"/repos/a","name":"a"}],"active":0,"recent":[],"sessions":[]}"#;
+        std::fs::write(dir.path().join(FILE), tabs).expect("written");
+        let state = load(dir.path());
+        assert_eq!(names(&state), ["a"], "the tabs are kept");
+        assert_eq!(state.layout, Layout::default());
+    }
+
+    #[test]
+    fn a_layout_that_is_not_two_shares_of_the_whole_is_put_back() {
+        let kept = Layout {
+            details: vec![70.0, 30.0],
+            files: vec![25.5, 74.5],
+            diff: DiffLayout::Inline,
+        };
+        assert_eq!(kept.clone().held(), kept);
+
+        let first = Layout::default();
+        for broken in [
+            vec![],
+            vec![100.0],
+            vec![60.0, 60.0],
+            vec![f64::NAN, 50.0],
+            vec![-10.0, 110.0],
+        ] {
+            let held = Layout {
+                details: broken.clone(),
+                files: broken.clone(),
+                diff: DiffLayout::Inline,
+            }
+            .held();
+            assert_eq!(held.details, first.details, "{broken:?}");
+            assert_eq!(held.files, first.files, "{broken:?}");
+            assert_eq!(held.diff, DiffLayout::Inline, "the rest of it stands");
+        }
     }
 }

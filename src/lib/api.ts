@@ -1,8 +1,12 @@
 import { invoke, type Channel } from '@tauri-apps/api/core'
+import type { Details } from './generated/Details'
+import type { FileChange } from './generated/FileChange'
+import type { FileDiff } from './generated/FileDiff'
 import type { Finder } from './generated/Finder'
 import type { Found } from './generated/Found'
 import type { GraphAnswer } from './generated/GraphAnswer'
 import type { GraphRow } from './generated/GraphRow'
+import type { Layout } from './generated/Layout'
 import type { Line } from './generated/Line'
 import type { Opened } from './generated/Opened'
 import type { Sidebar } from './generated/Sidebar'
@@ -27,6 +31,7 @@ export const api = {
   saveSession: (name: string) => invoke<WindowState>('save_session', { name }),
   openSession: (name: string) => invoke<Opened>('open_session', { name }),
   deleteSession: (name: string) => invoke<WindowState>('delete_session', { name }),
+  setLayout: (layout: Layout) => invoke<WindowState>('set_layout', { layout }),
   line: () => invoke<Line>('line'),
   openLine: () => invoke<Opened>('open_line'),
   sidebar: (path: string) => invoke<Sidebar>('sidebar', { path }),
@@ -43,10 +48,14 @@ export const api = {
   graphFind: (path: string, generation: number, query: string, found: Channel<Found>) =>
     invoke<Finder[]>('graph_find', { path, generation, query, found }),
   forgetGraph: (path: string) => invoke<null>('forget_graph', { path }),
+  /** The commit `id`: who made it, its whole message, the files it changed. */
+  details: (path: string, id: string) => invoke<Details>('details', { path, id }),
+  /** One file's change, as `details` listed it: both texts and the hunks. */
+  fileDiff: (path: string, file: FileChange) => invoke<FileDiff>('file_diff', { path, file }),
   /** Tells a measurement the window reached `stage`; nothing otherwise. The
    * stages between the start and the first frame say where a slow start
-   * spent its time. */
-  measured: (stage: 'script' | 'state' | 'read' | 'first-frame' | 'settled') =>
+   * spent its time; the two diff stages time the first diff opened. */
+  measured: (stage: 'script' | 'state' | 'read' | 'first-frame' | 'settled' | 'diff-asked' | 'diff-shown') =>
     invoke<null>('measured', { stage }),
 }
 

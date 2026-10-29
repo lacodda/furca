@@ -73,3 +73,20 @@ body {
     left: 100%;
   }
 }
+
+/* A side-by-side diff scrolls as one: @codemirror/merge lets its two editors
+   grow to their content and leaves the scrolling to the box around them.
+   Here rather than in the editor's theme, which only reaches inside an
+   editor; and in the bundle, where the window's CSP lets it be. */
+.furca-diff .cm-mergeView {
+  height: 100%;
+  overflow: auto;
+}
+
+/* dowel's TreeView sizes a row's label to its text. A changed file's row
+   carries its counts or its size at the right edge, as a column, so its
+   label takes the row's width. Until the tree has a slot for it. */
+[role='treeitem'] > span:has(> .furca-file-row) {
+  flex: 1 1 0%;
+  min-width: 0;
+}

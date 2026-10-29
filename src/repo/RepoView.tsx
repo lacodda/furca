@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Splitter, SplitterHandle, SplitterPane } from '@/components/ui/splitter'
+import type { Layout } from '@/lib/generated/Layout'
 import type { Tab } from '@/lib/generated/Tab'
 import { positionOf, rowAt, searchGraph, showBranch, useGraph } from '@/lib/graph'
 import { labelsByCommit, nextMatch, type Label } from '@/lib/graph-labels'
 import { useMaintenance, useSidebar } from '@/lib/repos'
+import { Details } from './Details'
 import { GraphView } from './GraphView'
 import { Sidebar } from './Sidebar'
 import { Toolbar } from './Toolbar'
@@ -15,12 +18,21 @@ const kept = new Map<string, { id: string | null; query: string }>()
 const NO_LABELS: ReadonlyMap<string, Label[]> = new Map()
 const NO_ROWS: ReadonlySet<number> = new Set()
 
+export interface RepoViewProps {
+  tab: Tab
+  /** How the view is divided, kept by the window's store. */
+  layout: Layout
+  onLayout: (layout: Layout) => void
+}
+
 /**
  * One open repository: the left column of its refs, the graph of its
- * history with the search above it, and a status line along the foot for
- * what the window is doing on its behalf.
+ * history with the search above it, the chosen commit's details under the
+ * graph, and a status line along the foot for what the window is doing on
+ * its behalf.
  */
-export function RepoView({ tab }: { tab: Tab }) {
+export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
+  const { t } = useTranslation()
   const path = tab.path
   const graph = useGraph(path)
   const sidebar = useSidebar(path)
@@ -38,6 +50,7 @@ export function RepoView({ tab }: { tab: Tab }) {
   const data = sidebar.state === 'read' ? sidebar.value : null
   const labels = useMemo(() => (data ? labelsByCommit(data) : NO_LABELS), [data])
   const generation = graph.state?.generation
+  const head = data?.head.commit ?? null
 
   const select = useCallback(
     (row: number) => {
@@ -52,22 +65,25 @@ export function RepoView({ tab }: { tab: Tab }) {
     if (selected !== null && chosen.current === null) chosen.current = rowAt(path, selected)?.commit.id ?? null
   }, [path, selected, graph.version])
 
-  // A new graph: find the chosen commit in it.
+  // A new graph: find the chosen commit in it - or, before one is chosen,
+  // the commit HEAD is on, as Fork opens a repository.
   useEffect(() => {
     if (generation === undefined) return
-    const id = chosen.current
+    const id = chosen.current ?? head
     if (id === null) {
       setSelected(null)
       return
     }
     let current = true
     void positionOf(path, id).then((row) => {
-      if (current) setSelected(row)
+      if (!current) return
+      setSelected(row)
+      if (row !== null) chosen.current = id
     })
     return () => {
       current = false
     }
-  }, [path, generation])
+  }, [path, generation, head])
 
   useEffect(() => {
     kept.set(path, { id: chosen.current, query })
@@ -99,6 +115,8 @@ export function RepoView({ tab }: { tab: Tab }) {
   }
 
   const found = useMemo(() => (search ? new Set(search.rows) : NO_ROWS), [search])
+  // Read on every render: the row's page arrives after the row is chosen.
+  const commit = selected === null ? null : (rowAt(path, selected)?.commit.id ?? null)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -118,19 +136,30 @@ export function RepoView({ tab }: { tab: Tab }) {
             selected={selected}
             onStep={step}
           />
-          <div className="min-h-0 flex-1">
-            <GraphView
-              path={path}
-              graph={graph}
-              labels={labels}
-              head={data?.head.commit ?? null}
-              selected={selected}
-              onSelect={select}
-              query={search?.query ?? ''}
-              found={found}
-              inMessage={search?.inMessage ?? NO_ROWS}
-            />
-          </div>
+          <Splitter
+            orientation="vertical"
+            defaultSizes={layout.details}
+            onSizesChange={(sizes) => onLayout({ ...layout, details: sizes })}
+            className="min-h-0 flex-1"
+          >
+            <SplitterPane min={20}>
+              <GraphView
+                path={path}
+                graph={graph}
+                labels={labels}
+                head={head}
+                selected={selected}
+                onSelect={select}
+                query={search?.query ?? ''}
+                found={found}
+                inMessage={search?.inMessage ?? NO_ROWS}
+              />
+            </SplitterPane>
+            <SplitterHandle label={t('details.resizeDetails')} />
+            <SplitterPane min={15} className="border-t border-line">
+              <Details path={path} commit={commit} layout={layout} onLayout={onLayout} onJump={jump} />
+            </SplitterPane>
+          </Splitter>
         </section>
       </div>
       <StatusLine tab={tab} />

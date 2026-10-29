@@ -28,8 +28,8 @@ fn generated_dir() -> PathBuf {
         .join("src/lib/generated")
 }
 
-/// Hands every root type to `$each`: what the commands in `src/commands.rs`
-/// and `src/graph.rs` return, what a search sends down its channel, and the
+/// Hands every root type to `$each`: what the commands in `src/commands.rs`,
+/// `src/graph.rs` and `src/details.rs` return, what a search sends down its channel, and the
 /// payloads of the maintenance and graph events. What they depend on is
 /// followed from them.
 macro_rules! for_each_root {
@@ -45,6 +45,8 @@ macro_rules! for_each_root {
             furca_desktop_lib::graph::Grown,
             furca_desktop_lib::graph::GraphRow,
             furca_desktop_lib::graph::Found,
+            furca_core::Details,
+            furca_core::FileDiff,
         }
     };
 }

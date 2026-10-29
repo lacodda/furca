@@ -11,12 +11,14 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { ProductMark } from '@/components/ui/product-mark'
 import { ResizeEdges, TitleBar } from '@/components/ui/window-frame'
 import { api, failure } from '@/lib/api'
+import type { Layout } from '@/lib/generated/Layout'
 import type { Line } from '@/lib/generated/Line'
 import type { Opened } from '@/lib/generated/Opened'
 import type { WindowState } from '@/lib/generated/WindowState'
 import { openGraph } from '@/lib/graph'
 import { forget, listenForMaintenance, readAll, refresh, sidebars } from '@/lib/repos'
 import { Home } from '@/home/Home'
+import { preloadDiff } from '@/repo/Details'
 import { RepoView } from '@/repo/RepoView'
 import { OpenMenu, type OpenActions } from '@/shell/OpenMenu'
 import { RepoTabs } from '@/shell/RepoTabs'
@@ -126,6 +128,16 @@ function Shell({ initial }: { initial: WindowState }) {
     [],
   )
 
+  // Drawn at once, kept by the store: the store answers with the state it
+  // saved, and a refusal is a notice like any other.
+  const setLayout = useCallback(
+    (layout: Layout) => {
+      setState((current) => ({ ...current, layout }))
+      void apply(api.setLayout(layout))
+    },
+    [apply],
+  )
+
   const browse = useCallback(async () => {
     const path = await open({ directory: true, title: t('open.browse') })
     if (typeof path === 'string') await openPaths([path])
@@ -171,6 +183,7 @@ function Shell({ initial }: { initial: WindowState }) {
     const frame = requestAnimationFrame(() => {
       task = setTimeout(() => {
         void api.measured('first-frame')
+        preloadDiff()
         api.line().then(setLine, () => setLine(null))
         for (const tab of initial.tabs) void api.maintain(tab.path)
         void readAll(initial.tabs.map((tab) => tab.path)).then(() => api.measured('settled'))
@@ -296,7 +309,11 @@ function Shell({ initial }: { initial: WindowState }) {
       )}
 
       <main className="relative min-h-0 flex-1">
-        {front ? <RepoView key={front.path} tab={front} /> : <Home state={state} line={line} actions={actions} />}
+        {front ? (
+          <RepoView key={front.path} tab={front} layout={state.layout} onLayout={setLayout} />
+        ) : (
+          <Home state={state} line={line} actions={actions} />
+        )}
         {dropping && (
           <div className="pointer-events-none absolute inset-2 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-accent bg-bg/80 text-sm text-text">
             <FolderInput aria-hidden className="size-6 text-accent" />

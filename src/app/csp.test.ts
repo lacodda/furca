@@ -23,4 +23,15 @@ describe('styles the CSP would refuse at run time', () => {
   it('tells Base UI not to insert its own', () => {
     expect(read('../main.tsx')).toMatch(/<CSPProvider disableStyleElements>/)
   })
+
+  // CodeMirror's rules are made at run time, under class names it makes up,
+  // so they cannot move to the bundle. Its `<style>` carries the nonce Tauri
+  // gives the page's own inline style instead - which must therefore be
+  // there to take it from.
+  it("hands CodeMirror the nonce of the page's own style", () => {
+    const diff = read('../repo/CodeDiff.tsx')
+    expect(diff).toMatch(/EditorView\.cspNonce\.of\(nonce\)/)
+    expect(diff).toMatch(/querySelector<HTMLStyleElement>\('style\[nonce\]'\)/)
+    expect(read('../../index.html')).toMatch(/<style>/)
+  })
 })

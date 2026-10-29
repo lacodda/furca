@@ -5,6 +5,7 @@
 //! it off the main thread, and remembers what was open (`state`).
 
 pub mod commands;
+pub mod details;
 pub mod graph;
 pub mod maintenance;
 pub mod measure;
@@ -144,6 +145,7 @@ pub fn run() {
             commands::save_session,
             commands::open_session,
             commands::delete_session,
+            commands::set_layout,
             commands::line,
             commands::open_line,
             commands::sidebar,
@@ -154,6 +156,8 @@ pub fn run() {
             graph::graph_position,
             graph::graph_find,
             graph::forget_graph,
+            details::details,
+            details::file_diff,
             measure::measured,
         ])
         .run(tauri::generate_context!())

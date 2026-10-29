@@ -11,7 +11,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::maintenance;
-use crate::state::{self, Tab, WindowState};
+use crate::state::{self, Layout, Tab, WindowState};
 
 /// The window's store and the directory it is saved in.
 pub struct Store {
@@ -125,7 +125,7 @@ fn tab_for(path: &Path) -> Result<Tab, String> {
 
 /// Runs `work` on a thread of its own and waits for it without holding up
 /// the async runtime.
-async fn off_thread<T: Send + 'static>(
+pub(crate) async fn off_thread<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(work)
@@ -239,6 +239,12 @@ pub async fn open_session(
 #[tauri::command]
 pub async fn delete_session(store: State<'_, Store>, name: String) -> Result<WindowState, String> {
     Ok(store.change(|state| state.delete_session(&name))?.0)
+}
+
+/// Keeps how the person divided a repository's view.
+#[tauri::command]
+pub async fn set_layout(store: State<'_, Store>, layout: Layout) -> Result<WindowState, String> {
+    Ok(store.change(|state| state.layout = layout.held())?.0)
 }
 
 /// The line, read from the record as `furca line` reads it.
