@@ -79,6 +79,83 @@ impl Layout {
     }
 }
 
+/// The working copy the status budgets read: this many tracked files.
+pub const WIDE_FILES: u32 = 10_000;
+/// The tracked file a measurement saves.
+pub const WIDE_SAVED: &str = "src/d42/f42.rs";
+/// Bumped whenever the working copy's shape changes.
+const WIDE_VERSION: u32 = 1;
+
+/// A checked-out project of `WIDE_FILES` files in a hundred folders, and what
+/// lies around a real one: an ignored build folder of five thousand files, and
+/// a few untracked files. Nothing is changed in it: the status of a clean tree
+/// is what a measurement starts from.
+pub fn ensure_wide(root: &Path) -> PathBuf {
+    let dir = root.join(format!("furca-fixture-wide-v{WIDE_VERSION}-{WIDE_FILES}"));
+    let done = dir.join(".git").join("furca-fixture-complete");
+    if done.exists() {
+        return dir;
+    }
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).expect("remove a half-built fixture");
+    }
+    std::fs::create_dir_all(&dir).expect("fixture dir");
+    git(&dir, &["init", "--quiet", "--initial-branch=main"]);
+
+    let folders = 100;
+    let in_each = WIDE_FILES / folders;
+    let mut import = git_command(&dir)
+        .args(["fast-import", "--quiet"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("git fast-import starts");
+    {
+        let mut out =
+            std::io::BufWriter::new(import.stdin.take().expect("fast-import takes stdin"));
+        write!(
+            out,
+            "commit refs/heads/main\ncommitter Fixture <fixture@example.com> 1700000000 +0000\ndata 5\nwide\n\n"
+        )
+        .expect("write the commit");
+        for folder in 0..folders {
+            for file in 0..in_each {
+                let content = format!("// file {file} of folder {folder}\n{}\n", "x".repeat(1024));
+                write!(
+                    out,
+                    "M 100644 inline src/d{folder}/f{file}.rs\ndata {}\n{content}\n",
+                    content.len()
+                )
+                .expect("write a file");
+            }
+        }
+        let ignore = "target/\n";
+        write!(
+            out,
+            "M 100644 inline .gitignore\ndata {}\n{ignore}\n",
+            ignore.len()
+        )
+        .expect("write .gitignore");
+        out.flush().expect("flush fast-import");
+    }
+    assert!(
+        import.wait().expect("git fast-import ends").success(),
+        "git fast-import failed"
+    );
+    git(&dir, &["reset", "--hard", "--quiet", "main"]);
+    git(&dir, &["repack", "-a", "-d", "-q"]);
+
+    let built = dir.join("target").join("debug");
+    std::fs::create_dir_all(&built).expect("the build folder");
+    for file in 0..5_000 {
+        std::fs::write(built.join(format!("out-{file}.o")), "built\n").expect("a built file");
+    }
+    for file in 0..20 {
+        std::fs::write(dir.join(format!("note-{file}.txt")), "a note\n").expect("a note");
+    }
+    std::fs::write(&done, "").expect("mark the fixture complete");
+    dir
+}
+
 /// Returns the fixture with `commits` commits in `layout`, building it under
 /// `root` if it is not there yet.
 pub fn ensure(root: &Path, commits: u32, layout: Layout) -> PathBuf {

@@ -17,10 +17,11 @@
 mod fixture;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use fixture::Layout;
-use furca_core::{Repository, Tips};
+use furca_core::{Refreshed, Repository, StatusCache, Tips};
 use serde::{Deserialize, Serialize};
 
 const PROMISES: &str = include_str!("budgets.json");
@@ -85,61 +86,118 @@ struct Measured {
     within: bool,
 }
 
-/// The code a budget times, by the name `budgets.json` gives it.
-fn runner(name: &str) -> fn(&Path) {
+/// The code a budget times, by the name `budgets.json` gives it. A run says
+/// how long the part it measures took: what it has to set up first is not the
+/// budget's.
+fn runner(name: &str) -> fn(&Path) -> Duration {
     match name {
         "graph-first-500" => first_500,
         "diff-5000-lines" => diff_5000,
+        "status-after-save" => status_after_save,
+        "status-whole" => status_whole,
         other => panic!("budgets.json measures `{other}`, which has no runner in budgets.rs"),
     }
 }
 
-fn layout(name: &str) -> Layout {
-    [Layout::PackedWithGraph, Layout::Packed]
+/// The repository a budget reads: the long history in one of its layouts, or
+/// the wide working copy.
+fn repository(name: &str, root: &Path, commits: u32) -> PathBuf {
+    if name == WIDE {
+        return fixture::ensure_wide(root);
+    }
+    let layout = [Layout::PackedWithGraph, Layout::Packed]
         .into_iter()
         .find(|layout| layout.name() == name)
-        .unwrap_or_else(|| panic!("budgets.json names an unknown layout `{name}`"))
+        .unwrap_or_else(|| panic!("budgets.json names an unknown layout `{name}`"));
+    fixture::ensure(root, commits, layout)
+}
+
+/// The layout `budgets.json` gives the budgets of a working copy.
+const WIDE: &str = "10k-files";
+
+/// How long `work` took.
+fn timed(work: impl FnOnce()) -> Duration {
+    let start = Instant::now();
+    work();
+    start.elapsed()
 }
 
 /// What the window does for the first screen of a repository, and more:
 /// begin the graph of every branch and tag, lay out 500 rows of it and read
 /// the commits on them.
-fn first_500(path: &Path) {
-    let repo = Repository::open(path).expect("open the fixture");
-    let mut graph = repo.graph(Tips::All).expect("begin the graph");
-    assert_eq!(graph.extend(&repo, 500).expect("lay out the graph"), 500);
-    assert_eq!(graph.rows(0..500).len(), 500);
-    let commits = graph.commits(&repo, 0..500).expect("read the commits");
-    assert_eq!(commits.len(), 500);
+fn first_500(path: &Path) -> Duration {
+    timed(|| {
+        let repo = Repository::open(path).expect("open the fixture");
+        let mut graph = repo.graph(Tips::All).expect("begin the graph");
+        assert_eq!(graph.extend(&repo, 500).expect("lay out the graph"), 500);
+        assert_eq!(graph.rows(0..500).len(), 500);
+        let commits = graph.commits(&repo, 0..500).expect("read the commits");
+        assert_eq!(commits.len(), 500);
+    })
 }
 
 /// What the window does when a file of a commit is chosen: read what the
 /// commit changed, then both sides of the file and the hunks between them.
 /// The fixture's newest commit rewrote one line in four of a long file.
-fn diff_5000(path: &Path) {
-    let repo = Repository::open(path).expect("open the fixture");
-    let changes = repo.changes("main").expect("read what the commit changed");
-    let file = changes
-        .files
-        .iter()
-        .find(|file| file.path == fixture::LONG_FILE)
-        .expect("the long file changed");
-    let diff = repo.diff(file).expect("diff the long file");
-    assert_eq!(diff.hunks.len(), (fixture::LONG_LINES / 4) as usize);
+fn diff_5000(path: &Path) -> Duration {
+    timed(|| {
+        let repo = Repository::open(path).expect("open the fixture");
+        let changes = repo.changes("main").expect("read what the commit changed");
+        let file = changes
+            .files
+            .iter()
+            .find(|file| file.path == fixture::LONG_FILE)
+            .expect("the long file changed");
+        let diff = repo.diff(file).expect("diff the long file");
+        assert_eq!(diff.hunks.len(), (fixture::LONG_LINES / 4) as usize);
+    })
+}
+
+/// What the window does when a file is saved and the watcher names it: open
+/// the repository, bring the status it holds up to date by that path, and read
+/// the file for its row. The status held and the save are not the budget's;
+/// each run saves other content, so each run has a change to find.
+fn status_after_save(path: &Path) -> Duration {
+    static SAVES: AtomicU32 = AtomicU32::new(0);
+
+    let saved = path.join(fixture::WIDE_SAVED);
+    let repo = Repository::at(path).expect("open the fixture");
+    let mut cache = StatusCache::read(&repo).expect("read the status");
+    while cache.read_files(&repo, 64) > 0 {}
+    let save = SAVES.fetch_add(1, Ordering::Relaxed);
+    std::fs::write(&saved, format!("// saved {save}\n")).expect("save the file");
+
+    let names = [fixture::WIDE_SAVED.to_owned()];
+    let spent = timed(|| {
+        let repo = Repository::at(path).expect("open the fixture");
+        let refreshed = cache.refresh(&repo, &names).expect("refresh the status");
+        assert_eq!(refreshed, Refreshed::Files(names.to_vec()));
+        assert_eq!(cache.read_files(&repo, 16), 1, "the file saved");
+    });
+    let unstaged = &cache.status().unstaged;
+    assert_eq!(unstaged.len(), 1, "the one file saved: {unstaged:?}");
+    assert_eq!(cache.status().untracked.len(), 20);
+    assert!(unstaged[0].lines.is_some(), "and read");
+    spent
+}
+
+/// What the window does when it opens a repository, or comes back to one and
+/// cannot trust what it held: the whole status, every tracked file looked at
+/// and the tree walked.
+fn status_whole(path: &Path) -> Duration {
+    timed(|| {
+        let repo = Repository::at(path).expect("open the fixture");
+        let status = repo.status().expect("read the status");
+        assert_eq!(status.untracked.len(), 20);
+    })
 }
 
 /// Median and 90th percentile of `RUNS` timed runs after `WARMUP` untimed.
-fn measure(run: fn(&Path), path: &Path) -> (Duration, Duration) {
+fn measure(run: fn(&Path) -> Duration, path: &Path) -> (Duration, Duration) {
     for _ in 0..WARMUP {
         run(path);
     }
-    let mut times: Vec<Duration> = (0..RUNS)
-        .map(|_| {
-            let start = Instant::now();
-            run(path);
-            start.elapsed()
-        })
-        .collect();
+    let mut times: Vec<Duration> = (0..RUNS).map(|_| run(path)).collect();
     times.sort();
     (times[RUNS / 2], times[RUNS * 9 / 10])
 }
@@ -151,7 +209,15 @@ fn main() {
     // cannot measure is caught before anyone reads it on the docs site.
     for promise in promises.budgets.iter().filter(ours) {
         runner(&promise.name);
-        layout(&promise.layout);
+        if promise.layout != WIDE {
+            assert!(
+                [Layout::PackedWithGraph, Layout::Packed]
+                    .iter()
+                    .any(|layout| layout.name() == promise.layout),
+                "budgets.json names an unknown layout `{}`",
+                promise.layout
+            );
+        }
         assert_eq!(
             promise.unit, "ms",
             "{} times, so its unit is ms",
@@ -168,7 +234,7 @@ fn main() {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let mut results = Vec::new();
     for promise in promises.budgets.iter().filter(ours) {
-        let path = fixture::ensure(&root, promises.commits, layout(&promise.layout));
+        let path = repository(&promise.layout, &root, promises.commits);
         let run = runner(&promise.name);
         let limit = promise
             .limit_here()
