@@ -48,6 +48,8 @@ pub enum Error {
     Status(#[source] Source),
     #[error("could not read the submodules: {0}")]
     Submodules(#[source] Source),
+    #[error("could not watch the working tree: {0}")]
+    Watch(#[source] Source),
     #[error("could not run git: {source}; is it installed and on PATH?")]
     GitMissing {
         #[source]

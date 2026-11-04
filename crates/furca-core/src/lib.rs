@@ -26,6 +26,12 @@
 //!     let diff = repo.diff(file)?;
 //!     println!("{}: {} hunks", file.path, diff.hunks.len());
 //! }
+//!
+//! // The working copy: staged, unstaged, untracked; no file opened yet.
+//! let status = repo.status()?;
+//! for file in &status.unstaged {
+//!     println!("changed: {}", file.path);
+//! }
 //! # Ok::<(), furca_core::Error>(())
 //! ```
 
@@ -43,8 +49,11 @@ mod remote;
 mod repo;
 mod standing;
 mod stash;
+mod status;
 mod submodule;
 mod walk;
+#[cfg(feature = "watch")]
+mod watch;
 mod worktree;
 
 pub use commit_graph::CommitGraph;
@@ -64,4 +73,7 @@ pub use remote::Remote;
 pub use repo::{HeadSummary, Repository, Upstream};
 pub use standing::{NearestTag, Operation, Standing, Tracking};
 pub use stash::Stash;
+pub use status::{ConflictKind, Conflicted, Refreshed, Status, StatusCache};
 pub use submodule::Submodule;
+#[cfg(feature = "watch")]
+pub use watch::{Batch, Watcher};

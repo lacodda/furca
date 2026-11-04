@@ -401,7 +401,7 @@ fn a_submodule_is_a_commit_not_a_file() {
     let after = module.after.as_ref().expect("after");
     assert_eq!(after.mode, FileMode::Submodule);
     assert_eq!(after.content, Content::Submodule);
-    assert_eq!(after.id, pinned);
+    assert_eq!(after.id.as_deref(), Some(pinned));
     assert_eq!(after.size, None);
     assert_eq!(module.lines, None);
 }

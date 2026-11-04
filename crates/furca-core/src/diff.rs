@@ -87,12 +87,13 @@ pub enum FileStatus {
     Copied,
 }
 
-/// One side of a change: the object, and what it holds.
+/// One side of a change: the object or the file on disk, and what it holds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Side {
-    /// The blob's id, or the commit a submodule is at.
-    pub id: String,
+    /// The blob's id, or the commit a submodule is at; `None` for a file in
+    /// the working tree, which git has stored under no id yet.
+    pub id: Option<String>,
     pub mode: FileMode,
     pub content: Content,
     /// The size of the file as it is checked out, in bytes: for a git LFS
@@ -128,6 +129,11 @@ pub enum Content {
     Lfs { oid: String },
     /// A submodule's commit rather than a file.
     Submodule,
+    /// Not opened yet: [`Repository::status`] lists a working copy without
+    /// reading its files. [`Repository::diff`] and
+    /// [`StatusCache::read_files`](crate::StatusCache::read_files) read them.
+    /// A commit's changes never carry this.
+    Unread,
 }
 
 /// How the lines of a text end.
@@ -336,26 +342,44 @@ impl Repository {
             path: file.path.clone(),
             source,
         };
-        let mut cache = self
-            .inner
-            .diff_resource_cache_for_tree_diff()
-            .map_err(|e| failed(e.into()))?;
+        let on_disk = file.after.as_ref().is_some_and(|side| side.id.is_none());
+        let mut cache = if on_disk {
+            self.working_tree_cache()
+        } else {
+            self.inner
+                .diff_resource_cache_for_tree_diff()
+                .map_err(Into::into)
+        }
+        .map_err(failed)?;
         let compared = self.compare(&mut cache, file)?;
         let mut file = file.clone();
-        file.before = compared.before;
-        file.after = compared.after;
-        file.lines = compared.lines;
+        let texts = compared.apply_to(&mut file);
         Ok(FileDiff {
             file,
-            before: compared.texts.as_ref().and_then(|t| t.0.clone()),
-            after: compared.texts.and_then(|t| t.1),
+            before: texts.as_ref().and_then(|t| t.0.clone()),
+            after: texts.and_then(|t| t.1),
             hunks: compared.hunks,
         })
     }
 
+    /// A cache that reads the new side of a change from the working tree, as
+    /// `git add` would take it: through the clean filters, git LFS's among
+    /// them, and line-ending conversion.
+    pub(crate) fn working_tree_cache(&self) -> Result<gix::diff::blob::Platform, Source> {
+        self.inner
+            .diff_resource_cache(
+                gix::diff::blob::pipeline::Mode::ToGit,
+                gix::diff::blob::pipeline::WorktreeRoots {
+                    old_root: None,
+                    new_root: self.workdir().map(ToOwned::to_owned),
+                },
+            )
+            .map_err(Into::into)
+    }
+
     /// Reads both sides of `file` through `cache` and compares their lines
     /// when both are text.
-    fn compare(
+    pub(crate) fn compare(
         &self,
         cache: &mut gix::diff::blob::Platform,
         file: &FileChange,
@@ -374,6 +398,7 @@ impl Repository {
                 before: described(file.before.as_ref(), Data::Missing, &file.path)?,
                 after: described(file.after.as_ref(), Data::Missing, &file.path)?,
                 lines: None,
+                similarity: None,
                 hunks: Vec::new(),
                 texts: None,
             });
@@ -390,12 +415,21 @@ impl Repository {
         for (side, path, kind) in sides {
             // A side that is not there, or a submodule's commit, which has
             // no blob, is set as nothing: the cache wants both sides.
+            let nothing = gix::ObjectId::null(self.inner.object_hash());
             let (id, mode) = match side {
-                Some(side) if side.mode != FileMode::Submodule => (oid(&side.id)?, side.mode),
-                _ => (
-                    gix::ObjectId::null(self.inner.object_hash()),
-                    FileMode::File,
-                ),
+                Some(side) if side.mode != FileMode::Submodule => {
+                    // A file on disk is read from the working tree whatever
+                    // the id says. Its id in the index still goes along: git
+                    // converts line endings only for a file the index does
+                    // not already hold with a carriage return in it.
+                    let id = side.id.as_deref().or(file
+                        .before
+                        .as_ref()
+                        .filter(|before| before.mode != FileMode::Submodule)
+                        .and_then(|before| before.id.as_deref()));
+                    (id.map_or(Ok(nothing), oid)?, side.mode)
+                }
+                _ => (nothing, FileMode::File),
             };
             cache
                 .set_resource(
@@ -424,6 +458,7 @@ impl Repository {
                 before,
                 after,
                 lines: None,
+                similarity: None,
                 hunks: Vec::new(),
                 texts: None,
             });
@@ -434,7 +469,7 @@ impl Repository {
         let input = InternedInput::new(LineSplit(old), LineSplit(new));
         let mut diff = Diff::compute(algorithm, &input);
         diff.postprocess_lines(&input);
-        let hunks = diff
+        let hunks: Vec<Hunk> = diff
             .hunks()
             .map(|hunk| Hunk {
                 before: range(hunk.before),
@@ -451,6 +486,7 @@ impl Repository {
                 removed: diff.count_removals(),
             }),
             texts: Some((text(&before, old), text(&after, new))),
+            similarity: Some(similarity(old, new, &hunks)),
             before,
             after,
             hunks,
@@ -501,12 +537,59 @@ impl Repository {
 
 /// Both sides of a change once read, and the lines between them when both
 /// are text.
-struct Compared {
+pub(crate) struct Compared {
     before: Option<Side>,
     after: Option<Side>,
     lines: Option<LineCount>,
+    /// How much of the old text the new one kept, in percent, when both are
+    /// text.
+    similarity: Option<u8>,
     hunks: Vec<Hunk>,
     texts: Option<(Option<String>, Option<String>)>,
+}
+
+impl Compared {
+    /// Writes what was read into `file`, and hands over the two texts. A
+    /// rename the index diff found has no figure of its own yet; this is it.
+    pub(crate) fn apply_to(
+        &self,
+        file: &mut FileChange,
+    ) -> Option<(Option<String>, Option<String>)> {
+        file.before = self.before.clone();
+        file.after = self.after.clone();
+        file.lines = self.lines;
+        if matches!(file.status, FileStatus::Renamed | FileStatus::Copied)
+            && file.similarity.is_none()
+        {
+            file.similarity = self.similarity;
+        }
+        self.texts.clone()
+    }
+}
+
+/// How much of `old` survives in `new`, in percent, as the rename tracker
+/// figures it for a commit's trees: the bytes not removed, over the longer
+/// of the two.
+fn similarity(old: &[u8], new: &[u8], hunks: &[Hunk]) -> u8 {
+    let longest = old.len().max(new.len());
+    if longest == 0 {
+        return 100;
+    }
+    let mut hunks = hunks.iter().peekable();
+    let mut removed = 0;
+    for (at, line) in old.split_inclusive(|byte| *byte == b'\n').enumerate() {
+        let at = at as u32;
+        while hunks
+            .peek()
+            .is_some_and(|hunk| at >= hunk.before.start + hunk.before.count)
+        {
+            hunks.next();
+        }
+        if hunks.peek().is_some_and(|hunk| at >= hunk.before.start) {
+            removed += line.len();
+        }
+    }
+    ((old.len() - removed) as f64 / longest as f64 * 100.0).floor() as u8
 }
 
 /// A change of the tree diff as a file, its sides not read yet; `None` for a
@@ -514,9 +597,9 @@ struct Compared {
 fn file_change(change: ChangeDetached) -> Option<FileChange> {
     let unread = |id: gix::ObjectId, kind: EntryKind| {
         mode_of(kind).map(|mode| Side {
-            id: id.to_string(),
+            id: Some(id.to_string()),
             mode,
-            content: Content::Binary,
+            content: Content::Unread,
             size: None,
         })
     };
@@ -640,9 +723,13 @@ fn described(side: Option<&Side>, data: Data<'_>, path: &str) -> Result<Option<S
         },
         Data::Binary { size } => (Content::Binary, size),
         Data::Missing => {
+            let reason = match &side.id {
+                Some(id) => format!("the object {id} is not in the repository"),
+                None => "the file is no longer in the working tree".to_owned(),
+            };
             return Err(Error::Diff {
                 path: path.to_owned(),
-                source: format!("the object {} is not in the repository", side.id).into(),
+                source: reason.into(),
             });
         }
     };
