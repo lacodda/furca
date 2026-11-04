@@ -519,6 +519,70 @@ fn nothing_since_the_tag_is_nothing_to_release() {
     assert!(failing(&plan).contains(&"number"), "{:#?}", plan.checks);
 }
 
+/// The files of a project, committed once as `subject`, `age` seconds ago.
+fn born(subject: &str, age: u64) -> Repo {
+    let repo = Repo::empty();
+    for (path, text) in [
+        ("Cargo.toml", CARGO),
+        ("npm/package.json", NPM),
+        ("README.md", README),
+        ("CHANGELOG.md", "# Changelog\n"),
+        (".github/workflows/ci.yml", "name: CI\n"),
+        (".github/workflows/publish.yml", PUBLISH),
+        ("docs/adr/0001-a.md", "x\n"),
+        ("release.toml", RELEASE),
+    ] {
+        repo.write(path, text);
+    }
+    repo.commit(subject, NOW - age);
+    repo
+}
+
+/// A new project is born on the stack of its day: a week of no `chore(deps)`
+/// is not yet a stack nobody updated.
+#[test]
+fn a_project_days_old_has_the_stack_it_began_with() {
+    let young = born("feat: scaffold the project with lyrn", 6 * DAY);
+    let plan = young.plan(&Held::released(), None);
+    let check = find(&plan, "stack");
+    assert_eq!(check.status, Status::Pass, "{check:?}");
+    assert!(check.summary.contains("6 days ago"), "{check:?}");
+    assert!(check.details[0].ends_with("feat: scaffold the project with lyrn"));
+
+    let old = born("feat: scaffold the project with lyrn", 7 * DAY);
+    old.write("README.md", &README.replace("demo", "demo "));
+    old.commit("feat: yesterday", NOW - DAY);
+    let plan = old.plan(&Held::released(), None);
+    let check = find(&plan, "stack");
+    assert_eq!(check.status, Status::Fail, "{check:?}");
+    assert!(check.summary.contains("never been updated"), "{check:?}");
+}
+
+/// A first commit stands in only while there is no update: an update that went
+/// stale is stale however young the project.
+#[test]
+fn an_update_is_what_counts_once_there_is_one() {
+    let repo = born("chore(deps): update", 8 * DAY);
+    let plan = repo.plan(&Held::released(), None);
+    let check = find(&plan, "stack");
+    assert_eq!(check.status, Status::Fail, "{check:?}");
+    assert!(check.summary.contains("8 days"), "{check:?}");
+}
+
+#[test]
+fn a_changelog_section_is_read_as_the_line_writes_it() {
+    let repo = Repo::released();
+    repo.write(
+        "CHANGELOG.md",
+        "# Changelog\n\n## 🎉 [0.2.0] - 2026-09-01\n",
+    );
+    repo.commit("docs: dress the changelog", NOW - DAY);
+    let plan = repo.plan(&Held::released(), None);
+    let check = find(&plan, "changelog");
+    assert_eq!(check.status, Status::Pass, "{check:?}");
+    assert!(!check.summary.contains("no section"), "{check:?}");
+}
+
 #[test]
 fn a_first_release_takes_the_number_the_manifests_carry() {
     let repo = Repo::empty();

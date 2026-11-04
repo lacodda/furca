@@ -393,10 +393,12 @@ impl Release {
         let now = now
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
+        let mut oldest = None;
         for commit in self.repo.history(None)? {
             let commit = commit?;
             let change = Change::read(commit.id.clone(), commit.subject.clone(), &commit.subject);
             if !change.updates_dependencies() {
+                oldest = Some(commit);
                 continue;
             }
             let days = (now - commit.committer.seconds).max(0) / 86_400;
@@ -419,6 +421,23 @@ impl Release {
                     vec![at],
                 )
             });
+        }
+        // A project is born on the stack of its day, whoever wrote its first
+        // commit: until that is a week old there is nothing to update, and an
+        // empty `chore(deps)` would only say what did not happen.
+        if let Some(first) = oldest {
+            let days = (now - first.committer.seconds).max(0) / 86_400;
+            if days < FRESH_FOR_DAYS {
+                return Ok(check(
+                    "stack",
+                    Status::Pass,
+                    format!(
+                        "no update yet, and the project began {}: its stack is that day's",
+                        days_ago(days)
+                    ),
+                    vec![format!("{} {}", short(&first.id), first.subject)],
+                ));
+            }
         }
         Ok(check(
             "stack",

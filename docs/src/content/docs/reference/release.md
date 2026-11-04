@@ -99,7 +99,7 @@ followed: the release takes the next free number.
 | --- | --- |
 | `number` | The number is taken, skips one, or is too small for the commits. |
 | `commits` | Nothing has been committed since the last release. Commits outside the convention are a warning. |
-| `stack` | The last `chore(deps)` commit is seven days old or more, or there is none: the stack is updated before a new version, at most once a week. |
+| `stack` | The last `chore(deps)` commit is seven days old or more: the stack is updated before a new version, at most once a week. With none in the history the first commit stands in for it - a project is born on the stack of its day - until that too is a week old. |
 | `manifests` | The files in `manifests` disagree, or say neither the last release nor the next. A Cargo workspace brings in its members and the `version` of every path dependency between them. A package's manifest must be among the files the bump rewrites, name the package as `release.toml` does and allow publishing. |
 | `readme` | There is no `README.md` at the root, a published package's directory keeps a README of its own, a crate's `readme` is not the root one, or a link in it is relative (it breaks on crates.io and npm). |
 | `descriptions` | A package has no description, or a wrapper describes the product in other words than the package it wraps. |
