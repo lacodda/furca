@@ -1,10 +1,10 @@
 ---
 title: The window
-description: Open repositories in tabs, save sets of them as sessions, read their history as a graph, search it, and see their branches, remotes, tags, stashes and submodules.
+description: Open repositories in tabs, save sets of them as sessions, read their history as a graph, search it, see their branches, remotes, tags, stashes and submodules, and watch the working copy as files are saved.
 ---
 
 The desktop window is the third door onto the same engine as the CLI: what it
-shows of a repository is what `furca log`, `furca refs` and `furca line` print,
+shows of a repository is what `furca log`, `furca status`, `furca refs` and `furca line` print,
 read the same way, in-process. It is laid out as Fork lays a git client out -
 tabs of repositories along the top, a column of refs on the left, the graph of
 the history beside it - and it draws its own title bar, so the tabs sit in it
@@ -73,6 +73,10 @@ A repository of a session that is no longer there is left out, and the window
 says which.
 
 ## The left column
+
+At the top are the two things the middle of the window shows of a repository:
+**Local changes**, with how many files differ from `HEAD`, and **History**. Under
+them are the repository's refs:
 
 | Section | What it shows |
 | --- | --- |
@@ -146,8 +150,9 @@ The graph is one control: <kbd>Tab</kbd> reaches it once.
 | <kbd>Page Up</kbd>, <kbd>Page Down</kbd> | A screen up or down |
 | <kbd>Home</kbd>, <kbd>End</kbd> | The newest commit, the first one |
 
-The window reads a tab again when it comes forward and when the window gets
-the focus back, so a commit made in a terminal meanwhile shows up; the graph is
+A commit, a fetch or a checkout made in a terminal shows up as it happens: the
+window hears `HEAD` and the refs of the tab in front move. A tab is read again
+when it comes forward too, and when the window gets the focus back. The graph is
 laid out again only when a branch, a tag or `HEAD` moved.
 
 ## A commit's details
@@ -185,6 +190,48 @@ changed for no visible reason.
 The window keeps where you put the borders between the graph, the files and
 the change, and which way changes are drawn, with the tabs.
 
+## Local changes
+
+**Local changes** (<kbd>Ctrl</kbd>+<kbd>L</kbd>; <kbd>Ctrl</kbd>+<kbd>H</kbd> goes
+back to the history) shows what differs from `HEAD`, kept up to date as files are
+saved. Nothing needs refreshing: save a file in your editor and its row and its
+open change follow in a moment.
+
+![Local changes: the lists of the working copy on the left - staged, not staged and untracked, a binary named with its size - and the change of the file chosen, side by side](../../../assets/window-changes.png)
+
+| List | What it holds |
+| --- | --- |
+| **Conflicted** | Paths a merge left unresolved, and how the two sides disagree. |
+| **Staged** | What the next commit would change. |
+| **Not staged** | What the index does not have. A file both staged and changed again is in both lists, and each shows its own change. |
+| **Untracked** | Files git does not track and does not ignore, each on its own. |
+
+The lists are one control, as the left column is: <kbd>Tab</kbd> reaches it once
+and the arrows move through all of them. A row says what a commit's file says -
+how it changed, its lines, and **BIN**, **LFS** or **SUB** with a size for a file
+with no lines - and the warning on a binary comes while it can still be left out of
+the commit. What a file holds is read just after the list arrives, so a change
+across thousands of files lists them at once and fills in. The window is given
+the first thousand rows of each list and says how many more there are;
+[`furca status`](/furca/reference/status/) prints them all.
+
+On the right is the change of the chosen file, drawn as a commit's is, against
+what is on disk: a file is compared as `git add` would take it, so with
+`core.autocrlf` on, a checkout's `\r\n` is no change. It keeps your place when
+the file is saved again. A file staged in a terminal moves to the other list with
+the choice following it; one that has gone from every list hands over to the row
+now in its place.
+
+This is reading only, and writes nothing: staging and committing come in a later
+version. What git ignores never wakes the list, so a build in an ignored folder
+costs nothing. See
+[ADR 0014](https://github.com/lacodda/furca/blob/main/docs/adr/0014-the-status-is-kept-by-the-paths-a-watcher-names.md).
+
+Only the tab in front is watched; the others are read when they come forward. A
+working tree that cannot be watched - on Linux, one past the system's limit of
+inotify watches - is read when the window gets the focus, and the foot of the
+window says so.
+
 ## What the window writes
 
 Nothing in your history. One file, in the background: when a repository has no
@@ -214,7 +261,8 @@ commit and with every release: it is on the screen within 300 ms of its start,
 in the colours of your theme, and the app and its webview hold under 300 MB
 with three repositories of 100 000 commits open, each graph laid out to its
 end - on Windows; Linux's number, measured without a GPU, is published but
-not promised. The first frame with a repository - its column and the first rows of its
-graph - is measured and published too, and so is the first diff the window
-opens: from asking for a 5 000-line change to the frame that shows it. See
-[the budgets](/furca/concepts/budgets/).
+not promised. The first diff it opens is on the screen within 300 ms of being
+asked for, a 5 000-line change side by side and highlighted, and a saved file
+reaches the status within 50 ms in a working copy of 10 000 files. The first frame
+with a repository - its column and the first rows of its graph - is measured and
+published too. See [the budgets](/furca/concepts/budgets/).

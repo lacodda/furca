@@ -66,7 +66,7 @@ curl -fsSL https://raw.githubusercontent.com/lacodda/furca/main/tools/install.sh
 
 ## Status
 
-**v0.9.0** reads a repository whole and writes only releases. The CLI and the release engine, which released this version itself, install from the release; the window shows the history and a commit's change, and builds from a checkout until its installers are signed. The working tree comes next - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
+**v0.9.0** reads a repository whole and writes only releases. The CLI and the release engine, which released this version itself, install from the release; the window shows the history, a commit's change and the working copy as files are saved, and builds from a checkout until its installers are signed. Staging and committing come next - see the [CHANGELOG](https://github.com/lacodda/furca/blob/main/CHANGELOG.md).
 
 ## Documentation
 

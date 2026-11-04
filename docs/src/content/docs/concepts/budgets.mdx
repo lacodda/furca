@@ -30,6 +30,21 @@ A median over the budget is measured once more after a pause before the build
 fails. A machine that is busy elsewhere slows every run for seconds at a time;
 a regression stays over the budget on the second try.
 
+## How the working copy is measured
+
+A second generated repository is a checked-out project of 10 000 files in a hundred
+folders, with what lies around a real one: an ignored build folder of 5 000 files,
+and twenty untracked files.
+
+**After a save** is what the window does when the watcher names a file: open the
+repository, bring the status it holds up to date by that path, and read the file for
+its row. Saving the file and reading the status beforehand are not part of the
+number. This is the promise; it holds because a save looks at what was saved, see
+[ADR 0014](https://github.com/lacodda/furca/blob/main/docs/adr/0014-the-status-is-kept-by-the-paths-a-watcher-names.md).
+**The whole status** is the same working copy with nothing known about it, every
+tracked file looked at and the tree walked. It is what opening a repository pays,
+once: measured and published, not promised.
+
 ## How the window is measured
 
 The window's budgets are measured on the app as `tauri build` makes it, started
@@ -53,7 +68,9 @@ writing to a file the benchmark watches.
   commit is the one the core's diff budget reads - a 5 000-line file with one
   line in four rewritten. It is timed from the window asking for the change to
   the frame that shows it side by side and highlighted, by the app's own clock,
-  so how long the process took to start does not touch it.
+  so how long the process took to start does not touch it. This is a promise of
+  its own beside the core's: the core reads the change, and the window has
+  everything after that to do on a webview that has only just started.
 - **Memory** is read with three copies of the repository open, each one read
   and its whole graph laid out, and two seconds to settle: the private working set of the app and of every
   process under it, the webview's included - what Task Manager counts on
