@@ -1,10 +1,10 @@
 ---
 title: diff
-description: Show the lines a commit changed, as patches.
+description: Show the lines a commit changed, or the working copy's, as patches.
 ---
 
 ```sh
-furca diff [REVISION] [-C PATH] [-U LINES] [--json] [-- PATH...]
+furca diff [REVISION | --staged | --unstaged] [-C PATH] [-U LINES] [--json] [-- PATH...]
 ```
 
 Prints the patch of every file a commit changed - `HEAD` unless a revision
@@ -38,6 +38,27 @@ assets/logo.png: binary, 24.0 KB
 
 A path the commit did not change is an error, exit code 2: a mistyped path is
 not taken for a file without changes.
+
+## The working copy
+
+`--staged` prints what the next commit would change, `HEAD` against the index,
+and `--unstaged` what the index does not have, the index against the working
+tree. The lines are the ones `git diff --cached` and `git diff` print. An
+untracked file comes with `--unstaged`, every line of it added, which `git diff`
+leaves out: it is the change `git add` would make.
+
+```console
+$ furca diff --unstaged -- notes.md
+diff notes.md
+--- /dev/null
++++ b/notes.md
+@@ -0,0 +1,2 @@
++A first note
++and a second
+```
+
+A file on disk is compared as `git add` would take it, so with `core.autocrlf`
+on, a checkout's `\r\n` is no change.
 
 ## How lines are compared
 
@@ -93,6 +114,8 @@ $ furca diff --json -U 1 -- src/lib.rs
 | Option | Meaning |
 | --- | --- |
 | `REVISION` | The commit whose lines to show. Defaults to `HEAD`. |
+| `--staged` | What is staged, instead of a commit. |
+| `--unstaged` | What is not staged, and untracked files, instead of a commit. |
 | `-- PATH...` | Only these files, by their path after the commit. |
 | `-U, --context <LINES>` | Unchanged lines around each change. Defaults to `3`, as in git; hunks closer than twice this are one. |
 | `-C, --repo <PATH>` | A path inside the repository. Defaults to `.`. |

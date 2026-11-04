@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use furca_core::{FileChange, HeadSummary, Log, Patch, Refs, Repository, Tips};
+use furca_core::{FileChange, Log, Patch, Refs, Repository, Tips};
 use furca_release::hosting::{self, Forge, Place, Run, Waited};
 use furca_release::{
     Check, Config, Local, Plan, Provider, Release, Report, Runner, Shops, Sources, Status, Verified,
@@ -37,7 +37,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Show where HEAD is: branch, commit, upstream.
+    /// Show where HEAD is, and the working copy: what is staged, what is not, what is untracked.
     Status {
         #[command(flatten)]
         common: Common,
@@ -69,13 +69,19 @@ enum Command {
         #[arg(default_value = "HEAD")]
         revision: String,
     },
-    /// Show the lines a commit changed, as patches.
+    /// Show the lines a commit changed, or the working copy's, as patches.
     Diff {
         #[command(flatten)]
         common: Common,
         /// The commit: an id, a branch, a tag. Defaults to HEAD.
-        #[arg(default_value = "HEAD")]
+        #[arg(default_value = "HEAD", conflicts_with_all = ["staged", "unstaged"])]
         revision: String,
+        /// What is staged: HEAD against the index.
+        #[arg(long, conflicts_with = "unstaged")]
+        staged: bool,
+        /// What is not staged: the index against the working tree, and untracked files.
+        #[arg(long)]
+        unstaged: bool,
         /// Only these files, by their path after the commit.
         #[arg(last = true, value_name = "PATH")]
         paths: Vec<String>,
@@ -174,8 +180,8 @@ fn main() -> ExitCode {
 fn run(command: Command) -> Result<Answer, String> {
     match command {
         Command::Status { common } => {
-            let head = open(&common.repo)?.head().map_err(|e| e.to_string())?;
-            emit(common.json, &head, status_text)
+            let status = show::working_copy(&open(&common.repo)?)?;
+            emit(common.json, &status, show::status_text)
         }
         Command::Refs { common } => {
             let refs = open(&common.repo)?.refs().map_err(|e| e.to_string())?;
@@ -210,10 +216,25 @@ fn run(command: Command) -> Result<Answer, String> {
         Command::Diff {
             common,
             revision,
+            staged,
+            unstaged,
             paths,
             context,
         } => {
-            let patches = patches(&open(&common.repo)?, &revision, &paths, context)?;
+            let repo = open(&common.repo)?;
+            let chosen = if staged || unstaged {
+                working_files(&repo, staged)?
+            } else {
+                repo.changes(&revision).map_err(|e| e.to_string())?.files
+            };
+            let of = if staged {
+                "the index"
+            } else if unstaged {
+                "the working tree"
+            } else {
+                revision.as_str()
+            };
+            let patches = patches(&repo, of, &chosen, &paths, context)?;
             emit(common.json, patches.as_slice(), show::patches_text)
         }
         Command::Line { paths, json } => {
@@ -611,29 +632,38 @@ fn emit<T: Serialize + ?Sized>(
     Ok(Answer::Yes)
 }
 
-/// The patches of the files `revision` changed: every file, or the ones
-/// `paths` names - a path that names none of them is an error, not an empty
-/// answer, so a mistyped path is not taken for an unchanged file.
+/// The files of one side of the working copy: what is staged, or what is not,
+/// untracked files with it - each a change from nothing, as `git add` would
+/// see it.
+fn working_files(repo: &Repository, staged: bool) -> Result<Vec<FileChange>, String> {
+    let mut status = repo.status().map_err(|e| e.to_string())?;
+    if staged {
+        return Ok(status.staged);
+    }
+    status.unstaged.append(&mut status.untracked);
+    status.unstaged.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(status.unstaged)
+}
+
+/// The patches of the `files` `of` changed: every file, or the ones `paths`
+/// names - a path that names none of them is an error, not an empty answer,
+/// so a mistyped path is not taken for an unchanged file.
 fn patches(
     repo: &Repository,
-    revision: &str,
+    of: &str,
+    files: &[FileChange],
     paths: &[String],
     context: u32,
 ) -> Result<Vec<Patch>, String> {
-    let changes = repo.changes(revision).map_err(|e| e.to_string())?;
     if let Some(missing) = paths
         .iter()
-        .find(|path| !changes.files.iter().any(|file| &file.path == *path))
+        .find(|path| !files.iter().any(|file| &file.path == *path))
     {
-        return Err(format!("{revision} did not change {missing}"));
+        return Err(format!("{of} did not change {missing}"));
     }
-    let chosen: Vec<&FileChange> = changes
-        .files
+    files
         .iter()
         .filter(|file| paths.is_empty() || paths.contains(&file.path))
-        .collect();
-    chosen
-        .into_iter()
         .map(|file| {
             repo.diff(file)
                 .map(|diff| diff.patch(context))
@@ -644,20 +674,6 @@ fn patches(
 
 fn short(id: &str) -> &str {
     &id[..id.len().min(7)]
-}
-
-fn status_text(head: &HeadSummary) -> String {
-    let at = head.commit.as_deref().map(short);
-    let mut out = match (&head.branch, at) {
-        (Some(branch), Some(at)) => format!("On {branch} at {at}"),
-        (Some(branch), None) => format!("On {branch}, no commits yet"),
-        (None, Some(at)) => format!("HEAD detached at {at}"),
-        (None, None) => "HEAD points nowhere".to_owned(),
-    };
-    if let Some(upstream) = &head.upstream {
-        out.push_str(&format!(", tracking {upstream}"));
-    }
-    out
 }
 
 fn refs_text(refs: &Refs) -> String {

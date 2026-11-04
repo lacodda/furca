@@ -26,6 +26,13 @@ fn git(dir: &Path, args: &[&str]) {
 fn repo_with(commits: &[&str]) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("temp dir");
     git(dir.path(), &["init", "--quiet", "--initial-branch=main"]);
+    // The empty configuration `git` above leaves is no file of the repository.
+    std::fs::write(
+        dir.path().join(".git/info/exclude"),
+        ".no-config
+",
+    )
+    .expect("exclude");
     for message in commits {
         git(
             dir.path(),
@@ -69,6 +76,88 @@ fn status_speaks_to_a_person_and_to_a_program() {
     assert_eq!(value["detached"], false);
     assert!(value["commit"].as_str().is_some_and(|id| id.len() == 40));
     assert!(value["upstream"].is_null());
+    assert_eq!(value["staged"].as_array().map(Vec::len), Some(0));
+}
+
+#[test]
+fn status_lists_the_working_copy_with_what_each_file_holds() {
+    let dir = repo_with(&[]);
+    let path = dir.path();
+    std::fs::write(path.join(".gitignore"), "*.log\n").expect("write");
+    std::fs::write(path.join("a.txt"), "one\ntwo\n").expect("write");
+    std::fs::write(path.join("b.txt"), "bee\n").expect("write");
+    git(path, &["add", "."]);
+    git(path, &["commit", "--quiet", "-m", "first"]);
+
+    std::fs::write(path.join("a.txt"), "one\nTWO\n").expect("write");
+    git(path, &["add", "a.txt"]);
+    std::fs::write(path.join("b.txt"), "bee\nand more\n").expect("write");
+    std::fs::write(path.join("logo.png"), b"\x89PNG\0").expect("write");
+    std::fs::write(path.join("run.log"), "ignored\n").expect("write");
+
+    let text = stdout(&furca(path, &["status"]));
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].starts_with("On main at "), "{text}");
+    assert_eq!(
+        lines[1..],
+        [
+            "",
+            "Staged:",
+            "  M a.txt  +1 -1",
+            "",
+            "Not staged:",
+            "  M b.txt  +1 -0",
+            "",
+            "Untracked:",
+            "  A logo.png  binary, 5 B",
+        ],
+        "{text}"
+    );
+
+    let value = json(&furca(path, &["status", "--json"]));
+    assert_eq!(value["staged"][0]["path"], "a.txt");
+    assert_eq!(value["staged"][0]["lines"]["added"], 1);
+    assert_eq!(value["unstaged"][0]["path"], "b.txt");
+    assert!(
+        value["unstaged"][0]["after"]["id"].is_null(),
+        "only on disk"
+    );
+    assert_eq!(value["untracked"][0]["after"]["content"]["kind"], "binary");
+    assert_eq!(value["untracked"][0]["after"]["size"], 5);
+    assert_eq!(value["untracked"].as_array().map(Vec::len), Some(1));
+}
+
+#[test]
+fn diff_shows_either_side_of_the_index() {
+    let dir = repo_with(&[]);
+    let path = dir.path();
+    std::fs::write(path.join("a.txt"), "one\n").expect("write");
+    git(path, &["add", "."]);
+    git(path, &["commit", "--quiet", "-m", "first"]);
+    std::fs::write(path.join("a.txt"), "staged\n").expect("write");
+    git(path, &["add", "a.txt"]);
+    std::fs::write(path.join("a.txt"), "on disk\n").expect("write");
+    std::fs::write(path.join("new.txt"), "brand new\n").expect("write");
+
+    let staged = stdout(&furca(path, &["diff", "--staged"]));
+    assert!(staged.contains("-one\n+staged"), "{staged}");
+    assert!(!staged.contains("new.txt"), "{staged}");
+
+    let unstaged = stdout(&furca(path, &["diff", "--unstaged"]));
+    assert!(unstaged.contains("-staged\n+on disk"), "{unstaged}");
+    assert!(
+        unstaged.contains("--- /dev/null\n+++ b/new.txt"),
+        "{unstaged}"
+    );
+
+    let output = furca(path, &["diff", "--staged", "--", "new.txt"]);
+    assert_eq!(output.status.code(), Some(2));
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert!(said.contains("the index did not change new.txt"), "{said}");
+
+    // A commit, or a side of the index: asking for both is a mistake.
+    let output = furca(path, &["diff", "HEAD", "--staged"]);
+    assert!(!output.status.success());
 }
 
 #[test]
