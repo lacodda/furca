@@ -776,15 +776,8 @@ impl Release {
         })?;
         let sections: BTreeSet<String> = text
             .lines()
-            .filter_map(|line| line.strip_prefix("## "))
-            .filter_map(|heading| {
-                let number = heading
-                    .trim_start_matches('[')
-                    .split([']', ' '])
-                    .next()?
-                    .trim_start_matches('v');
-                Version::parse(number).ok().map(|v| v.to_string())
-            })
+            .filter_map(crate::changelog::section_number)
+            .filter_map(|number| Version::parse(number).ok().map(|v| v.to_string()))
             .collect();
         let changelog = &self.config.project.changelog;
         if let Some(next) = proposed.map(|p| p.version.to_string())

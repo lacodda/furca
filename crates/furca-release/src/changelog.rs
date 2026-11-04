@@ -134,25 +134,46 @@ pub(crate) fn insert(changelog: &str, section: &str) -> String {
     }
 }
 
-/// Whether `changelog` has a section for `version`, as `## [1.2.3]`,
-/// `## 1.2.3` or `## v1.2.3` with anything after.
+/// The number a line of a changelog heads a section for: `## [1.2.3]`,
+/// `## 1.2.3` or `## v1.2.3`, with anything after, and anything before the
+/// number - the line's standard `cliff.toml` writes `## 🎉 [1.2.3] - date`.
+pub(crate) fn section_number(line: &str) -> Option<&str> {
+    let heading = line.strip_prefix("## ")?;
+    let start = heading.find(|c: char| c == '[' || c == 'v' || c.is_ascii_digit())?;
+    let number = heading[start..]
+        .trim_start_matches('[')
+        .split([']', ' '])
+        .next()?;
+    Some(number.trim_start_matches('v'))
+}
+
+/// Whether `changelog` has a section for `version`.
 pub(crate) fn has_section(changelog: &str, version: &str) -> bool {
     changelog
         .lines()
-        .filter_map(|line| line.strip_prefix("## "))
-        .any(|heading| {
-            heading
-                .trim_start_matches('[')
-                .split([']', ' '])
-                .next()
-                .map(|n| n.trim_start_matches('v'))
-                == Some(version)
-        })
+        .any(|line| section_number(line) == Some(version))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_section_is_found_however_its_heading_is_dressed() {
+        for heading in [
+            "## [2.15.0] - 2026-10-26",
+            "## 2.15.0",
+            "## v2.15.0 (2026-10-26)",
+            "## 🎉 [2.15.0] - 2026-10-26",
+            "## 🎉 v2.15.0",
+        ] {
+            assert_eq!(section_number(heading), Some("2.15.0"), "{heading}");
+            assert!(has_section(&format!("# Log\n\n{heading}\n"), "2.15.0"));
+        }
+        assert!(!has_section("## 🎉 [2.15.0]\n", "2.15"));
+        assert_eq!(section_number("### Features"), None);
+        assert_eq!(section_number("## Unreleased"), None);
+    }
 
     const OLD: &str =
         "# Changelog\n\nWritten by hand.\n\n## [0.3.0] - 2026-10-05\n\n### Features\n- Plan\n";
