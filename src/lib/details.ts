@@ -10,7 +10,9 @@ import type { Read } from './repos'
  * them.
  *
  * A commit never changes, so what was read of one is kept by its id - going
- * back to a commit shows it at once - up to a few dozen commits and files.
+ * back to a commit shows it at once - up to a few dozen commits and files. A
+ * file of the working copy is kept the same way, under a moment that moves on
+ * when the file does.
  * Only the latest choice is answered: arrows held in the graph choose a row
  * every few milliseconds, and an answer for a row already left is dropped.
  * Until the new answer comes, the one before stays on the screen, marked as
@@ -87,9 +89,10 @@ export function useDetails(path: string, id: string | null): Shown<Details> | nu
   return useLatest(id === null ? null : `${path}\n${id}`, details, () => api.details(path, id ?? ''))
 }
 
-/** One file's change in the commit `commit`. */
-export function useFileDiff(path: string, commit: string, file: FileChange | null): Shown<FileDiff> | null {
-  return useLatest(file === null ? null : `${path}\n${commit}\n${file.path}`, diffs, () => {
+/** One file's change, in what `scope` says: a commit's id, which never
+ * changes, or a moment of the working copy, which is read again at the next. */
+export function useFileDiff(path: string, scope: string, file: FileChange | null): Shown<FileDiff> | null {
+  return useLatest(file === null ? null : `${path}\n${scope}\n${file.path}`, diffs, () => {
     if (file === null) return Promise.reject(new Error('no file'))
     markAsked()
     return api.fileDiff(path, file)

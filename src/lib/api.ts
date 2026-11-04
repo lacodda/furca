@@ -52,6 +52,10 @@ export const api = {
   details: (path: string, id: string) => invoke<Details>('details', { path, id }),
   /** One file's change, as `details` listed it: both texts and the hunks. */
   fileDiff: (path: string, file: FileChange) => invoke<FileDiff>('file_diff', { path, file }),
+  /** Keeps the working copy of `path` up to date, in place of the one kept
+   * now, and reads it whole if it was that one already; `null` keeps none.
+   * What it finds arrives as `working-copy` events. */
+  watchWorkingCopy: (path: string | null) => invoke<null>('watch_working_copy', { path }),
   /** Tells a measurement the window reached `stage`; nothing otherwise. The
    * stages between the start and the first frame say where a slow start
    * spent its time; the two diff stages time the first diff opened. */

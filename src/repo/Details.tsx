@@ -1,42 +1,22 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, File, FileBox, FileCode, Folder, Package } from 'lucide-react'
 import { cn } from 'dowel-ui'
 import { Alert } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Copyable } from '@/components/ui/copyable'
 import { EmptyState } from '@/components/ui/empty-state'
-import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Segment, SegmentedControl } from '@/components/ui/segmented-control'
 import { Spinner } from '@/components/ui/spinner'
 import { Splitter, SplitterHandle, SplitterPane } from '@/components/ui/splitter'
 import { TreeView } from '@/components/ui/tree-view'
-import type { TreeNode } from '@/components/ui/tree-rows'
-import { endingsChange, fileTree, folderIds, isRawBinary, sizeText, storedAs, type FileNode } from '@/lib/changes'
-import { markShown, useDetails, useFileDiff } from '@/lib/details'
+import { fileTree, folderIds } from '@/lib/changes'
+import { useDetails } from '@/lib/details'
 import type { Details as Read } from '@/lib/generated/Details'
-import type { DiffLayout } from '@/lib/generated/DiffLayout'
 import type { FileChange } from '@/lib/generated/FileChange'
-import type { FileDiff } from '@/lib/generated/FileDiff'
 import type { Layout } from '@/lib/generated/Layout'
 import { short } from '@/lib/names'
-
-/** CodeMirror, fetched when the first diff is opened; `preloadDiff` fetches
- * it sooner, once the first frame is out of the way. */
-const loadCodeDiff = () => import('./CodeDiff')
-const CodeDiff = lazy(loadCodeDiff)
-
-export function preloadDiff(): void {
-  void loadCodeDiff()
-}
-
-/** Starts loading the language of the file at `path` beside the read of
- * its change. */
-function prepareLanguage(path: string): void {
-  void loadCodeDiff().then((module) => module.prepare(path))
-}
+import { DiffPane } from './DiffPane'
+import { fileNodes } from './Files'
 
 export interface DetailsProps {
   path: string
@@ -139,7 +119,7 @@ function Opened({
             {file !== null && (
               <DiffPane
                 path={path}
-                commit={details.commit.id}
+                scope={details.commit.id}
                 file={file}
                 layout={layout.diff}
                 onLayout={(diff) => onLayout({ ...layout, diff })}
@@ -225,7 +205,7 @@ function ChangedFiles({
     <ScrollArea label={t('details.filesLabel')} orientation="vertical" className="h-full">
       <TreeView
         label={t('details.filesLabel')}
-        nodes={nodes(tree)}
+        nodes={fileNodes(tree)}
         open={open}
         onOpenChange={setOpen}
         selected={chosen === undefined ? undefined : `f:${chosen}`}
@@ -235,214 +215,5 @@ function ChangedFiles({
         className="p-1.5"
       />
     </ScrollArea>
-  )
-}
-
-function nodes(tree: readonly FileNode[]): TreeNode[] {
-  return tree.map((node) => {
-    const leaf = node.file === undefined ? null : { id: `f:${node.file.path}`, label: <FileRow file={node.file} /> }
-    if (node.children.length === 0) return leaf ?? { id: `d:${node.id}`, label: node.label }
-    const children = nodes(node.children)
-    return {
-      id: `d:${node.id}`,
-      label: (
-        <span className="flex min-w-0 items-center gap-1.5">
-          <Folder aria-hidden className="size-3.5 shrink-0 text-dim" />
-          <span className="truncate">{node.label}</span>
-        </span>
-      ),
-      children: leaf === null ? children : [leaf, ...children],
-    }
-  })
-}
-
-const STATUS = { added: 'A', deleted: 'D', modified: 'M', renamed: 'R', copied: 'C' } as const
-const STATUS_TONE = {
-  added: 'text-good',
-  deleted: 'text-bad',
-  modified: 'text-warn',
-  renamed: 'text-info',
-  copied: 'text-info',
-} as const
-
-/** A changed file: how it changed, its name, and the lines - or, for a
- * binary, a git LFS file or a submodule, what it is and its size. */
-function FileRow({ file }: { file: FileChange }) {
-  const { t } = useTranslation()
-  const name = file.path.split('/').at(-1) ?? file.path
-  const stored = storedAs(file)
-  const icon =
-    stored?.kind === 'submodule' ? <Package aria-hidden /> : stored !== null ? <FileBox aria-hidden /> : file.lines !== null ? <FileCode aria-hidden /> : <File aria-hidden />
-  return (
-    <span
-      className="furca-file-row flex min-w-0 flex-1 items-center gap-1.5"
-      title={file.from === null ? file.path : `${file.from} → ${file.path}`}
-    >
-      <span className={cn('w-3 shrink-0 text-center font-mono text-2xs font-semibold', STATUS_TONE[file.status])} aria-label={t(`details.status.${file.status}`)}>
-        {STATUS[file.status]}
-      </span>
-      <span className="flex shrink-0 text-dim [&>svg]:size-3.5">{icon}</span>
-      <span className={cn('truncate', file.status === 'deleted' && 'text-dim line-through')}>{name}</span>
-      <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2 font-mono text-2xs">
-        {stored !== null ? (
-          <StoredBadge file={file} />
-        ) : file.lines !== null ? (
-          <>
-            {file.lines.added > 0 && <span className="text-good">+{file.lines.added}</span>}
-            {file.lines.removed > 0 && <span className="text-bad">−{file.lines.removed}</span>}
-          </>
-        ) : null}
-      </span>
-    </span>
-  )
-}
-
-/** What a file that is not text is, and its size: a binary committed as it
- * is warns, a git LFS file does not. */
-function StoredBadge({ file }: { file: FileChange }) {
-  const { t } = useTranslation()
-  const stored = storedAs(file)
-  if (stored === null) return null
-  const size = stored.after ?? stored.before
-  return (
-    <Badge variant={isRawBinary(file) ? 'warn' : stored.kind === 'lfs' ? 'info' : 'soft'} className="font-mono">
-      {t(`details.stored.${stored.kind}`)}
-      {size !== null && ` ${sizeText(size)}`}
-    </Badge>
-  )
-}
-
-/** The change of one file: what it is, then its lines. */
-function DiffPane({
-  path,
-  commit,
-  file,
-  layout,
-  onLayout,
-}: {
-  path: string
-  commit: string
-  file: FileChange
-  layout: DiffLayout
-  onLayout: (layout: DiffLayout) => void
-}) {
-  const { t } = useTranslation()
-  const shown = useFileDiff(path, commit, file)
-  useEffect(() => {
-    if (file.lines !== null) prepareLanguage(file.path)
-  }, [file])
-  const endings = endingsChange(file)
-  const modeChanged = file.before !== null && file.after !== null && file.before.mode !== file.after.mode
-
-  let body: ReactNode
-  if (shown === null || shown.read.state === 'reading') {
-    body = (
-      <div className="flex h-full items-center justify-center">
-        <Spinner label={t('details.readingDiff')} />
-      </div>
-    )
-  } else if (shown.read.state === 'failed') {
-    body = (
-      <div className="p-3">
-        <Alert tone="bad" title={t('details.diffFailed')}>
-          {shown.read.reason}
-        </Alert>
-      </div>
-    )
-  } else if (shown.read.value.file.lines !== null) {
-    body = (
-      <ErrorBoundary
-        resetKey={shown.read.value}
-        labels={{
-          title: t('details.drawFailed'),
-          body: t('details.drawFailedBody'),
-          details: t('details.drawFailedDetails'),
-          retry: t('details.drawAgain'),
-        }}
-      >
-        <Suspense
-          fallback={
-            <div className="flex h-full items-center justify-center">
-              <Spinner label={t('details.readingDiff')} />
-            </div>
-          }
-        >
-          <CodeDiff diff={shown.read.value} layout={layout} onShown={shown.stale ? undefined : markShown} />
-        </Suspense>
-      </ErrorBoundary>
-    )
-  } else {
-    body = <StoredNote diff={shown.read.value} />
-  }
-
-  return (
-    <section className="flex h-full min-h-0 flex-col" aria-label={t('details.diffLabel', { path: file.path })}>
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-3 text-2xs">
-        <span className="flex min-w-0 items-center gap-1 font-mono text-xs">
-          {file.from !== null && (
-            <>
-              <span className="truncate text-dim">{file.from}</span>
-              <ArrowRight aria-hidden className="size-3 shrink-0 text-faint" />
-            </>
-          )}
-          <span className="truncate">{file.path}</span>
-        </span>
-        {file.similarity !== null && file.similarity < 100 && (
-          <span className="shrink-0 text-dim">{t('details.similar', { percent: file.similarity })}</span>
-        )}
-        {file.similarity === 100 && <span className="shrink-0 text-dim">{t('details.unchangedContent')}</span>}
-        {modeChanged && (
-          <Badge variant="soft">{t('details.mode', { before: t(`details.modes.${file.before!.mode}`), after: t(`details.modes.${file.after!.mode}`) })}</Badge>
-        )}
-        {endings !== null && <Badge variant="warn">{t('details.endings', endings)}</Badge>}
-        <SegmentedControl
-          value={layout}
-          onValueChange={(value) => onLayout(value as DiffLayout)}
-          className="ml-auto shrink-0"
-        >
-          <Segment value="split">{t('details.split')}</Segment>
-          <Segment value="inline">{t('details.inline')}</Segment>
-        </SegmentedControl>
-      </div>
-      <div className="min-h-0 flex-1">{body}</div>
-    </section>
-  )
-}
-
-/** A change with no lines to show: what each side is, and its size. */
-function StoredNote({ diff }: { diff: FileDiff }) {
-  const { t } = useTranslation()
-  const { file } = diff
-  const stored = storedAs(file)
-  const side = (which: 'before' | 'after') => {
-    const value = file[which]
-    if (value === null) return t('details.absent')
-    if (value.content.kind === 'submodule') return t('details.atCommit', { id: short(value.id) })
-    if (value.content.kind === 'lfs') return t('details.lfsSide', { size: sizeText(value.size ?? 0), oid: value.content.oid.slice(0, 12) })
-    if (value.content.kind === 'binary') return t('details.binarySide', { size: sizeText(value.size ?? 0) })
-    return t('details.textSide', { size: sizeText(value.size ?? 0) })
-  }
-  const title =
-    stored?.kind === 'submodule'
-      ? t('details.submoduleTitle')
-      : stored?.kind === 'lfs'
-        ? t('details.lfsTitle')
-        : t('details.binaryTitle')
-  const description =
-    stored?.kind === 'submodule'
-      ? t('details.submoduleBody')
-      : stored?.kind === 'lfs'
-        ? t('details.lfsBody')
-        : t('details.binaryBody')
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-      <EmptyState plain title={title} body={description} />
-      <dl className="grid grid-cols-[auto_auto] gap-x-4 gap-y-1 text-left text-xs">
-        <dt className="text-dim">{t('details.before')}</dt>
-        <dd className="font-mono">{side('before')}</dd>
-        <dt className="text-dim">{t('details.after')}</dt>
-        <dd className="font-mono">{side('after')}</dd>
-      </dl>
-    </div>
   )
 }

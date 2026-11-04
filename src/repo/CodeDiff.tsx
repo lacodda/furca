@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Change, diff as characters, MergeView, unifiedMergeView, type DiffConfig } from '@codemirror/merge'
-import { Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Compartment, EditorState, type Extension, type StateEffect } from '@codemirror/state'
 import { EditorView, highlightSpecialChars, lineNumbers } from '@codemirror/view'
 import { HighlightStyle, LanguageDescription, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
@@ -133,6 +133,9 @@ export interface CodeDiffProps {
 
 export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
   const host = useRef<HTMLDivElement>(null)
+  // Where the reader was: a file of the working copy is drawn again each time
+  // it is saved, and that must not throw them back to its top.
+  const place = useRef<{ path: string; layout: Layout; kept: StateEffect<unknown> | number } | null>(null)
   // Read when the drawing is done, not a reason to draw again.
   const shownRef = useRef(onShown)
   useEffect(() => {
@@ -162,17 +165,26 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
     }
     const collapse = { margin: CONTEXT, minSize: CONTEXT + 1 }
 
+    // One editor scrolls itself, and keeps its place by what is at the top of
+    // the screen: lines fold and unfold, so a height means little. Two kept
+    // level are scrolled together by the merge view, by a height.
+    const left = place.current !== null && place.current.path === diff.file.path && place.current.layout === layout ? place.current.kept : null
+    const scrollTo = typeof left === 'number' || left === null ? undefined : left
+
     const views: EditorView[] = []
     let destroy: () => void
+    let keep: () => StateEffect<unknown> | number
     if (diff.before === null || diff.after === null) {
       // A file added or deleted whole: one column of it, every line marked.
       const view = new EditorView({
         doc: diff.after === null ? before : after,
         extensions: [common(language, loaded), EditorView.editorAttributes.of({ class: diff.after === null ? 'furca-removed' : 'furca-added' })],
         parent,
+        scrollTo,
       })
       views.push(view)
       destroy = () => view.destroy()
+      keep = () => view.scrollSnapshot()
     } else if (layout === 'split') {
       const view = new MergeView({
         a: { doc: before, extensions: common(language, loaded) },
@@ -185,6 +197,8 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
       })
       views.push(view.a, view.b)
       destroy = () => view.destroy()
+      keep = () => view.dom.scrollTop
+      if (typeof left === 'number') view.dom.scrollTop = left
     } else {
       const view = new EditorView({
         doc: after,
@@ -201,9 +215,11 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
           }),
         ],
         parent,
+        scrollTo,
       })
       views.push(view)
       destroy = () => view.destroy()
+      keep = () => view.scrollSnapshot()
     }
 
     // A language not loaded yet arrives after the text: the change is
@@ -235,6 +251,7 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
     return () => {
       current = false
       cancelAnimationFrame(frame)
+      place.current = { path: diff.file.path, layout, kept: keep() }
       destroy()
     }
   }, [diff, layout])

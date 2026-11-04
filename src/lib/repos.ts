@@ -2,7 +2,9 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { api, failure } from './api'
 import { forgetGraph, graphComplete, openGraph } from './graph'
+import { forgetWorkingCopy } from './working'
 import type { Maintenance } from './generated/Maintenance'
+import type { RefsMoved } from './generated/RefsMoved'
 import type { Sidebar } from './generated/Sidebar'
 import type { Standing } from './generated/Standing'
 import type { Step } from './generated/Step'
@@ -111,6 +113,7 @@ export function forget(path: string): void {
   sidebars.forget(path)
   standings.forget(path)
   forgetGraph(path)
+  forgetWorkingCopy(path)
 }
 
 /** Reads every one of `paths` in turn, one after another rather than all at
@@ -124,6 +127,18 @@ export async function readAll(paths: readonly string[]): Promise<void> {
     await openGraph(path)
     await graphComplete(path)
   }
+}
+
+let listeningForRefs: Promise<unknown> | null = null
+
+/** Reads the repository at `path` again whenever furca-desktop hears `HEAD` or
+ * a ref move: a commit, a fetch, a checkout made anywhere. For as long as the
+ * window is there; resolves once it is listening. */
+export function listenForRefs(): Promise<unknown> {
+  listeningForRefs ??= listen<RefsMoved>('refs-moved', ({ payload }) => {
+    refresh(payload.path)
+  })
+  return listeningForRefs
 }
 
 /* The background work furca-desktop does on a repository - git writing its

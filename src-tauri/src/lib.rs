@@ -11,6 +11,7 @@ pub mod maintenance;
 pub mod measure;
 mod nooma;
 pub mod state;
+pub mod working;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -101,6 +102,7 @@ pub fn run() {
             app.manage(store);
             app.manage(early);
             app.manage(graphs);
+            app.manage(working::Watched::default());
 
             // The window is on the screen before its webview is (ADR 0011):
             // the webview takes some 350 ms to start, and a window that waits
@@ -158,6 +160,7 @@ pub fn run() {
             graph::forget_graph,
             details::details,
             details::file_diff,
+            working::watch_working_copy,
             measure::measured,
         ])
         .run(tauri::generate_context!())

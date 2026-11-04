@@ -3,13 +3,14 @@ import type { Content } from "./Content";
 import type { FileMode } from "./FileMode";
 
 /**
- * One side of a change: the object, and what it holds.
+ * One side of a change: the object or the file on disk, and what it holds.
  */
 export type Side = { 
 /**
- * The blob's id, or the commit a submodule is at.
+ * The blob's id, or the commit a submodule is at; `None` for a file in
+ * the working tree, which git has stored under no id yet.
  */
-id: string, mode: FileMode, content: Content, 
+id: string | null, mode: FileMode, content: Content, 
 /**
  * The size of the file as it is checked out, in bytes: for a git LFS
  * pointer, the size of the file it stands for. `None` for a submodule.

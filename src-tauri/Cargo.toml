@@ -30,7 +30,7 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 # `ts`: the core's types are the window's types, generated (ADR 0009).
-furca-core = { path = "../crates/furca-core", version = "0.9.0", features = ["ts"] }
+furca-core = { path = "../crates/furca-core", version = "0.9.0", features = ["ts", "watch"] }
 # The record's list of the owner's projects, which the window opens as the
 # line - the one place furca talks to rigger.
 furca-release = { path = "../crates/furca-release", version = "0.9.0" }

@@ -11,6 +11,7 @@ import type { Standing } from '@/lib/generated/Standing'
 import { matchNumber } from '@/lib/graph-labels'
 import { aheadBehind } from '@/lib/names'
 import { useStanding } from '@/lib/repos'
+import { counted, useWorkingCopy } from '@/lib/working'
 
 /** How long typing pauses before the search starts. */
 const PAUSE = 150
@@ -28,13 +29,16 @@ export interface ToolbarProps {
   search: Search | null
   selected: number | null
   onStep: (back: boolean) => void
+  /** Whether the graph is on show, which is what the search and the choice of
+   * history are for. */
+  history: boolean
 }
 
 /**
  * Above the graph: where the repository stands, which history the graph
  * shows, and the search through it.
  */
-export function Toolbar({ path, sidebar, branch, onBranch, query, onQuery, search, selected, onStep }: ToolbarProps) {
+export function Toolbar({ path, sidebar, branch, onBranch, query, onQuery, search, selected, onStep, history }: ToolbarProps) {
   const { t } = useTranslation()
   const [typed, setTyped] = useState(query)
 
@@ -60,7 +64,7 @@ export function Toolbar({ path, sidebar, branch, onBranch, query, onQuery, searc
   return (
     <div className="flex h-10 shrink-0 items-center gap-3 border-b border-line bg-raise px-3">
       <Where path={path} />
-      <div className="ml-auto flex items-center gap-2">
+      <div className={history ? 'ml-auto flex items-center gap-2' : 'hidden'}>
         {sidebar && (
           <Select
             value={branch ?? EVERYTHING}
@@ -165,8 +169,13 @@ function Matches({ search, selected }: { search: Search | null; selected: number
 function Where({ path }: { path: string }) {
   const { t } = useTranslation()
   const read = useStanding(path)
+  // Heard as it happens, where the standing is read now and then.
+  const copy = useWorkingCopy(path)
   if (read.state !== 'read') return <span className="text-sm text-dim">{read.state === 'failed' ? read.reason : ''}</span>
   const standing: Standing = read.value
+  const live = copy.state === 'read' ? counted(copy.status, copy.counts) : null
+  const changed = live?.changed ?? standing.changed
+  const untracked = live?.untracked ?? standing.untracked
   const sync = standing.upstream ? aheadBehind(standing.upstream) : undefined
   const parts = [
     sync === null
@@ -174,8 +183,8 @@ function Where({ path }: { path: string }) {
       : sync && (sync.ahead > 0 || sync.behind > 0)
         ? [sync.ahead > 0 && `↑${String(sync.ahead)}`, sync.behind > 0 && `↓${String(sync.behind)}`].filter(Boolean).join(' ')
         : null,
-    standing.changed > 0 ? t('standing.changed', { count: standing.changed }) : null,
-    standing.untracked > 0 ? t('standing.untracked', { count: standing.untracked }) : null,
+    changed > 0 ? t('standing.changed', { count: changed }) : null,
+    untracked > 0 ? t('standing.untracked', { count: untracked }) : null,
     standing.stashes > 0 ? t('standing.stashes', { count: standing.stashes }) : null,
   ].filter((part): part is string => typeof part === 'string' && part !== '')
 

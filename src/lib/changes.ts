@@ -1,4 +1,5 @@
 import type { FileChange } from './generated/FileChange'
+import type { FileDiff } from './generated/FileDiff'
 import type { Hunk } from './generated/Hunk'
 import type { Side } from './generated/Side'
 import { nameTree, type NameNode } from './names'
@@ -61,8 +62,8 @@ export interface Stored {
 
 export function storedAs(file: FileChange): Stored | null {
   const sides = [file.before, file.after].filter((side): side is Side => side !== null)
-  const kind = sides.find((side) => side.content.kind !== 'text')?.content.kind
-  if (kind === undefined || kind === 'text') return null
+  const kind = sides.find((side) => side.content.kind !== 'text' && side.content.kind !== 'unread')?.content.kind
+  if (kind === undefined || kind === 'text' || kind === 'unread') return null
   const size = (side: Side | null) => (side !== null && side.content.kind === kind ? side.size : null)
   return { kind, before: size(file.before), after: size(file.after) }
 }
@@ -82,6 +83,13 @@ export function endingsChange(file: FileChange): { before: string; after: string
   if (before === null || after === null || before === after) return null
   const name = { lf: 'LF', crlf: 'CRLF', mixed: 'mixed', 'no-ending': 'none' } as const
   return { before: name[before], after: name[after] }
+}
+
+/** Whether two reads of a file's change draw the same: the hunks follow from
+ * the two texts. Reading again is cheap, and a file of the working copy is read
+ * again whenever anything might have moved it; drawing again is what shows. */
+export function drawsTheSame(a: FileDiff, b: FileDiff): boolean {
+  return a === b || (a.file.path === b.file.path && a.before === b.before && a.after === b.after)
 }
 
 /** A change between two texts by character offsets, as the editor's diff

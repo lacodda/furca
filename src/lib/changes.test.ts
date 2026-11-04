@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FileChange } from './generated/FileChange'
 import type { Hunk } from './generated/Hunk'
 import type { Side } from './generated/Side'
-import { endingsChange, fileTree, folderIds, hunkChanges, isRawBinary, refine, sizeText, storedAs, type CharChange } from './changes'
+import { drawsTheSame, endingsChange, fileTree, folderIds, hunkChanges, isRawBinary, refine, sizeText, storedAs, type CharChange } from './changes'
 
 const text = (size: number, endings: 'lf' | 'crlf' = 'lf'): Side => ({
   id: 'a'.repeat(40),
@@ -20,6 +20,21 @@ const change = (path: string, overrides: Partial<FileChange> = {}): FileChange =
   after: text(12),
   lines: { added: 1, removed: 1 },
   ...overrides,
+})
+
+describe('drawing a change again', () => {
+  const diff = (path: string, before: string | null, after: string | null) => ({ file: change(path), before, after, hunks: [] })
+
+  it('is not needed for the same texts, read again', () => {
+    expect(drawsTheSame(diff('a', 'x', 'y'), diff('a', 'x', 'y'))).toBe(true)
+  })
+
+  it('is needed for a change of either text, or of the file', () => {
+    expect(drawsTheSame(diff('a', 'x', 'y'), diff('a', 'x', 'z'))).toBe(false)
+    expect(drawsTheSame(diff('a', 'x', 'y'), diff('a', 'w', 'y'))).toBe(false)
+    expect(drawsTheSame(diff('a', 'x', 'y'), diff('b', 'x', 'y'))).toBe(false)
+    expect(drawsTheSame(diff('a', null, 'y'), diff('a', '', 'y'))).toBe(false)
+  })
 })
 
 /** `a` with every change put in: what `b` must be when the changes are

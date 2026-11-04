@@ -103,7 +103,37 @@
     },
     "operationBody": "git started it and has not finished: continue or abort it in a terminal."
   },
+  "views": {
+    "label": "What to show of the repository",
+    "changes": "Local changes",
+    "history": "History"
+  },
+  "changes": {
+    "reading": "Reading the working copy",
+    "failed": "Could not read the working copy",
+    "clean": "Nothing to commit",
+    "cleanBody": "The working tree is exactly what HEAD holds. Files you save show up here as they change.",
+    "filesLabel": "Files that differ from HEAD",
+    "conflicted": "Conflicted",
+    "staged": "Staged",
+    "unstaged": "Not staged",
+    "untracked": "Untracked",
+    "more_one": "and {{count}} more: furca status lists it",
+    "more_other": "and {{count}} more: furca status lists them all",
+    "conflict": {
+      "both-modified": "both modified",
+      "both-added": "both added",
+      "both-deleted": "both deleted",
+      "added-by-us": "added by us",
+      "added-by-them": "added by them",
+      "deleted-by-us": "deleted by us",
+      "deleted-by-them": "deleted by them"
+    },
+    "conflictTitle": "A merge left this file unresolved: {{kind}}",
+    "conflictBody": "Settle it with git in a terminal; the file leaves this list as soon as it is staged."
+  },
   "status": {
+    "unwatched": "Not watching the working tree: it is read when the window gets the focus",
     "writingGraph": "git is writing the commit-graph, so the history opens fast…",
     "wroteGraph": "git wrote the commit-graph in {{seconds}} s",
     "graphFailed": "git could not write the commit-graph: {{reason}}"
@@ -164,6 +194,7 @@
     "inline": "Inline",
     "absent": "none",
     "atCommit": "commit {{id}}",
+    "aRepository": "a repository",
     "lfsSide": "{{size}} in git LFS, {{oid}}…",
     "binarySide": "binary, {{size}}",
     "textSide": "text, {{size}}",

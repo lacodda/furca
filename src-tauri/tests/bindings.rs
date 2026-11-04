@@ -30,7 +30,7 @@ fn generated_dir() -> PathBuf {
 
 /// Hands every root type to `$each`: what the commands in `src/commands.rs`,
 /// `src/graph.rs` and `src/details.rs` return, what a search sends down its channel, and the
-/// payloads of the maintenance and graph events. What they depend on is
+/// payloads of the maintenance, graph and working copy events. What they depend on is
 /// followed from them.
 macro_rules! for_each_root {
     ($each:ident) => {
@@ -47,6 +47,8 @@ macro_rules! for_each_root {
             furca_desktop_lib::graph::Found,
             furca_core::Details,
             furca_core::FileDiff,
+            furca_desktop_lib::working::WorkingCopy,
+            furca_desktop_lib::working::RefsMoved,
         }
     };
 }

@@ -4,4 +4,4 @@ import type { Endings } from "./Endings";
 /**
  * What a side holds.
  */
-export type Content = { "kind": "text", endings: Endings, } | { "kind": "binary" } | { "kind": "lfs", oid: string, } | { "kind": "submodule" };
+export type Content = { "kind": "text", endings: Endings, } | { "kind": "binary" } | { "kind": "lfs", oid: string, } | { "kind": "submodule" } | { "kind": "unread" };

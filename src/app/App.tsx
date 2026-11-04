@@ -16,9 +16,10 @@ import type { Line } from '@/lib/generated/Line'
 import type { Opened } from '@/lib/generated/Opened'
 import type { WindowState } from '@/lib/generated/WindowState'
 import { openGraph } from '@/lib/graph'
-import { forget, listenForMaintenance, readAll, refresh, sidebars } from '@/lib/repos'
+import { forget, listenForMaintenance, listenForRefs, readAll, refresh, sidebars } from '@/lib/repos'
+import { listenForWorkingCopy } from '@/lib/working'
 import { Home } from '@/home/Home'
-import { preloadDiff } from '@/repo/Details'
+import { preloadDiff } from '@/repo/DiffPane'
 import { RepoView } from '@/repo/RepoView'
 import { OpenMenu, type OpenActions } from '@/shell/OpenMenu'
 import { RepoTabs } from '@/shell/RepoTabs'
@@ -197,6 +198,29 @@ function Shell({ initial }: { initial: WindowState }) {
 
   useEffect(() => listenForMaintenance(), [])
 
+  // The tab in front is the one whose working copy is kept up to date. Asked
+  // once the frame is out, and only once something is listening: an answer
+  // before that would reach no one. Going to another tab replaces the watch.
+  const frontPath = front?.path ?? null
+  useEffect(() => {
+    if (!inTauri()) return
+    let cancelled = false
+    let task: ReturnType<typeof setTimeout> | undefined
+    const listening = Promise.all([listenForWorkingCopy(), listenForRefs()])
+    const frame = requestAnimationFrame(() => {
+      task = setTimeout(() => {
+        void listening.then(() => {
+          if (!cancelled) void api.watchWorkingCopy(frontPath)
+        })
+      }, 0)
+    })
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(frame)
+      clearTimeout(task)
+    }
+  }, [frontPath])
+
   // furca started again with a path hands it to this window, which draws
   // the tabs the store now holds.
   useEffect(() => {
@@ -214,14 +238,17 @@ function Shell({ initial }: { initial: WindowState }) {
     }
   }, [applyOpened, apply])
 
-  // Coming back to the window reads the tab in front again: something may
-  // have been committed in a terminal meanwhile, and nothing watches the
-  // working tree yet.
+  // Coming back to the window reads the tab in front again. The watcher hears
+  // what happens meanwhile, but a file system can lose events - a network
+  // drive, a sleep - and this is the moment someone looks.
   useEffect(() => {
     if (!inTauri() || !front) return
     const path = front.path
     const stop = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (focused) refresh(path)
+      if (focused) {
+        refresh(path)
+        void api.watchWorkingCopy(path)
+      }
     })
     return () => {
       void stop.then((unlisten) => unlisten())
