@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowRight } from 'lucide-react'
 import { Alert } from '@/components/ui/alert'
@@ -14,13 +14,50 @@ import type { FileChange } from '@/lib/generated/FileChange'
 import type { FileDiff } from '@/lib/generated/FileDiff'
 import { short } from '@/lib/names'
 
+type CodeDiffModule = typeof import('./CodeDiff')
+
+/** The drawing of a change, once it has been fetched. */
+let loaded: CodeDiffModule | null = null
+
 /** CodeMirror, fetched when the first diff is opened; `preloadDiff` fetches
  * it sooner, once the first frame is out of the way. */
-const loadCodeDiff = () => import('./CodeDiff')
-const CodeDiff = lazy(loadCodeDiff)
+const loadCodeDiff = () =>
+  import('./CodeDiff').then((module) => {
+    loaded = module
+    return module
+  })
 
 export function preloadDiff(): void {
   void loadCodeDiff()
+}
+
+/**
+ * The drawing of a change, or `null` until it is here. Not `lazy` and
+ * `Suspense`: React holds back what a boundary reveals for 300 ms after it
+ * drew the fallback, so that spinners do not flash - and a first diff worth
+ * 90 ms of work took 400. A failed fetch is thrown for the error boundary
+ * around the drawing, as `lazy` would.
+ */
+function useCodeDiff(): CodeDiffModule | null {
+  const [module, setModule] = useState(loaded)
+  const [failed, setFailed] = useState<{ cause: unknown } | null>(null)
+  useEffect(() => {
+    if (module !== null) return
+    let current = true
+    loadCodeDiff().then(
+      (fetched) => {
+        if (current) setModule(fetched)
+      },
+      (cause: unknown) => {
+        if (current) setFailed({ cause })
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [module])
+  if (failed !== null) throw failed.cause
+  return module
 }
 
 /** Starts loading the language of the file at `path` beside the read of
@@ -82,15 +119,7 @@ export function DiffPane({
           retry: t('details.drawAgain'),
         }}
       >
-        <Suspense
-          fallback={
-            <div className="flex h-full items-center justify-center">
-              <Spinner label={t('details.readingDiff')} />
-            </div>
-          }
-        >
-          <DrawnDiff diff={shown.read.value} layout={layout} onShown={shown.stale ? undefined : markShown} />
-        </Suspense>
+        <DrawnDiff diff={shown.read.value} layout={layout} onShown={shown.stale ? undefined : markShown} />
       </ErrorBoundary>
     )
   } else {
@@ -133,9 +162,18 @@ export function DiffPane({
 
 /** The lines of a change, drawn once the drawing has been fetched. */
 function DrawnDiff({ diff, layout, onShown }: { diff: FileDiff; layout: DiffLayout; onShown?: () => void }) {
+  const { t } = useTranslation()
+  const module = useCodeDiff()
   const [drawn, setDrawn] = useState(diff)
   if (!drawsTheSame(drawn, diff)) setDrawn(diff)
-  return <CodeDiff diff={drawn} layout={layout} onShown={onShown} />
+  if (module === null) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Spinner label={t('details.readingDiff')} />
+      </div>
+    )
+  }
+  return <module.default diff={drawn} layout={layout} onShown={onShown} />
 }
 
 /** A change with no lines to show: what each side is, and its size. */
