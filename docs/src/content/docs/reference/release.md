@@ -15,7 +15,7 @@ next release is, what stands in its way and what a run would do. It changes
 nothing: no file, no tag, no commit.
 
 `run` makes the same plan and carries it out - bump, changelog, gate, commit,
-push, CI, tag, publish, verify, install, deploy, record - and stops at the
+push, CI, tag, publish, verify, install, deploy, notes, record - and stops at the
 first step that is not green. `resume` carries on a run that stopped after
 its commit. See [Run](#run) below.
 
@@ -223,6 +223,7 @@ standard output at the end. Lists are shortened here.
 | `verify` | Checks the shop windows of the tag, as [`verify`](#verify) does: the page and its files, the registries, the links. | Any of them fails. |
 | `install` | With `[post.install]`: runs `tools/install.ps1` (Windows) or `tools/install.sh` with `{APP}_VERSION` pinned to the tag, then proves it - see [The install proof](#the-install-proof). Skipped without it. | The installer fails, or the proof does. |
 | `deploy` | With `[post.deploy]`: runs `turnout deploy --foreground` from the root. turnout's own configuration names the stand; it checks the stand's health and rolls a failed deploy back. Skipped without it. | turnout exits non-zero or is not installed. |
+| `notes` | Ticks the first box of the `### Checked live` list the release's notes end with, if they do: the install and the deploy have just proved it. The boxes after it stay for a person. Skipped when the run did neither, or there is nothing to tick. | Never: a list it cannot tick is said, and left to tick by hand. |
 | `record` | Writes the release into the owner's [record](https://lacodda.github.io/rigger/) as shipped - tag, registries, release page, install, deploy - when rigger keeps this project here. Without one it says so and carries on. | - |
 
 ### The install proof
@@ -307,7 +308,7 @@ output goes to standard error, so standard output stays one document.
 | Field | Meaning |
 | --- | --- |
 | `released` | `true` once the release is tagged, published, in every shop window, installed and deployed where `release.toml` asks, and recorded. |
-| `steps[].name` | `plan`, `bump`, `changelog`, `gate`, `commit`, `push`, `ci`, `tag`, `publish`, `verify`, `install`, `deploy`, `record`, always in this order. |
+| `steps[].name` | `plan`, `bump`, `changelog`, `gate`, `commit`, `push`, `ci`, `tag`, `publish`, `verify`, `install`, `deploy`, `notes`, `record`, always in this order. |
 | `steps[].status` | `done`; `skipped` - nothing to do, or done before a resume; `stopped` - the run stopped here; `ahead` - not reached. |
 | `steps[].details` | For `verify` and `install`, one line per check: `pass build: ...`, its details indented under it. |
 | `registries` | The registries that hold the version. |

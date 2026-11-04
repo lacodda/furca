@@ -326,7 +326,14 @@ struct World {
     deploy_exit: Cell<i32>,
     installed: Cell<usize>,
     deployed: Cell<usize>,
+    /// The notes on the release page.
+    notes: RefCell<Option<String>>,
+    /// Whether the forge refuses to write them.
+    notes_refused: Cell<bool>,
 }
+
+/// What the line's release notes end with.
+const LIVE_NOTES: &str = "## [0.3.0]\n\n### Features\n- Add a command\n\n### Checked live\n\n- [ ] Installed from this release\n- [ ] Run by hand on a real machine\n";
 
 /// The program the release ships, as bytes.
 const RELEASED: &[u8] = b"demo 0.3.0, the release's own build";
@@ -351,6 +358,8 @@ impl World {
             deploy_exit: Cell::new(0),
             installed: Cell::new(0),
             deployed: Cell::new(0),
+            notes: RefCell::new(Some(LIVE_NOTES.to_owned())),
+            notes_refused: Cell::new(false),
         })
     }
 }
@@ -401,6 +410,18 @@ impl Forge for FakeForge {
     fn download(&self, tag: &str, asset: &str) -> Result<Vec<u8>, String> {
         assert_eq!(asset, format!("demo-{tag}-{TARGET}.tar.gz"));
         Ok(self.0.archive.clone())
+    }
+
+    fn notes(&self, _tag: &str) -> Result<Option<String>, String> {
+        Ok(self.0.notes.borrow().clone())
+    }
+
+    fn set_notes(&self, _tag: &str, notes: &str) -> Result<(), String> {
+        if self.0.notes_refused.get() {
+            return Err("the token cannot write releases".to_owned());
+        }
+        *self.0.notes.borrow_mut() = Some(notes.to_owned());
+        Ok(())
     }
 
     fn actions_url(&self) -> String {
@@ -563,6 +584,53 @@ fn stopped_at(report: &Report) -> &str {
 const PASS: &str = r#""exit 0""#;
 
 #[test]
+fn a_run_ticks_what_it_proved_and_leaves_the_rest_to_a_person() {
+    let pair = Pair::new(PASS);
+    let world = World::new(&pair);
+    let (report, said) = go(&pair, &world, Mode::Run);
+
+    assert!(report.released, "{report:#?}\n{said:#?}");
+    assert_eq!(
+        world.notes.borrow().as_deref(),
+        Some(
+            "## [0.3.0]\n\n### Features\n- Add a command\n\n### Checked live\n\n- [x] Installed from this release\n- [ ] Run by hand on a real machine\n"
+        )
+    );
+}
+
+#[test]
+fn notes_with_nothing_to_tick_are_left_as_they_are() {
+    let notes = "## [0.3.0]\n\n- [ ] A box of another list\n";
+    let pair = Pair::new(PASS);
+    let world = World::new(&pair);
+    *world.notes.borrow_mut() = Some(notes.to_owned());
+    let (report, said) = go(&pair, &world, Mode::Run);
+
+    assert!(report.released, "{report:#?}\n{said:#?}");
+    assert_eq!(status(&report, "notes"), StepStatus::Skipped);
+    assert_eq!(world.notes.borrow().as_deref(), Some(notes));
+}
+
+/// The release is out and proven: a box it could not tick stops nothing.
+#[test]
+fn notes_it_cannot_write_stop_nothing_and_say_so() {
+    let pair = Pair::new(PASS);
+    let world = World::new(&pair);
+    world.notes_refused.set(true);
+    let (report, said) = go(&pair, &world, Mode::Run);
+
+    assert!(report.released, "{report:#?}\n{said:#?}");
+    let step = report
+        .steps
+        .iter()
+        .find(|step| step.name == "notes")
+        .expect("the step");
+    assert_eq!(step.status, StepStatus::Skipped);
+    assert!(step.summary.contains("cannot write releases"), "{step:?}");
+    assert_eq!(world.notes.borrow().as_deref(), Some(LIVE_NOTES));
+}
+
+#[test]
 fn a_run_goes_from_the_plan_to_the_record() {
     let pair = Pair::new(PASS);
     let world = World::new(&pair);
@@ -583,6 +651,7 @@ fn a_run_goes_from_the_plan_to_the_record() {
         "verify",
         "install",
         "deploy",
+        "notes",
         "record",
     ] {
         assert_eq!(

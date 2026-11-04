@@ -88,6 +88,12 @@ pub trait Forge {
     /// The bytes of the file `asset` on the release page of `tag`.
     fn download(&self, tag: &str, asset: &str) -> Result<Vec<u8>, String>;
 
+    /// The notes on the release page of `tag`; `None` when there is no page.
+    fn notes(&self, tag: &str) -> Result<Option<String>, String>;
+
+    /// Writes the notes on the release page of `tag`.
+    fn set_notes(&self, tag: &str, notes: &str) -> Result<(), String>;
+
     /// Where a person sees the repository's runs.
     fn actions_url(&self) -> String;
 
@@ -203,7 +209,12 @@ impl Http {
         url: &str,
         accept: &str,
     ) -> ureq::RequestBuilder<ureq::typestate::WithoutBody> {
-        let mut request = self.agent.get(url).header("Accept", accept);
+        self.headed(self.agent.get(url), accept)
+    }
+
+    /// `request` with the forge's headers and the token, if any.
+    fn headed<B>(&self, request: ureq::RequestBuilder<B>, accept: &str) -> ureq::RequestBuilder<B> {
+        let mut request = request.header("Accept", accept);
         if self.place.provider == Provider::Github {
             request = request.header("X-GitHub-Api-Version", "2022-11-28");
         }
@@ -328,6 +339,37 @@ impl Forge for Http {
 
     fn pace(&self) -> Pace {
         Pace::for_forge(self.has_token())
+    }
+
+    fn notes(&self, tag: &str) -> Result<Option<String>, String> {
+        Ok(self
+            .get(&format!("{}/releases/tags/{tag}", self.repo_path()))?
+            .map(|body| text(&body, "body")))
+    }
+
+    fn set_notes(&self, tag: &str, notes: &str) -> Result<(), String> {
+        let label = self.place.provider.label();
+        if self.token.is_none() {
+            return Err(format!("{label} takes no anonymous write; give it a token"));
+        }
+        let page = self
+            .get(&format!("{}/releases/tags/{tag}", self.repo_path()))?
+            .ok_or_else(|| format!("{tag} has no release page"))?;
+        let id = page
+            .get("id")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| format!("{label} names no id for the release page of {tag}"))?;
+        let url = format!("{}{}/releases/{id}", self.place.api(), self.repo_path());
+        let answer = self
+            .headed(self.agent.patch(&url), "application/json")
+            .send_json(serde_json::json!({ "body": notes }))
+            .map_err(|e| format!("{label} did not answer: {e}"))?;
+        match answer.status().as_u16() {
+            200 => Ok(()),
+            code => Err(format!(
+                "{label} refused to write the notes of {tag} ({code}): can the token write releases?"
+            )),
+        }
     }
 
     fn actions_url(&self) -> String {
@@ -699,6 +741,12 @@ mod tests {
         }
         fn download(&self, _tag: &str, asset: &str) -> Result<Vec<u8>, String> {
             Err(format!("no {asset} here"))
+        }
+        fn notes(&self, _tag: &str) -> Result<Option<String>, String> {
+            Ok(None)
+        }
+        fn set_notes(&self, _tag: &str, _notes: &str) -> Result<(), String> {
+            Ok(())
         }
         fn actions_url(&self) -> String {
             String::new()

@@ -43,7 +43,7 @@ use crate::version;
 pub const CHECKPOINT: &str = "furca-release.json";
 
 /// The steps of a run, in order.
-pub const STEPS: [&str; 13] = [
+pub const STEPS: [&str; 14] = [
     "plan",
     "bump",
     "changelog",
@@ -56,8 +56,40 @@ pub const STEPS: [&str; 13] = [
     "verify",
     "install",
     "deploy",
+    "notes",
     "record",
 ];
+
+/// The heading of the list the line's release notes end with.
+const LIVE_LIST: &str = "### Checked live";
+
+/// `notes` with the first box of their `Checked live` list ticked; `None` when
+/// there is no such list, it is empty, or its first box is ticked already.
+/// Everything else stays as it was written, line endings included.
+fn tick_first_live_box(notes: &str) -> Option<String> {
+    let mut in_list = false;
+    let mut at = 0;
+    for line in notes.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if in_list {
+            if trimmed.starts_with('#') {
+                return None;
+            }
+            let indent = line.len() - line.trim_start().len();
+            if trimmed.starts_with("- [ ]") {
+                let start = at + indent;
+                return Some(format!("{}- [x]{}", &notes[..start], &notes[start + 5..]));
+            }
+            if trimmed.starts_with("- [x]") || trimmed.starts_with("- [X]") {
+                return None;
+            }
+        } else if trimmed == LIVE_LIST {
+            in_list = true;
+        }
+        at += line.len();
+    }
+    None
+}
 
 /// How long the registries may take to show a version after its publish
 /// workflow passed: crates.io's index lags its API by a minute or two.
@@ -803,6 +835,7 @@ impl Release {
         if !self.deploy_step(runner, report, state)? {
             return Ok(());
         }
+        self.notes_step(runner, report, state, forge);
         self.record(runner, report, state)?;
         remove(&self.checkpoint_path())?;
         report.released = true;
@@ -1429,6 +1462,54 @@ impl Release {
         Ok(true)
     }
 
+    /// Ticks on the release page what the run has just proved: the first box
+    /// of the `Checked live` list the line's release notes end with, that the
+    /// release reached a machine the way a user gets it. The boxes after it
+    /// are a person's. A list it cannot tick stops nothing - the release is
+    /// out and proven, and the box is still there to tick by hand.
+    fn notes_step(
+        &self,
+        runner: &mut Runner,
+        report: &mut Report,
+        state: &Checkpoint,
+        forge: &dyn Forge,
+    ) {
+        if self.config.post.install.is_none() && self.config.post.deploy.is_none() {
+            report.mark(
+                "notes",
+                StepStatus::Skipped,
+                "the run neither installed nor deployed: it proved nothing to tick".to_owned(),
+                Vec::new(),
+            );
+            return;
+        }
+        let ticked = forge.notes(&state.tag).and_then(|notes| {
+            match notes.as_deref().and_then(tick_first_live_box) {
+                Some(notes) => forge.set_notes(&state.tag, &notes).map(|()| true),
+                None => Ok(false),
+            }
+        });
+        match ticked {
+            Ok(true) => {
+                let summary = format!("ticked what the run proved on the page of {}", state.tag);
+                (runner.say)("notes", &summary);
+                report.mark("notes", StepStatus::Done, summary, Vec::new());
+            }
+            Ok(false) => report.mark(
+                "notes",
+                StepStatus::Skipped,
+                format!("the notes of {} have no box to tick", state.tag),
+                Vec::new(),
+            ),
+            Err(why) => report.mark(
+                "notes",
+                StepStatus::Skipped,
+                format!("could not tick the notes of {}: {why}", state.tag),
+                vec!["tick the first box of `Checked live` by hand".to_owned()],
+            ),
+        }
+    }
+
     fn record(
         &self,
         runner: &mut Runner,
@@ -1589,4 +1670,49 @@ fn shell(command: &str, dir: &Path, to_stderr: bool) -> std::io::Result<Option<i
         cmd.stdout(std::process::Stdio::from(std::io::stderr()));
     }
     Ok(cmd.status()?.code())
+}
+
+#[cfg(test)]
+mod notes_tests {
+    use super::tick_first_live_box;
+
+    #[test]
+    fn only_the_first_box_of_the_list_is_ticked() {
+        let notes = "### Fixes\n- [ ] Not this list\n\n### Checked live\n\n- [ ] Installed\n- [ ] By hand\n";
+        assert_eq!(
+            tick_first_live_box(notes).as_deref(),
+            Some(
+                "### Fixes\n- [ ] Not this list\n\n### Checked live\n\n- [x] Installed\n- [ ] By hand\n"
+            )
+        );
+    }
+
+    #[test]
+    fn line_endings_and_indents_stay_as_they_were_written() {
+        let notes = "### Checked live\r\n\r\n  - [ ] Installed\r\n";
+        assert_eq!(
+            tick_first_live_box(notes).as_deref(),
+            Some("### Checked live\r\n\r\n  - [x] Installed\r\n")
+        );
+    }
+
+    #[test]
+    fn nothing_is_ticked_where_there_is_nothing_to_tick() {
+        // Run again: the box is ticked already, and the one after is a person's.
+        assert_eq!(
+            tick_first_live_box("### Checked live\n- [x] Installed\n- [ ] By hand\n"),
+            None
+        );
+        assert_eq!(
+            tick_first_live_box("### Checked live\n- [X] Installed\n"),
+            None
+        );
+        assert_eq!(tick_first_live_box("## Notes\n- [ ] Another list\n"), None);
+        assert_eq!(tick_first_live_box("### Checked live\n\n"), None);
+        // A list ends where the next heading starts.
+        assert_eq!(
+            tick_first_live_box("### Checked live\n\n### Next\n- [ ] Its own\n"),
+            None
+        );
+    }
 }
