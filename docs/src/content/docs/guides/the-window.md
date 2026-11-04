@@ -82,7 +82,7 @@ them are the repository's refs:
 | --- | --- |
 | **Branches** | Local branches, in folders by the `/` in their names. The branch `HEAD` is on is in bold with its mark in the accent; `↑2 ↓1` is how far it is from its upstream, and `gone` an upstream deleted on the remote and pruned. |
 | **Remotes** | Each remote with its remote-tracking branches, in folders the same way. Pointing at a remote shows its address, without any password written into it. |
-| **Tags** | Newest version first: `v0.10.0` comes before `v0.9.0`. |
+| **Tags** | Newest version first: `v1.10.0` comes before `v1.9.0`. |
 | **Stashes** | The stash, newest first, by the message git wrote. |
 | **Submodules** | Each submodule by its path, marked `not checked out` when it is not, and `moved` when what is checked out is not the commit the repository records. |
 
