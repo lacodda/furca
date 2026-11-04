@@ -1446,7 +1446,7 @@ dependencies = [
 
 [[package]]
 name = "furca"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "clap",
  "furca-core",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "furca-core"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "gix",
  "notify",
@@ -1472,7 +1472,7 @@ dependencies = [
 
 [[package]]
 name = "furca-desktop"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "furca-core",
  "furca-release",
@@ -1489,7 +1489,7 @@ dependencies = [
 
 [[package]]
 name = "furca-release"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "furca-core",
  "git-cliff-core",

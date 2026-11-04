@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.10.0] - 2026-11-04
+
+### Bug Fixes
+- Take the fixed pulldown-cmark, leave a yanked async-executor
+- Read the changelog headings the line's cliff.toml writes
+- Take a new project's stack as the stack of its day
+
+### Documentation
+- Describe the working copy and show it in the window
+- Keep the example of tag order out of the version bump
+
+### Features
+- List the working copy and hear it change
+- List the working copy and diff either side of the index
+- Show the working copy as files are saved
+- Tick what a run proved on the release page
+
+### Performance
+- Open the first diff without waiting out Suspense
+
+### Testing
+- Hold a save to 50 ms and the first diff to 300 ms
+
 ## [0.9.0] - 2026-10-29
 
 ### Bug Fixes
