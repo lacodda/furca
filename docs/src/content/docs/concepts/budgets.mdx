@@ -70,7 +70,9 @@ writing to a file the benchmark watches.
   the frame that shows it side by side and highlighted, by the app's own clock,
   so how long the process took to start does not touch it. This is a promise of
   its own beside the core's: the core reads the change, and the window has
-  everything after that to do on a webview that has only just started.
+  everything after that to do on a webview that has only just started. Like the
+  time on the screen, it is measured once more after a pause before the build
+  fails.
 - **Memory** is read with three copies of the repository open, each one read
   and its whole graph laid out, and two seconds to settle: the private working set of the app and of every
   process under it, the webview's included - what Task Manager counts on

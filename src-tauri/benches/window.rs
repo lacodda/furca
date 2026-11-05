@@ -195,7 +195,16 @@ fn main() {
             }
             Kind::Memory => memory(&work.join("memory"), &copies(&root, &repository)),
             Kind::Between(from, to) => {
-                let mut times = time_between(&work.join(&promise.name), &repository, from, to);
+                let dir = work.join(&promise.name);
+                let mut times = time_between(&dir, &repository, from, to);
+                let (median, _) = spread(&mut times);
+                // The same known flake as the starts above, and the same one
+                // repeat: a promise is not broken by a runner that is busy for
+                // the length of one measurement.
+                if promise.limit_here().is_some_and(|limit| median > limit) {
+                    std::thread::sleep(Duration::from_secs(5));
+                    times = time_between(&dir, &repository, from, to);
+                }
                 spread(&mut times)
             }
         };
