@@ -29,8 +29,8 @@ fn generated_dir() -> PathBuf {
 }
 
 /// Hands every root type to `$each`: what the commands in `src/commands.rs`,
-/// `src/graph.rs` and `src/details.rs` return, what a search sends down its channel, and the
-/// payloads of the maintenance, graph and working copy events. What they depend on is
+/// `src/graph.rs`, `src/details.rs` and `src/release.rs` return, what a search sends down its
+/// channel, and the payloads of the maintenance, graph, working copy and release events. What they depend on is
 /// followed from them.
 macro_rules! for_each_root {
     ($each:ident) => {
@@ -49,6 +49,9 @@ macro_rules! for_each_root {
             furca_core::FileDiff,
             furca_desktop_lib::working::WorkingCopy,
             furca_desktop_lib::working::RefsMoved,
+            furca_release::Plan,
+            furca_desktop_lib::release::ReleaseState,
+            furca_desktop_lib::release::ReleaseHeard,
         }
     };
 }
@@ -181,12 +184,13 @@ fn every_type_a_command_names_is_generated() {
     }
     // Tauri's and std's names, and the app's managed state, which are not
     // shapes on the wire.
-    const NOT_ON_THE_WIRE: [&str; 10] = [
+    const NOT_ON_THE_WIRE: [&str; 11] = [
         "State",
         "AppHandle",
         "Store",
         "Early",
         "Graphs",
+        "Releases",
         "Channel",
         "Result",
         "Option",
@@ -197,7 +201,7 @@ fn every_type_a_command_names_is_generated() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let committed = read_tree(&generated_dir());
     let mut named = BTreeSet::new();
-    for file in ["commands.rs", "graph.rs", "measure.rs"] {
+    for file in ["commands.rs", "graph.rs", "measure.rs", "release.rs"] {
         let text = std::fs::read_to_string(src.join(file)).expect("the source reads");
         let mut rest = text.as_str();
         while let Some(at) = rest.find("#[tauri::command]") {

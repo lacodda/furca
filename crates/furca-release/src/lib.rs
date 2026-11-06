@@ -52,7 +52,7 @@ pub use error::Error;
 pub use install::{INSTALLERS, Local, Machine, Output, TARGET};
 pub use manifest::Field;
 pub use plan::{
-    Check, CiStep, Edit, Origin, Plan, Proposal, Publish, Release, Sources, Status, Steps,
+    Check, CiStep, Edit, Origin, Plan, Proposal, Publish, Release, Sources, Status, Steps, Would,
 };
 pub use record::{Kept, Reading, Record, Rigger, Shipped, Stage};
 pub use registry::{Http, Registries};

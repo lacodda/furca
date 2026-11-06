@@ -3,6 +3,7 @@ import { cn } from 'dowel-ui'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { isBranch, visibleRows, type TreeNode } from '@/components/ui/tree-rows'
 import { actionFor, activeRow, placesOf, ROW_HEIGHT, rowsToDraw, scrollToShow, TREE_PADDING } from '@/lib/file-tree'
+import { useScrollBox } from './useScrollBox'
 
 export interface FileTreeProps {
   /** What a screen reader calls the tree and the box it scrolls in. */
@@ -27,9 +28,7 @@ export interface FileTreeProps {
  */
 export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect }: FileTreeProps) {
   const base = useId()
-  const viewport = useRef<HTMLDivElement>(null)
-  const [scrollTop, setScrollTop] = useState(0)
-  const [viewportHeight, setViewportHeight] = useState(0)
+  const { viewport, scrollTop, viewportHeight, scrollTo } = useScrollBox()
   const [cursor, setCursor] = useState<string | undefined>(undefined)
 
   // A row chosen from outside takes the cursor with it, so the arrows go on from
@@ -45,33 +44,9 @@ export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect 
   const places = useMemo(() => placesOf(rows), [rows])
   const active = activeRow(indexes, cursor, selected)
 
-  useLayoutEffect(() => {
-    const element = viewport.current
-    if (element === null) return
-    const measure = () => {
-      setViewportHeight(element.clientHeight)
-      setScrollTop(element.scrollTop)
-    }
-    const scrolled = () => setScrollTop(element.scrollTop)
-    measure()
-    element.addEventListener('scroll', scrolled, { passive: true })
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => {
-      element.removeEventListener('scroll', scrolled)
-      observer.disconnect()
-    }
-  }, [])
-
   const reveal = (index: number) => {
     const element = viewport.current
-    if (element === null) return
-    const next = scrollToShow(index, element.scrollTop, element.clientHeight)
-    if (next === element.scrollTop) return
-    element.scrollTop = next
-    // Told now rather than by the scroll event, which comes after the paint:
-    // the row is in the DOM for the frame that shows it.
-    setScrollTop(element.scrollTop)
+    if (element !== null) scrollTo(scrollToShow(index, element.scrollTop, element.clientHeight))
   }
 
   // A row chosen from outside - the file a commit was left on, the next one

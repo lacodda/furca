@@ -9,6 +9,8 @@ import type { GraphRow } from './generated/GraphRow'
 import type { Layout } from './generated/Layout'
 import type { Line } from './generated/Line'
 import type { Opened } from './generated/Opened'
+import type { Plan } from './generated/Plan'
+import type { ReleaseState } from './generated/ReleaseState'
 import type { Sidebar } from './generated/Sidebar'
 import type { Standing } from './generated/Standing'
 import type { WindowState } from './generated/WindowState'
@@ -56,6 +58,13 @@ export const api = {
    * now, and reads it whole if it was that one already; `null` keeps none.
    * What it finds arrives as `working-copy` events. */
   watchWorkingCopy: (path: string | null) => invoke<null>('watch_working_copy', { path }),
+  /** What the release panel of `path` starts from. */
+  releaseState: (path: string) => invoke<ReleaseState>('release_state', { path }),
+  /** The next release of `path` and what stands in its way; changes nothing. */
+  releasePlan: (path: string) => invoke<Plan>('release_plan', { path }),
+  /** Starts a run, or carries on the one that stopped, and returns at once:
+   * it is heard as `release` events. */
+  releaseRun: (path: string, resume: boolean) => invoke<null>('release_run', { path, resume }),
   /** Tells a measurement the window reached `stage`; nothing otherwise. The
    * stages between the start and the first frame say where a slow start
    * spent its time; the two diff stages time the first diff opened. */

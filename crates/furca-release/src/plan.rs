@@ -69,8 +69,19 @@ pub struct Plan {
     pub tally: Tally,
     pub checks: Vec<Check>,
     pub steps: Steps,
+    /// What a run would do, in words, step by step.
+    pub would: Vec<Would>,
     /// No check fails.
     pub ready: bool,
+}
+
+/// One thing a run would do.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Would {
+    /// The step of the run it belongs to.
+    pub step: &'static str,
+    pub what: String,
 }
 
 /// The number the plan proposes, and where it came from.
@@ -174,6 +185,80 @@ pub struct Publish {
     /// The registry has never seen the package: the first publish is by
     /// hand, and only then can a tag publish it.
     pub first: bool,
+}
+
+/// What a run of `steps` would do, in words.
+fn would(project: &str, proposed: Option<&Proposal>, steps: &Steps) -> Vec<Would> {
+    let mut run: Vec<(&'static str, String)> = Vec::new();
+    for edit in &steps.bump {
+        run.push((
+            "bump",
+            format!("{} {}: {} -> {}", edit.path, edit.at, edit.from, edit.to),
+        ));
+    }
+    if let Some(proposed) = proposed {
+        run.push((
+            "changelog",
+            format!("a section for {} in {}", proposed.version, steps.changelog),
+        ));
+    }
+    for command in &steps.gate {
+        run.push(("gate", command.clone()));
+    }
+    if let Some(commit) = &steps.commit {
+        run.push(("commit", commit.clone()));
+    }
+    run.push((
+        "ci",
+        format!(
+            "wait for {} on {}",
+            steps.ci.workflow,
+            steps.ci.provider.label()
+        ),
+    ));
+    if let Some(tag) = &steps.tag {
+        let publish = steps
+            .ci
+            .publish
+            .as_deref()
+            .map(|w| format!(", which starts {w}"))
+            .unwrap_or_default();
+        run.push(("tag", format!("{tag}{publish}")));
+    }
+    for package in &steps.publish {
+        let now = if package.first {
+            " (not there yet: the first publish is by hand)".to_owned()
+        } else {
+            package
+                .latest
+                .as_ref()
+                .map(|v| format!(" ({v} now)"))
+                .unwrap_or_default()
+        };
+        run.push((
+            "publish",
+            format!("{} {}{now}", package.registry.label(), package.name),
+        ));
+    }
+    for line in &steps.verify {
+        run.push(("verify", line.clone()));
+    }
+    if let Some(install) = &steps.post.install {
+        let bin = install.bin.as_deref().unwrap_or(project);
+        run.push((
+            "install",
+            format!("{bin} from the release, proven by its hash"),
+        ));
+        for alias in &install.aliases {
+            run.push(("install", format!("{alias}, the same build")));
+        }
+    }
+    if steps.post.deploy.is_some() {
+        run.push(("deploy", "turnout deploy".to_owned()));
+    }
+    run.into_iter()
+        .map(|(step, what)| Would { step, what })
+        .collect()
 }
 
 impl Release {
@@ -358,6 +443,7 @@ impl Release {
             post: config.post.clone(),
         };
 
+        let would = would(&config.project.name, proposed.as_ref(), &steps);
         let plan = Plan {
             project: config.project.name.clone(),
             released,
@@ -367,6 +453,7 @@ impl Release {
             tally,
             checks,
             steps,
+            would,
             ready,
         };
         let bumps = Bumps {

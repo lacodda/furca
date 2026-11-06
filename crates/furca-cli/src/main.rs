@@ -770,81 +770,13 @@ fn plan_text(plan: &Plan) -> String {
     out.extend(check_lines(&plan.checks));
     out.push(String::new());
 
-    let steps = &plan.steps;
-    let mut run = Vec::new();
-    for edit in &steps.bump {
-        run.push((
-            "bump",
-            format!("{} {}: {} -> {}", edit.path, edit.at, edit.from, edit.to),
-        ));
-    }
-    if let Some(proposed) = &plan.proposed {
-        run.push((
-            "changelog",
-            format!("a section for {} in {}", proposed.version, steps.changelog),
-        ));
-    }
-    for command in &steps.gate {
-        run.push(("gate", command.clone()));
-    }
-    if let Some(commit) = &steps.commit {
-        run.push(("commit", commit.clone()));
-    }
-    run.push((
-        "ci",
-        format!(
-            "wait for {} on {}",
-            steps.ci.workflow,
-            steps.ci.provider.label()
-        ),
-    ));
-    if let Some(tag) = &steps.tag {
-        let publish = steps
-            .ci
-            .publish
-            .as_deref()
-            .map(|w| format!(", which starts {w}"))
-            .unwrap_or_default();
-        run.push(("tag", format!("{tag}{publish}")));
-    }
-    for package in &steps.publish {
-        let now = if package.first {
-            " (not there yet: the first publish is by hand)".to_owned()
-        } else {
-            package
-                .latest
-                .as_ref()
-                .map(|v| format!(" ({v} now)"))
-                .unwrap_or_default()
-        };
-        run.push((
-            "publish",
-            format!("{} {}{now}", package.registry.label(), package.name),
-        ));
-    }
-    for line in &steps.verify {
-        run.push(("verify", line.clone()));
-    }
-    if let Some(install) = &steps.post.install {
-        let bin = install.bin.as_deref().unwrap_or(&plan.project);
-        run.push((
-            "install",
-            format!("{bin} from the release, proven by its hash"),
-        ));
-        for alias in &install.aliases {
-            run.push(("install", format!("{alias}, the same build")));
-        }
-    }
-    if steps.post.deploy.is_some() {
-        run.push(("deploy", "turnout deploy".to_owned()));
-    }
     out.push("The run would".to_owned());
-    let width = run.iter().map(|(step, _)| step.len()).max().unwrap_or(0);
+    let width = plan.would.iter().map(|w| w.step.len()).max().unwrap_or(0);
     let mut last = "";
-    for (step, what) in &run {
-        let label = if *step == last { "" } else { step };
-        out.push(format!("  {label:<width$}  {what}"));
-        last = step;
+    for would in &plan.would {
+        let label = if would.step == last { "" } else { would.step };
+        out.push(format!("  {label:<width$}  {}", would.what));
+        last = would.step;
     }
     out.push(String::new());
 

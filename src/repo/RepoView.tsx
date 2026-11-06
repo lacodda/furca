@@ -1,24 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FilePen, History } from 'lucide-react'
+import { FilePen, History, Rocket } from 'lucide-react'
 import { RowButton } from '@/components/ui/list-row'
 import { ariaKeyShortcuts, keysOf } from '@/components/ui/shortcut'
+import { Spinner } from '@/components/ui/spinner'
 import { Splitter, SplitterHandle, SplitterPane } from '@/components/ui/splitter'
 import type { Layout } from '@/lib/generated/Layout'
 import type { Tab } from '@/lib/generated/Tab'
 import { positionOf, rowAt, searchGraph, showBranch, useGraph } from '@/lib/graph'
 import { labelsByCommit, nextMatch, type Label } from '@/lib/graph-labels'
+import { readState, useRelease } from '@/lib/release'
 import { useMaintenance, useSidebar } from '@/lib/repos'
 import { counted, useWorkingCopy } from '@/lib/working'
 import { Details } from './Details'
 import { GraphView } from './GraphView'
+import { ReleasePanel } from './ReleasePanel'
 import { Sidebar } from './Sidebar'
 import { Toolbar } from './Toolbar'
 import { WorkingCopyView } from './WorkingCopy'
 
-/** What the middle of the window shows of a repository: its history, or what
- * is not committed yet. */
-type View = 'history' | 'changes'
+/** What the middle of the window shows of a repository: its history, what is
+ * not committed yet, or its release. */
+type View = 'history' | 'changes' | 'release'
 
 /** What each tab had chosen and was searching for, kept while the window
  * is: going back to a tab finds it as it was left. */
@@ -55,6 +58,11 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
   const [view, setView] = useState<View>(() => kept.get(path)?.view ?? 'history')
   const copy = useWorkingCopy(path)
   const changes = copy.state === 'read' ? counted(copy.status, copy.counts).total : null
+  const release = useRelease(path)
+  const releasable = release.state?.configured === true
+  useEffect(() => {
+    void readState(path)
+  }, [path])
   // The commit chosen, which outlives its row: a graph begun again - after
   // a commit, a fetch, another branch shown - puts it somewhere else.
   const chosen = useRef<string | null>(kept.get(path)?.id ?? null)
@@ -133,7 +141,11 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
       if (keys === 'Mod+L' || keys === 'Mod+H') {
         event.preventDefault()
         setView(keys === 'Mod+L' ? 'changes' : 'history')
-      } else if (keys === 'Mod+F' && view === 'changes') {
+      } else if (keys === 'Mod+R') {
+        // Taken with no panel too: left alone, it reloads the page.
+        event.preventDefault()
+        if (releasable) setView('release')
+      } else if (keys === 'Mod+F' && view !== 'history') {
         // The search belongs to the history, and is hidden with it: its key
         // goes there first, and the field can take the focus once it shows.
         setView('history')
@@ -142,7 +154,7 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [view])
+  }, [releasable, view])
 
   const found = useMemo(() => (search ? new Set(search.rows) : NO_ROWS), [search])
   // Read on every render: the row's page arrives after the row is chosen.
@@ -170,6 +182,17 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
             >
               {t('views.history')}
             </RowButton>
+            {releasable && (
+              <RowButton
+                selected={view === 'release'}
+                start={<Rocket aria-hidden />}
+                end={release.running ? <Spinner size="sm" label={t('views.releasing')} /> : undefined}
+                aria-keyshortcuts={ariaKeyShortcuts('Mod+R')}
+                onClick={() => setView('release')}
+              >
+                {t('views.release')}
+              </RowButton>
+            )}
           </nav>
           <div className="min-h-0 flex-1">
             <Sidebar path={path} onJump={jump} />
@@ -191,6 +214,11 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
           {view === 'changes' && (
             <div className="min-h-0 flex-1">
               <WorkingCopyView path={path} layout={layout} onLayout={onLayout} />
+            </div>
+          )}
+          {view === 'release' && (
+            <div className="min-h-0 flex-1">
+              <ReleasePanel path={path} layout={layout} onLayout={onLayout} />
             </div>
           )}
           {/* Kept drawn behind the working copy: coming back finds the graph

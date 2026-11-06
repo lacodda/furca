@@ -134,8 +134,11 @@ impl Place {
         };
         let (host, path) = match scheme {
             "http" | "https" | "ssh" | "git" => rest.split_once('/')?,
-            // `user@host:owner/repo.git`
-            "scp" => rest.split_once(':')?,
+            // `user@host:owner/repo.git`. One letter before the colon is a
+            // drive, `C:/git/app.git`, as git itself reads it on Windows.
+            "scp" => rest
+                .split_once(':')
+                .filter(|(host, _)| !(host.len() == 1 && host.is_ascii()))?,
             _ => return None,
         };
         let host = host.rsplit('@').next()?;
@@ -682,6 +685,11 @@ mod tests {
         assert_eq!(ssh.web, "https://forge.local");
 
         assert_eq!(Place::from_url("/srv/git/app.git", None), None);
+        assert_eq!(Place::from_url("C:/srv/git/app.git", None), None);
+        assert_eq!(
+            Place::from_url("C:/srv/git/app.git", Some(Provider::Github)),
+            None
+        );
         assert_eq!(Place::from_url("https://github.com/lacodda", None), None);
     }
 

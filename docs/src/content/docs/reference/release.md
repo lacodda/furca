@@ -479,6 +479,9 @@ $ furca release plan --json
     "verify": ["release page: furca-v0.3.0-x86_64-pc-windows-msvc.zip", "crates.io: furca-core", "the links the manifests show"],
     "post": { "install": { "bin": null, "aliases": [] }, "deploy": null }
   },
+  "would": [
+    { "step": "bump", "what": "Cargo.toml workspace.package.version: 0.2.0 -> 0.3.0" }
+  ],
   "ready": true
 }
 ```

@@ -10,6 +10,7 @@ pub mod graph;
 pub mod maintenance;
 pub mod measure;
 mod nooma;
+pub mod release;
 pub mod state;
 pub mod working;
 
@@ -103,6 +104,7 @@ pub fn run() {
             app.manage(early);
             app.manage(graphs);
             app.manage(working::Watched::default());
+            app.manage(release::Releases::default());
 
             // The window is on the screen before its webview is (ADR 0011):
             // the webview takes some 350 ms to start, and a window that waits
@@ -161,6 +163,9 @@ pub fn run() {
             details::details,
             details::file_diff,
             working::watch_working_copy,
+            release::release_state,
+            release::release_plan,
+            release::release_run,
             measure::measured,
         ])
         .run(tauri::generate_context!())
