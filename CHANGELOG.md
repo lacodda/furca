@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.11.0] - 2026-11-06
+
+### Bug Fixes
+- Stop reading a week and a Friday the record no longer gives
+- Wait for the publish workflow with no registries
+- Draw a long list of files a screenful at a time
+- Watch each folder on Linux, and leave out what git ignores
+
+### CI
+- Leave the full gate to CI, with the site's build in it
+
+### Features
+- Draw scrollbars that take no width
+- Name the file that holds a target's program
+- Tell a run as it goes, and print to whoever shows it
+- Release a repository from a panel in the window
+
+### Breaking Changes
+- `Runner` takes `tell` in place of `say` and
+`gate_to_stderr`; `Local` takes `output: Output` in place of
+`to_stderr`; `Machine` gains `shell`.
+
 ## [0.10.0] - 2026-11-04
 
 ### Bug Fixes
