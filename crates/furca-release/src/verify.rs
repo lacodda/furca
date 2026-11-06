@@ -102,6 +102,7 @@ impl Release {
                 root: &self.root,
                 bin,
                 aliases: &post.aliases,
+                files: &post.files,
                 tag,
                 version: &version,
                 into: InstallTo::Dir(dir),

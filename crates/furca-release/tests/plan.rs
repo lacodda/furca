@@ -986,6 +986,61 @@ fn an_installer_that_asks_for_a_target_the_release_lacks_is_caught() {
     );
 }
 
+/// A desktop release's installer names no target, and its files do not either:
+/// the table says what the plan could not read.
+#[test]
+fn a_table_of_files_stands_in_for_the_targets_an_installer_does_not_name() {
+    let repo = Repo::released();
+    repo.write("tools/install.ps1", "# installs the app\n");
+    repo.write("tools/install.sh", "# installs the app\n");
+    let page =
+        "\n[page]\nassets = [\"demo_{version}_app\", \"demo-{tag}.zip\"]\n\n[post.install]\n";
+    repo.write("release.toml", &format!("{RELEASE}{page}"));
+    repo.commit("build: add the installers", NOW - DAY);
+
+    let plan = repo.plan(&Held::released(), None);
+    let blind = find(&plan, "installers");
+    assert_eq!(blind.status, Status::Warn, "{blind:#?}");
+
+    let table = "\n[post.install.files]\nx86_64-unknown-linux-gnu = \"demo_{version}_app\"\n";
+    repo.write("release.toml", &format!("{RELEASE}{page}{table}"));
+    repo.commit("build: name the file", NOW - DAY);
+
+    let plan = repo.plan(&Held::released(), None);
+    let named = find(&plan, "installers");
+    assert_eq!(named.status, Status::Pass, "{named:#?}");
+    assert_eq!(
+        named.summary,
+        "2 installers ask for 2 targets the release page carries"
+    );
+}
+
+/// The table is held to the file's own list, and its keys to being targets: a
+/// misspelt one would simply never be asked for.
+#[test]
+fn a_table_of_files_that_says_what_cannot_be_is_refused() {
+    let repo = Repo::released();
+    repo.write("tools/install.ps1", "# installs the app\n");
+    repo.write("tools/install.sh", "# installs the app\n");
+    repo.write(
+        "release.toml",
+        &format!(
+            "{RELEASE}\n[page]\nassets = [\"demo_{{version}}_app\"]\n\n[post.install]\n\n[post.install.files]\nx86_64-linux = \"demo_{{version}}_app\"\naarch64-apple-darwin = \"demo_{{version}}.tar.gz\"\n"
+        ),
+    );
+    let problems = match Release::open(repo.path()) {
+        Err(Error::Config(problems)) => problems,
+        other => panic!("not refused: {:?}", other.err()),
+    };
+    assert_eq!(problems.len(), 2, "{problems:#?}");
+    assert!(problems.iter().any(|p| p.contains("`x86_64-linux`")));
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("not one of `page.assets`"))
+    );
+}
+
 #[test]
 fn an_install_without_its_installers_or_with_a_bad_asset_is_refused() {
     let repo = Repo::released();

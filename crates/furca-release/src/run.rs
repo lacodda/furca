@@ -1364,6 +1364,7 @@ impl Release {
                 root: &self.root,
                 bin,
                 aliases: &post.aliases,
+                files: &post.files,
                 tag: &state.tag,
                 version: &state.version,
                 into: InstallTo::Owner,

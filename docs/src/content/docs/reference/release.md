@@ -241,7 +241,9 @@ what is on the machine afterwards:
 3. `build` - its SHA-256 equals that of the program inside the release
    page's archive for this machine's target (`x86_64-pc-windows-msvc`, ...),
    downloaded and unpacked by the system `tar` (`unzip` for a zip outside
-   Windows). This is what tells the release's own bytes from anything else.
+   Windows). Where `post.install.files` names a file for the target, it is that
+   file, and a file that is not an archive is hashed as it is. This is what
+   tells the release's own bytes from anything else.
 4. `aliases` - every name in `post.install.aliases` is on the `PATH` with the
    same hash.
 
@@ -438,6 +440,7 @@ reported at once; an unknown key is a problem, not something to ignore.
 | `post.install` | Install the release for the owner after the publish with `tools/install.ps1` and `tools/install.sh`, which must exist, and prove it. |
 | `post.install.bin` | The program the installers put on the `PATH`; the project's name when left out. Upper-cased, it prefixes the installers' variables: `FURCA_VERSION`. |
 | `post.install.aliases` | Other names the installers make for it, such as `tn` for `turnout`; each must be the same build. |
+| `post.install.files` | The file of the release page that holds the program for a target, by target, where the file's name does not say: a desktop release's `app_{version}_amd64.AppImage`. Written as `page.assets` writes it, and it has to be one of them. A file that is not an archive is the program itself. A target it does not name goes by an archive with the target in its name, as before. |
 | `post.deploy` | Deploy with turnout after the install. It takes no keys: the stand is turnout's own configuration. |
 
 The file is public and holds nothing private - no machine paths, no stand

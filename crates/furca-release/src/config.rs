@@ -6,7 +6,7 @@
 //! owner's machine (which stand a deploy goes to, where the record lives) is
 //! asked of the tool that keeps it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -47,12 +47,15 @@ impl PageAssets {
     pub fn names(&self, tag: &str, version: &semver::Version) -> Vec<String> {
         self.assets
             .iter()
-            .map(|a| {
-                a.replace("{tag}", tag)
-                    .replace("{version}", &version.to_string())
-            })
+            .map(|a| filled(a, tag, version))
             .collect()
     }
+}
+
+/// A file's name for one release, `{tag}` and `{version}` filled in.
+pub(crate) fn filled(name: &str, tag: &str, version: &semver::Version) -> String {
+    name.replace("{tag}", tag)
+        .replace("{version}", &version.to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -170,6 +173,13 @@ pub struct Install {
     /// `turnout`: each has to be the same build.
     #[serde(default)]
     pub aliases: Vec<String>,
+    /// The file of the release page that holds the program for a target, by
+    /// target, where the name of the file does not say: a desktop release's
+    /// `app_{version}_amd64.AppImage`. A file that is not an archive is the
+    /// program itself. It is written as `[page] assets` writes it, and has to
+    /// be one of them.
+    #[serde(default)]
+    pub files: BTreeMap<String, String>,
 }
 
 /// Deploy with turnout from the repository: which stand it goes to is
@@ -291,6 +301,22 @@ impl Config {
                 if !named(alias) || alias == bin {
                     problems.push(format!(
                         "`post.install.aliases` has `{alias}`, which is not another program's name"
+                    ));
+                }
+            }
+            for (target, file) in &install.files {
+                if crate::install::targets(target) != [target.as_str()] {
+                    problems.push(format!(
+                        "`post.install.files` has `{target}`, which is not a target such as `x86_64-unknown-linux-gnu`"
+                    ));
+                }
+                if !self
+                    .page
+                    .as_ref()
+                    .is_some_and(|page| page.assets.contains(file))
+                {
+                    problems.push(format!(
+                        "`post.install.files` names `{file}` for {target}, which is not one of `page.assets`"
                     ));
                 }
             }

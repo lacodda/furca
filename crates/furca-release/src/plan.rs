@@ -940,6 +940,15 @@ impl Release {
                 Vec::new(),
             ));
         };
+        // What the table names is held to `[page] assets` when the file is read;
+        // an installer need not name it again.
+        let named = self
+            .config
+            .post
+            .install
+            .as_ref()
+            .map(|install| &install.files)
+            .filter(|files| !files.is_empty());
         let (mut asked, mut blind, mut wrong) = (0, Vec::new(), Vec::new());
         for path in &present {
             let full = self.root.join(path);
@@ -949,11 +958,15 @@ impl Release {
             })?;
             let targets = install::targets(&text);
             if targets.is_empty() {
-                blind.push(format!("{path} names no target furca can read"));
+                match named {
+                    Some(files) => asked += files.len(),
+                    None => blind.push(format!("{path} names no target furca can read")),
+                }
             }
             for target in targets {
                 asked += 1;
-                if !page.assets.iter().any(|a| a.contains(&target)) {
+                let in_table = named.is_some_and(|files| files.keys().any(|k| k.contains(&target)));
+                if !in_table && !page.assets.iter().any(|a| a.contains(&target)) {
                     wrong.push(format!(
                         "{path} asks for {target}, and no file of `[page] assets` is built for it"
                     ));

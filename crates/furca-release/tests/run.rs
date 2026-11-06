@@ -276,6 +276,26 @@ impl Pair {
         self.write(".github/workflows/release.yml", PUBLISH);
         self.commit("chore: release from a workflow", NOW - DAY);
     }
+
+    /// The form whose program for this machine is a file its name does not
+    /// tell, and installers that do not name a target.
+    fn with_a_named_file(&self) {
+        let toml = release_toml(PASS)
+            .replace(
+                &format!("\"demo-{{tag}}-{TARGET}.tar.gz\""),
+                "\"demo_{version}_app\"",
+            )
+            .replace(
+                "aliases = [\"dm\"]\n",
+                &format!(
+                    "aliases = [\"dm\"]\n\n[post.install.files]\n{TARGET} = \"demo_{{version}}_app\"\n"
+                ),
+            );
+        self.write("release.toml", &toml);
+        self.write("tools/install.ps1", "# installs the app\n");
+        self.write("tools/install.sh", "# installs the app\n");
+        self.commit("chore: release a file its name does not tell", NOW - DAY);
+    }
 }
 
 /// The test's own `git`, with the machine's configuration shut out and the
@@ -343,6 +363,8 @@ struct World {
     deployed: Cell<usize>,
     /// The release page is a draft.
     draft: Cell<bool>,
+    /// A file the page carries besides the two every release has.
+    extra_asset: RefCell<Option<(String, Vec<u8>)>>,
     /// The notes on the release page.
     notes: RefCell<Option<String>>,
     /// Whether the forge refuses to write them.
@@ -376,6 +398,7 @@ impl World {
             installed: Cell::new(0),
             deployed: Cell::new(0),
             draft: Cell::new(false),
+            extra_asset: RefCell::new(None),
             notes: RefCell::new(Some(LIVE_NOTES.to_owned())),
             notes_refused: Cell::new(false),
         })
@@ -411,11 +434,13 @@ impl Forge for FakeForge {
 
     fn page(&self, tag: &str) -> Result<Option<Page>, String> {
         let lacks = self.0.page_lacks.borrow();
+        let extra = self.0.extra_asset.borrow();
         let assets = [
             format!("demo-{tag}-{TARGET}.tar.gz"),
             format!("demo-{tag}.sha256"),
         ]
         .into_iter()
+        .chain(extra.iter().map(|(name, _)| name.clone()))
         .filter(|a| lacks.as_deref() != Some(a.as_str()))
         .collect();
         Ok(Some(Page {
@@ -426,6 +451,11 @@ impl Forge for FakeForge {
     }
 
     fn download(&self, tag: &str, asset: &str) -> Result<Vec<u8>, String> {
+        if let Some((name, bytes)) = &*self.0.extra_asset.borrow()
+            && name == asset
+        {
+            return Ok(bytes.clone());
+        }
         assert_eq!(asset, format!("demo-{tag}-{TARGET}.tar.gz"));
         Ok(self.0.archive.clone())
     }
@@ -619,6 +649,44 @@ fn a_release_with_no_registries_waits_for_its_publish_workflow() {
     assert!(report.released, "{report:#?}\n{said:#?}");
     assert!(world.shipped.borrow()[0].release);
     assert!(world.shipped.borrow()[0].registries.is_empty());
+}
+
+/// A desktop release: the file for this machine is named in `release.toml`, is
+/// the program itself rather than an archive, and the proof holds it to the
+/// bytes on the page.
+#[test]
+fn the_file_named_for_the_target_is_what_the_install_is_proven_against() {
+    let pair = Pair::new(PASS);
+    pair.with_a_named_file();
+    let world = World::new(&pair);
+    *world.extra_asset.borrow_mut() = Some(("demo_0.3.0_app".to_owned(), RELEASED.to_vec()));
+    let (report, said) = go(&pair, &world, Mode::Run);
+
+    assert!(report.released, "{report:#?}\n{said:#?}");
+    let install = report
+        .steps
+        .iter()
+        .find(|s| s.name == "install")
+        .expect("a step");
+    assert!(
+        install
+            .details
+            .iter()
+            .any(|d| d.contains("as in demo_0.3.0_app")),
+        "{install:#?}"
+    );
+}
+
+#[test]
+fn another_program_than_the_file_named_for_the_target_stops_the_install() {
+    let pair = Pair::new(PASS);
+    pair.with_a_named_file();
+    let world = World::new(&pair);
+    *world.extra_asset.borrow_mut() = Some(("demo_0.3.0_app".to_owned(), RELEASED.to_vec()));
+    *world.installs.borrow_mut() = b"a local build".to_vec();
+    let (report, _) = go(&pair, &world, Mode::Run);
+
+    assert_eq!(stopped_at(&report), "install", "{report:#?}");
 }
 
 /// Stopped on a draft, the page put out by hand, the run resumed: `verify` saw

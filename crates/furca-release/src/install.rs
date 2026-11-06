@@ -9,12 +9,14 @@
 //! target, and so does every alias next to it. A version alone proves
 //! little: a local build of the same number prints the same.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use semver::Version;
 use sha2::{Digest, Sha256};
 
+use crate::config;
 use crate::hosting::Forge;
 use crate::plan::{Check, Status};
 
@@ -147,6 +149,9 @@ pub(crate) struct Order<'a> {
     pub bin: &'a str,
     /// The other names it answers to, installed next to it.
     pub aliases: &'a [String],
+    /// The file of the release page that holds the program, by target, where
+    /// its name does not say.
+    pub files: &'a BTreeMap<String, String>,
     pub tag: &'a str,
     pub version: &'a Version,
     pub into: InstallTo<'a>,
@@ -164,6 +169,7 @@ pub(crate) fn install(
         root,
         bin,
         aliases,
+        files,
         tag,
         version,
         into,
@@ -260,7 +266,10 @@ pub(crate) fn install(
         "comparing {} with the release's own build",
         path.display()
     ));
-    match released_build(forge, tag, bin) {
+    let named = files
+        .get(TARGET)
+        .map(|file| config::filled(file, tag, version));
+    match released_build(forge, tag, bin, named.as_deref()) {
         Ok(Some((asset, hash))) if hash == installed => checks.push(Check {
             name: "build",
             status: Status::Pass,
@@ -279,11 +288,15 @@ pub(crate) fn install(
             return checks;
         }
         Ok(None) => {
-            checks.push(fail(
-                "build",
-                format!("the release page of {tag} has no archive for {TARGET} with {bin} in it"),
-                Vec::new(),
-            ));
+            let summary = match &named {
+                Some(file) => format!(
+                    "`{file}`, the file `post.install.files` names for {TARGET}, is not on the release page of {tag} or has no {bin} in it"
+                ),
+                None => format!(
+                    "the release page of {tag} has no archive for {TARGET} with {bin} in it"
+                ),
+            };
+            checks.push(fail("build", summary, Vec::new()));
             return checks;
         }
         Err(why) => {
@@ -329,34 +342,58 @@ fn says_version(text: &str, version: &Version) -> bool {
         .any(|word| word.strip_prefix('v').unwrap_or(word) == want)
 }
 
-/// The SHA-256 of the binary `bin` inside the release page's archive for
-/// this machine's target, and the archive's name; `None` when no archive
-/// for the target holds it.
+/// The SHA-256 of the program `bin` in the file of the release page that holds
+/// it for this machine's target, and the file's name: the one `named`, or else
+/// an archive with the target in its name. `None` when no such file holds it.
 fn released_build(
     forge: &dyn Forge,
     tag: &str,
     bin: &str,
+    named: Option<&str>,
 ) -> Result<Option<(String, String)>, String> {
     let page = forge
         .page(tag)?
         .ok_or_else(|| format!("{tag} has no release page"))?;
+    if let Some(file) = named {
+        if !page.assets.iter().any(|asset| asset == file) {
+            return Ok(None);
+        }
+        return program_in(forge, tag, file, bin);
+    }
     let archives = page
         .assets
         .iter()
         .filter(|a| a.contains(TARGET) && archive_kind(a).is_some());
     for asset in archives {
-        let bytes = forge.download(tag, asset)?;
-        let dir = tempfile::tempdir().map_err(|e| format!("no temp directory: {e}"))?;
-        let file = dir.path().join(asset);
-        std::fs::write(&file, bytes).map_err(|e| format!("could not keep {asset}: {e}"))?;
-        let out = dir.path().join("unpacked");
-        std::fs::create_dir(&out).map_err(|e| format!("no temp directory: {e}"))?;
-        unpack(&file, &out)?;
-        if let Some(found) = find_file(&out, &binary_name(bin)) {
-            return Ok(Some((asset.clone(), sha256_of(&found)?)));
+        if let Some(found) = program_in(forge, tag, asset, bin)? {
+            return Ok(Some(found));
         }
     }
     Ok(None)
+}
+
+/// The name and the SHA-256 of the program `bin` in the release's file `asset`:
+/// inside it when it is an archive, the file itself when it is not.
+fn program_in(
+    forge: &dyn Forge,
+    tag: &str,
+    asset: &str,
+    bin: &str,
+) -> Result<Option<(String, String)>, String> {
+    let bytes = forge.download(tag, asset)?;
+    if archive_kind(asset).is_none() {
+        return Ok(Some((asset.to_owned(), hex_sha256(&bytes))));
+    }
+    let dir = tempfile::tempdir().map_err(|e| format!("no temp directory: {e}"))?;
+    let file = dir.path().join(asset);
+    std::fs::write(&file, bytes).map_err(|e| format!("could not keep {asset}: {e}"))?;
+    let out = dir.path().join("unpacked");
+    std::fs::create_dir(&out).map_err(|e| format!("no temp directory: {e}"))?;
+    unpack(&file, &out)?;
+    match find_file(&out, &binary_name(bin)) {
+        Some(found) => Ok(Some((asset.to_owned(), sha256_of(&found)?))),
+        None => Ok(None),
+    }
 }
 
 /// An archive the proof can open: a zip or a gzipped tar.
@@ -425,10 +462,14 @@ fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
 pub(crate) fn sha256_of(path: &Path) -> Result<String, String> {
     let bytes =
         std::fs::read(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    Ok(Sha256::digest(&bytes)
+    Ok(hex_sha256(&bytes))
+}
+
+fn hex_sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
-        .collect())
+        .collect()
 }
 
 /// The target triples a text names - `x86_64-pc-windows-msvc`,
