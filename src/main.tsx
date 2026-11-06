@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { CSPProvider } from '@base-ui/react/csp-provider'
+import { overlayScrollbars } from 'dowel-ui'
 import App from '@/app/App'
 import { api } from '@/lib/api'
 import '@/i18n'
@@ -25,6 +26,11 @@ document.addEventListener('contextmenu', (event) => {
   if ((window.getSelection()?.toString() ?? '') !== '') return
   event.preventDefault()
 })
+
+// The engine draws a bar that takes no width, where the window asks it to
+// (`--enable-features=OverlayScrollbar` in tauri.conf.json); the theme stands
+// aside on what this measures, and keeps its own strip where it is not so.
+overlayScrollbars()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
