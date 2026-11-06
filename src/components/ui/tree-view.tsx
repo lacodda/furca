@@ -35,14 +35,19 @@ import { isBranch, visibleRows, type TreeNode } from './tree-rows'
  */
 
 export interface TreeViewProps {
+  /** The tree, as nested nodes. Only the folders in `open` show their children. */
   nodes: readonly TreeNode[]
   /** Which folders are open. Uncontrolled if omitted. */
   open?: ReadonlySet<string>
+  /** Told the new set of open folders whenever one opens or shuts, whether the
+   * tree is controlled or not. */
   onOpenChange?: (open: Set<string>) => void
   /** Which row is chosen - the file being edited, not the one the cursor is
    * on. The two move apart: a reader walks the tree with arrows without
    * opening anything until Enter. */
   selected?: string
+  /** Called with the id of a leaf when it is chosen by click, Enter or Space.
+   * A folder toggles instead. */
   onSelect?: (id: string) => void
   /** What a screen reader calls the tree. Required: a bare tree announces
    * "tree" and nothing else, and the word belongs to the product. */

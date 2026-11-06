@@ -89,10 +89,7 @@ export function RepoTabs({ tabs, active, onActivate, onClose, onMove }: Props) {
 
   return (
     <Tabs value={active} onValueChange={(value) => onActivate(value as number)} className="min-w-0">
-      {/* `!` because dowel's theme draws every scrollbar thin from outside
-          any layer, which outranks the bar's own `scrollbar-width: none`:
-          eighteen tabs grew a scrollbar inside a forty-pixel bar. */}
-      <TabsList variant="bar" aria-label={t('tabs.label')} ref={strip} className="[scrollbar-width:none]!" onWheel={onWheel}>
+      <TabsList variant="bar" aria-label={t('tabs.label')} ref={strip} onWheel={onWheel}>
         {tabs.map((tab, index) => (
           <TabsTab
             key={tab.path}

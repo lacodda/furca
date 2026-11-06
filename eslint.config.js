@@ -18,12 +18,6 @@ export default tseslint.config(
   // The `flat` variant; the top-level one is still in the legacy shape.
   reactHooks.configs.flat['recommended-latest'],
   ...dowel.configs.recommended,
-  // The registry's copies are dowel's, as `shadcn add @dowel/...` wrote them:
-  // what they draw is answered in dowel, not here.
-  {
-    files: ['src/components/ui/**'],
-    rules: { 'dowel/no-arbitrary-scale': 'off' },
-  },
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
