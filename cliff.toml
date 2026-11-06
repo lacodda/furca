@@ -35,6 +35,9 @@ protect_breaking_commits = true
 tag_pattern = "v[0-9].*"
 sort_commits = "oldest"
 commit_parsers = [
+  # ca75a97 went out under a subject meant for another repository. It stays in
+  # the history; what it holds is told by the commit after it.
+  { message = "^fix: name no package$", skip = true },
   { message = "^feat", group = "Features" },
   { message = "^fix", group = "Bug Fixes" },
   { message = "^perf", group = "Performance" },

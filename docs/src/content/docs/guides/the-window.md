@@ -233,9 +233,41 @@ inotify watches, where each folder takes one and what git ignores takes none - i
 read when the window gets the focus, and the foot of the window says so. See
 [ADR 0016](https://github.com/lacodda/furca/blob/main/docs/adr/0016-on-linux-the-folders-are-walked.md).
 
+## Releasing
+
+A repository with a [`release.toml`](/furca/reference/release/) has a third row
+above the left column: **Release** (<kbd>Ctrl</kbd>+<kbd>R</kbd>). It is
+[`furca release`](/furca/reference/release/) in a window, and the same engine
+decides everything in it.
+
+![The release panel during a run: the checks of the plan and the steps of the run on the left, the gate running, and what the gate prints following along on the right](../../../assets/window-release.png)
+
+On the left are the checks of the plan, then the steps of a run. A step that has
+not run says what it would do; one that has says how it went, and what it printed.
+While a run goes, the panel follows the step it is on and the end of its log, until
+you choose another row or scroll away. The newest 20 000 lines of each step are
+kept.
+
+| Button | What it does |
+| --- | --- |
+| **Plan** | Reads the plan again: the number, and what stands in its way. It changes nothing. |
+| **Run** | Carries the plan out, and asks first. It needs a plan with no red check. |
+| **Resume** | Carries on a run that stopped past its commit, and asks first. It is the only way on from there. |
+
+Red stops the release, as it does in a terminal. A red check means there is nothing
+to run; a step that stops says why, in the bar across the panel. A stop before the
+commit takes its edits back, and a stop after it waits for **Resume**. A run started
+in a terminal shows here as far as its checkpoint says, and the run keeps going if
+you move to another tab.
+
+Closing the window stops a run where it is, as closing a terminal would, and the
+checkpoint knows where that was. When furca releases itself, the window has to run
+from a copy outside `target/`, because the gate rebuilds it. See
+[ADR 0015](https://github.com/lacodda/furca/blob/main/docs/adr/0015-the-window-runs-the-release-the-engine-decides.md).
+
 ## What the window writes
 
-Nothing in your history. One file, in the background: when a repository has no
+Nothing in your history, unless you press **Run** or **Resume**. One file, in the background: when a repository has no
 commit-graph file, or one more than a thousand commits behind, the window has
 git write one - `git commit-graph write --reachable --split`, the file `git gc`
 writes on its own - and the status line along the foot says so. Without it the

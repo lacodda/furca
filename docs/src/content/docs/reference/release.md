@@ -307,6 +307,8 @@ $ furca release run --json
 Lists are shortened here to one entry each. With `--json` the gate's own
 output goes to standard error, so standard output stays one document.
 
+The window runs the same engine: see [Releasing](/furca/guides/the-window/#releasing).
+
 | Field | Meaning |
 | --- | --- |
 | `released` | `true` once the release is tagged, published, in every shop window, installed and deployed where `release.toml` asks, and recorded. |

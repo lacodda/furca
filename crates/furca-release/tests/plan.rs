@@ -536,6 +536,37 @@ fn born(subject: &str, age: u64) -> Repo {
     repo
 }
 
+/// What the CLI prints and the window shows is one list, in the order a run goes.
+#[test]
+fn the_plan_says_what_a_run_would_do_step_by_step() {
+    let repo = Repo::released();
+    repo.commit("feat: add a command", NOW);
+    let plan = repo.plan(&Held::released(), None);
+    let mut steps: Vec<&str> = plan.would.iter().map(|would| would.step).collect();
+    steps.dedup();
+    let order: Vec<usize> = steps
+        .iter()
+        .map(|step| {
+            furca_release::STEPS
+                .iter()
+                .position(|each| each == step)
+                .expect("a step of the run")
+        })
+        .collect();
+    assert!(order.is_sorted(), "{steps:?}");
+    for step in ["bump", "changelog", "gate", "commit", "ci", "tag"] {
+        assert!(steps.contains(&step), "{step} in {steps:?}");
+    }
+    let gate: Vec<&str> = plan
+        .would
+        .iter()
+        .filter(|would| would.step == "gate")
+        .map(|would| would.what.as_str())
+        .collect();
+    let commands: Vec<&str> = plan.steps.gate.iter().map(String::as_str).collect();
+    assert_eq!(gate, commands);
+}
+
 /// A new project is born on the stack of its day: a week of no `chore(deps)`
 /// is not yet a stack nobody updated.
 #[test]
