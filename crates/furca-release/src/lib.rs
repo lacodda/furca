@@ -49,14 +49,14 @@ pub use config::{
     Ci, Config, Deploy, FILE, Gate, Install, Package, PageAssets, Post, Project, Provider, Registry,
 };
 pub use error::Error;
-pub use install::{INSTALLERS, Local, Machine, TARGET};
+pub use install::{INSTALLERS, Local, Machine, Output, TARGET};
 pub use manifest::Field;
 pub use plan::{
     Check, CiStep, Edit, Origin, Plan, Proposal, Publish, Release, Sources, Status, Steps,
 };
 pub use record::{Kept, Reading, Record, Rigger, Shipped, Stage};
 pub use registry::{Http, Registries};
-pub use run::{CHECKPOINT, ForgeFor, Report, Runner, STEPS, Step, StepStatus};
+pub use run::{CHECKPOINT, ForgeFor, Report, Runner, STEPS, Step, StepStatus, Told, UnderWay};
 pub use texts::Mention;
 pub use verify::{Shops, Verified, Web};
 pub use version::Bump;

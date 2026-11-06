@@ -16,9 +16,13 @@ use std::process::Command;
 use semver::Version;
 use serde::Serialize;
 
+use crate::install::no_window;
+
 /// The stage the record says is being built.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Stage {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub version: Version,
     /// The stage's title, in the record's own language.
     pub title: String,
@@ -196,16 +200,7 @@ fn stage_version(text: &str) -> Option<Version> {
 fn rigger(args: &[&str]) -> Result<serde_json::Value, String> {
     let mut command = Command::new("rigger");
     command.args(args);
-    // The window asks the record for the line, and a console program started
-    // from a window is given a console window of its own on Windows: a black
-    // box flashed over furca every time. The output is captured either way.
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        /// `CREATE_NO_WINDOW`, from the Windows process creation flags.
-        const NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(NO_WINDOW);
-    }
+    no_window(&mut command);
     let output = match command.output() {
         Ok(output) => output,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

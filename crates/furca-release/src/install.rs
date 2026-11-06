@@ -10,8 +10,11 @@
 //! little: a local build of the same number prints the same.
 
 use std::collections::BTreeMap;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, mpsc};
+use std::time::{Duration, Instant};
 
 use semver::Version;
 use sha2::{Digest, Sha256};
@@ -40,6 +43,11 @@ pub trait Machine {
         env: &[(String, String)],
     ) -> std::io::Result<Option<i32>>;
 
+    /// Runs `line` through the shell from `dir`, its output on the terminal:
+    /// a gate is watched while it runs. The exit code; `None` when it was
+    /// killed.
+    fn shell(&self, line: &str, dir: &Path) -> std::io::Result<Option<i32>>;
+
     /// The file the command `name` runs, as the PATH finds it.
     fn find(&self, name: &str) -> Option<PathBuf>;
 
@@ -47,11 +55,36 @@ pub trait Machine {
     fn version(&self, program: &Path) -> Result<String, String>;
 }
 
+/// Where the programs a [`Local`] machine runs print.
+#[derive(Clone)]
+pub enum Output {
+    /// On the terminal.
+    Terminal,
+    /// On standard error, standard output included: for a caller whose
+    /// standard output is one document.
+    Stderr,
+    /// To whoever shows them, a line at a time, from threads of their own: a
+    /// window has no terminal. As a terminal would have shown them: a carriage
+    /// return starts a line over, and the colours are gone.
+    Lines(Arc<dyn Fn(&str) + Send + Sync>),
+}
+
 /// The machine this process runs on.
 pub struct Local {
-    /// Sends what the programs print on their standard output to standard
-    /// error instead, for a caller whose standard output is one document.
-    pub to_stderr: bool,
+    pub output: Output,
+}
+
+impl Local {
+    fn wait(&self, mut command: Command) -> std::io::Result<Option<i32>> {
+        match &self.output {
+            Output::Terminal => Ok(command.status()?.code()),
+            Output::Stderr => {
+                command.stdout(Stdio::from(std::io::stderr()));
+                Ok(command.status()?.code())
+            }
+            Output::Lines(say) => printing(command, say),
+        }
+    }
 }
 
 impl Machine for Local {
@@ -67,10 +100,20 @@ impl Machine for Local {
         for (key, value) in env {
             command.env(key, value);
         }
-        if self.to_stderr {
-            command.stdout(Stdio::from(std::io::stderr()));
-        }
-        Ok(command.status()?.code())
+        self.wait(command)
+    }
+
+    fn shell(&self, line: &str, dir: &Path) -> std::io::Result<Option<i32>> {
+        #[cfg(windows)]
+        let (program, flag) = (
+            std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()),
+            "/C",
+        );
+        #[cfg(not(windows))]
+        let (program, flag) = (std::ffi::OsString::from("sh"), "-c");
+        let mut command = Command::new(program);
+        command.arg(flag).arg(line).current_dir(dir);
+        self.wait(command)
     }
 
     fn find(&self, name: &str) -> Option<PathBuf> {
@@ -82,8 +125,10 @@ impl Machine for Local {
     }
 
     fn version(&self, program: &Path) -> Result<String, String> {
-        let output = Command::new(program)
-            .arg("--version")
+        let mut command = Command::new(program);
+        command.arg("--version");
+        no_window(&mut command);
+        let output = command
             .output()
             .map_err(|e| format!("{} did not start: {e}", program.display()))?;
         let text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
@@ -100,6 +145,108 @@ impl Machine for Local {
             ))
         }
     }
+}
+
+/// How long a program's pipes may stay open once it has exited: what it left
+/// behind can hold them for as long as it lives, a compiler's server for one.
+const PIPES_LINGER: Duration = Duration::from_secs(2);
+
+/// Runs `command` to its end, what it prints going to `say`.
+fn printing(
+    mut command: Command,
+    say: &Arc<dyn Fn(&str) + Send + Sync>,
+) -> std::io::Result<Option<i32>> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    no_window(&mut command);
+    let mut child = command.spawn()?;
+    let (done, finished) = mpsc::channel();
+    let mut readers = 0;
+    let mut reader = |pipe: Box<dyn Read + Send>| {
+        let (say, done) = (say.clone(), done.clone());
+        readers += 1;
+        std::thread::spawn(move || {
+            let mut pipe = BufReader::new(pipe);
+            let mut line = Vec::new();
+            while matches!(pipe.read_until(b'\n', &mut line), Ok(read) if read > 0) {
+                say(&shown(&line));
+                line.clear();
+            }
+            let _ = done.send(());
+        });
+    };
+    if let Some(pipe) = child.stdout.take() {
+        reader(Box::new(pipe));
+    }
+    if let Some(pipe) = child.stderr.take() {
+        reader(Box::new(pipe));
+    }
+    let status = child.wait()?;
+    let until = Instant::now() + PIPES_LINGER;
+    for _ in 0..readers {
+        let left = until.saturating_duration_since(Instant::now());
+        if finished.recv_timeout(left).is_err() {
+            break;
+        }
+    }
+    Ok(status.code())
+}
+
+/// A line of a program's output as a terminal would have shown it.
+fn shown(line: &[u8]) -> String {
+    let line = String::from_utf8_lossy(line);
+    let line = line.trim_end_matches(['\r', '\n']);
+    let line = line.rsplit('\r').next().unwrap_or(line);
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            // A control sequence, such as a colour: to its final byte.
+            Some('[') => {
+                for c in chars.by_ref() {
+                    if ('@'..='~').contains(&c) {
+                        break;
+                    }
+                }
+            }
+            // An operating system command, such as a window's title or a
+            // link: to its terminator.
+            Some(']') => {
+                while let Some(c) = chars.next() {
+                    if c == '\u{7}' {
+                        break;
+                    }
+                    if c == '\u{1b}' {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Keeps a console program started from a window from being given a console
+/// window of its own on Windows, a black box flashed over the window. For a
+/// program whose output is captured or piped.
+pub(crate) fn no_window(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        /// `CREATE_NO_WINDOW`, from the Windows process creation flags.
+        const NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
 }
 
 /// The file names a command `name` may have here: `name.exe` and the other
@@ -428,6 +575,7 @@ pub(crate) fn unpack(archive: &Path, into: &Path) -> Result<(), String> {
         command.arg("-xzf").arg(archive).arg("-C").arg(into);
         command
     };
+    no_window(&mut command);
     let output = command
         .output()
         .map_err(|e| format!("could not unpack {}: {e}", archive.display()))?;
@@ -543,6 +691,46 @@ fn fail(name: &'static str, summary: String, details: Vec<String>) -> Check {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_of_output_reads_as_a_terminal_would_show_it() {
+        assert_eq!(shown(b"plain\r\n"), "plain");
+        assert_eq!(shown(b"plain"), "plain");
+        assert_eq!(
+            shown(b"\x1b[1m\x1b[32m   Compiling\x1b[0m furca\n"),
+            "   Compiling furca"
+        );
+        // Progress drawn over itself leaves what was drawn last.
+        assert_eq!(shown(b"10%\r50%\rdone\n"), "done");
+        // A link and a title: the words stay, the commands go.
+        assert_eq!(
+            shown(b"\x1b]8;;https://a.b\x1b\\docs\x1b]8;;\x07 end\n"),
+            "docs end"
+        );
+        assert_eq!(shown("caf\u{e9}\n".as_bytes()), "caf\u{e9}");
+        assert_eq!(shown(b"\xff\n"), "\u{fffd}");
+    }
+
+    /// One line per call, whichever stream it came on, and the exit code the
+    /// program ended with.
+    #[test]
+    fn a_program_prints_to_whoever_shows_it() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let heard = lines.clone();
+        let local = Local {
+            output: Output::Lines(Arc::new(move |line: &str| {
+                heard.lock().expect("not poisoned").push(line.to_owned());
+            })),
+        };
+        let code = local
+            .shell("echo out&& echo err>&2&& exit 3", dir.path())
+            .expect("the shell starts");
+        assert_eq!(code, Some(3));
+        let mut lines = lines.lock().expect("not poisoned").clone();
+        lines.sort();
+        assert_eq!(lines, ["err", "out"]);
+    }
 
     #[test]
     fn an_installer_names_its_targets_whole_or_by_their_tail() {

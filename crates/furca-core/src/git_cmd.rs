@@ -18,6 +18,7 @@ use crate::error::Error;
 
 /// One run of `git`, as the command log keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GitRun {
     /// The arguments after `git`.
     pub args: Vec<String>,

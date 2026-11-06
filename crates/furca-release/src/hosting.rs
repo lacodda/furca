@@ -69,11 +69,19 @@ impl State {
 
 /// A release page for a tag, as the forge shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Page {
     pub draft: bool,
     /// The names of the files attached to it.
     pub assets: Vec<String>,
     pub url: String,
+}
+
+/// The forge behind a remote's address, as `provider` names it; `None` when the
+/// address is not one furca can read.
+pub fn forge_at(url: &str, provider: Option<Provider>) -> Option<Box<dyn Forge>> {
+    let place = Place::from_url(url, provider)?;
+    Some(Box::new(Http::new(place)))
 }
 
 /// What the run and `furca push --wait-ci` ask of a forge.
@@ -509,7 +517,10 @@ fn token(provider: Provider, web: &str) -> Option<String> {
             if web != "https://github.com" {
                 return None;
             }
-            let output = Command::new("gh").args(["auth", "token"]).output().ok()?;
+            let mut gh = Command::new("gh");
+            gh.args(["auth", "token"]);
+            crate::install::no_window(&mut gh);
+            let output = gh.output().ok()?;
             let token = String::from_utf8(output.stdout).ok()?.trim().to_owned();
             (output.status.success() && !token.is_empty()).then_some(token)
         }),

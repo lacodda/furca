@@ -5,6 +5,7 @@ use serde::Serialize;
 
 /// How far a release moves the version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Bump {
     Patch,

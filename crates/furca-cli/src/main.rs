@@ -18,9 +18,10 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use furca_core::{FileChange, Log, Patch, Refs, Repository, Tips};
-use furca_release::hosting::{self, Forge, Place, Run, Waited};
+use furca_release::hosting::{self, Run, Waited, forge_at as forge};
 use furca_release::{
-    Check, Config, Local, Plan, Provider, Release, Report, Runner, Shops, Sources, Status, Verified,
+    Check, Config, Local, Output, Plan, Provider, Release, Report, Runner, Shops, Sources, Status,
+    Told, Verified,
 };
 use serde::Serialize;
 
@@ -289,15 +290,20 @@ fn open(path: &Path) -> Result<Repository, String> {
 }
 
 /// The forge behind a remote's address, asked over HTTPS.
-fn forge(url: &str, provider: Option<Provider>) -> Option<Box<dyn Forge>> {
-    let place = Place::from_url(url, provider)?;
-    Some(Box::new(hosting::Http::new(place)))
-}
-
 /// A progress line on standard error: standard output carries the answer.
 fn say(step: &str, line: &str) {
     let mut err = std::io::stderr().lock();
     let _ = writeln!(err, "  {step:<9}  {line}");
+}
+
+/// Where what a release runs prints: `--json` keeps standard output for its
+/// one document.
+fn output_for(common: &Common) -> Output {
+    if common.json {
+        Output::Stderr
+    } else {
+        Output::Terminal
+    }
 }
 
 fn release_run(common: &Common, resume: bool) -> Result<Answer, String> {
@@ -305,9 +311,13 @@ fn release_run(common: &Common, resume: bool) -> Result<Answer, String> {
     let http = furca_release::Http::default();
     let factory = |url: &str, provider: Provider| forge(url, Some(provider));
     let machine = Local {
-        to_stderr: common.json,
+        output: output_for(common),
     };
-    let mut progress = |step: &str, line: &str| say(step, line);
+    let mut progress = |told: Told| {
+        if let Told::Said { step, line } = told {
+            say(step, &line);
+        }
+    };
     let mut runner = Runner {
         registries: &http,
         web: &http,
@@ -316,8 +326,7 @@ fn release_run(common: &Common, resume: bool) -> Result<Answer, String> {
         machine: &machine,
         now: &std::time::SystemTime::now,
         sleep: &std::thread::sleep,
-        gate_to_stderr: common.json,
-        say: &mut progress,
+        tell: &mut progress,
     };
     let report = if resume {
         release.resume(&mut runner)
@@ -360,7 +369,7 @@ fn release_verify(common: &Common, tag: Option<String>, install: bool) -> Result
     if install {
         let dir = tempfile::tempdir().map_err(|e| format!("no temporary directory: {e}"))?;
         let machine = Local {
-            to_stderr: common.json,
+            output: output_for(common),
         };
         let checks = release
             .install_check(&tag, dir.path(), forge.as_ref(), &machine, &mut |line| {

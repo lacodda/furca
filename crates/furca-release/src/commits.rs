@@ -7,6 +7,7 @@ use crate::version::Bump;
 
 /// One commit since the last release, read as a Conventional Commit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Change {
     pub id: String,
     pub subject: String,
@@ -72,6 +73,7 @@ pub fn needed(changes: &[Change]) -> Option<Bump> {
 
 /// How many of each kind, for a one-line summary.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Tally {
     pub total: usize,
     pub breaking: usize,

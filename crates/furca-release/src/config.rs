@@ -98,6 +98,7 @@ pub struct Ci {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
     Github,
@@ -136,6 +137,7 @@ pub struct Package {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Registry {
     Crates,
@@ -154,6 +156,7 @@ impl Registry {
 /// The steps after the publish, each at most once and always in this
 /// order: the install, then the deploy.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Post {
     pub install: Option<Install>,
@@ -163,6 +166,7 @@ pub struct Post {
 /// Install the released build for the owner with the repository's own
 /// installers, `tools/install.ps1` and `tools/install.sh`, and prove it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Install {
     /// The program the installers put on the PATH; the project's name when
@@ -186,6 +190,7 @@ pub struct Install {
 /// turnout's own configuration, not this file's, and turnout checks the
 /// stand's health.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct Deploy {}
 

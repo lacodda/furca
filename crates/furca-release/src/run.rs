@@ -111,18 +111,83 @@ pub struct Runner<'a> {
     pub machine: &'a dyn Machine,
     pub now: &'a dyn Fn() -> SystemTime,
     pub sleep: &'a dyn Fn(Duration),
-    /// Sends what the gate's commands print on their standard output to
-    /// standard error instead: for `--json`, whose standard output is one
-    /// document.
-    pub gate_to_stderr: bool,
-    /// Told of each thing the run does as it does it: the step and a line.
-    pub say: &'a mut dyn FnMut(&str, &str),
+    /// Told of each thing the run does as it does it.
+    pub tell: &'a mut dyn FnMut(Told),
+}
+
+impl Runner<'_> {
+    fn say(&mut self, step: &'static str, line: &str) {
+        (self.tell)(Told::said(step, line));
+    }
+
+    /// Tells how the step `name` ended, if it has.
+    fn tell_ended(&mut self, report: &Report, name: &str) {
+        if let Some(step) = report.steps.iter().find(|s| s.name == name)
+            && step.status != StepStatus::Ahead
+        {
+            (self.tell)(Told::Ended { step: step.clone() });
+        }
+    }
+
+    /// Does the step `name`, telling that it began and how it ended.
+    fn stepping(
+        &mut self,
+        report: &mut Report,
+        name: &'static str,
+        step: impl FnOnce(&mut Self, &mut Report) -> Flow,
+    ) -> Flow {
+        (self.tell)(Told::Began { step: name });
+        let flow = step(self, report);
+        self.tell_ended(report, name);
+        flow
+    }
+}
+
+/// What a run tells as it goes, for whoever shows it. The [`Report`] it returns
+/// is the whole of it; this is the same run, while it is happening.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum Told {
+    /// A step has started.
+    Began { step: &'static str },
+    /// A thing the step is doing.
+    Said { step: &'static str, line: String },
+    /// A step has ended, in this way.
+    Ended { step: Step },
+}
+
+impl Told {
+    fn said(step: &'static str, line: &str) -> Told {
+        Told::Said {
+            step,
+            line: line.to_owned(),
+        }
+    }
+}
+
+/// A run that has not finished, as its checkpoint has it.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct UnderWay {
+    pub tag: String,
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    pub version: Version,
+    /// It is past its commit, and `resume` carries it on. Before the commit
+    /// there is nothing to carry on: the next run takes its edits back.
+    pub resumable: bool,
+    /// Every step in order: done, or not reached.
+    pub steps: Vec<Step>,
+    /// The step `resume` starts from.
+    pub next: Option<&'static str>,
 }
 
 /// What a run did, step by step, and where it stopped if it did.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Report {
     pub project: String,
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub version: Option<Version>,
     pub tag: Option<String>,
     /// The release is out: tagged, published, in every shop window,
@@ -141,6 +206,8 @@ pub struct Report {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "RunStep"))]
 pub struct Step {
     pub name: &'static str,
     pub status: StepStatus,
@@ -149,6 +216,7 @@ pub struct Step {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum StepStatus {
     Done,
@@ -263,6 +331,53 @@ impl Release {
         self.go(runner, Mode::Resume)
     }
 
+    /// The run that has not finished here, if there is one: stopped, killed,
+    /// or still going in another door.
+    pub fn under_way(&self) -> Result<Option<UnderWay>, Error> {
+        let Some(state) = load(&self.checkpoint_path())? else {
+            return Ok(None);
+        };
+        let mut report = Report::new(&self.config.project.name);
+        let resumable = state.commit.is_some();
+        let post = &self.config.post;
+        let passed = [
+            ("plan", resumable),
+            ("bump", resumable),
+            ("changelog", resumable),
+            ("gate", resumable),
+            ("commit", resumable),
+            ("push", state.pushed.is_some()),
+            ("ci", state.green.is_some() && state.green == state.pushed),
+            ("tag", state.tagged.is_some()),
+            ("publish", state.published.is_some()),
+            ("verify", state.verified),
+            ("install", state.installed || post.install.is_none()),
+            ("deploy", state.deployed || post.deploy.is_none()),
+        ];
+        // A step counts only with every step before it: a commit pushed after
+        // a red CI has its `green` behind it, and its place is that step again.
+        for (name, _) in passed.iter().take_while(|(_, passed)| *passed) {
+            report.mark(
+                name,
+                StepStatus::Done,
+                "before the stop".to_owned(),
+                Vec::new(),
+            );
+        }
+        let next = report
+            .steps
+            .iter()
+            .find(|s| s.status == StepStatus::Ahead)
+            .map(|s| s.name);
+        Ok(Some(UnderWay {
+            tag: state.tag,
+            version: state.version,
+            resumable,
+            steps: report.steps,
+            next: next.filter(|_| resumable),
+        }))
+    }
+
     fn checkpoint_path(&self) -> PathBuf {
         self.repo.git_dir().join(CHECKPOINT)
     }
@@ -275,6 +390,7 @@ impl Release {
     }
 
     fn steps(&self, runner: &mut Runner, mode: Mode, report: &mut Report) -> Result<(), Error> {
+        (runner.tell)(Told::Began { step: "plan" });
         let path = self.checkpoint_path();
         let mut state = load(&path)?;
         if let Some(saved) = &state {
@@ -301,7 +417,7 @@ impl Release {
                     );
                     return Ok(());
                 }
-                (runner.say)(
+                runner.say(
                     "plan",
                     &format!("took back the edits of an interrupted run of {}", saved.tag),
                 );
@@ -338,6 +454,7 @@ impl Release {
                         "before the resume".to_owned(),
                         Vec::new(),
                     );
+                    runner.tell_ended(report, step);
                 }
                 state
             }
@@ -461,7 +578,8 @@ impl Release {
             ),
             notes,
         );
-        (runner.say)("plan", &format!("{} is ready", proposed.tag));
+        runner.say("plan", &format!("{} is ready", proposed.tag));
+        runner.tell_ended(report, "plan");
 
         let mut state = Checkpoint {
             format: FORMAT,
@@ -486,16 +604,24 @@ impl Release {
         save(&path, &state)?;
 
         let to = proposed.version.to_string();
-        if !self.bump(runner, report, &mut state, &bumps, &to)? {
+        if !runner.stepping(report, "bump", |runner, report| {
+            self.bump(runner, report, &mut state, &bumps, &to)
+        })? {
             return Ok(None);
         }
-        if !self.changelog(runner, report, &mut state, now)? {
+        if !runner.stepping(report, "changelog", |runner, report| {
+            self.changelog(runner, report, &mut state, now)
+        })? {
             return Ok(None);
         }
-        if !self.gate(runner, report, &mut state)? {
+        if !runner.stepping(report, "gate", |runner, report| {
+            self.gate(runner, report, &mut state)
+        })? {
             return Ok(None);
         }
-        if !self.commit(runner, report, &mut state, &head)? {
+        if !runner.stepping(report, "commit", |runner, report| {
+            self.commit(runner, report, &mut state, &head)
+        })? {
             return Ok(None);
         }
         Ok(Some(state))
@@ -541,7 +667,7 @@ impl Release {
             )
             .collect();
         for line in &details {
-            (runner.say)("bump", line);
+            runner.say("bump", line);
         }
 
         // The manifests read back as the new number, every one of them.
@@ -629,7 +755,7 @@ impl Release {
         state.touched.push(file);
         save(&self.checkpoint_path(), state)?;
         let heading = section.lines().next().unwrap_or_default().to_owned();
-        (runner.say)("changelog", &heading);
+        runner.say("changelog", &heading);
         report.mark(
             "changelog",
             StepStatus::Done,
@@ -647,13 +773,14 @@ impl Release {
     fn gate(&self, runner: &mut Runner, report: &mut Report, state: &mut Checkpoint) -> Flow {
         let commands = self.config.gate.commands.clone();
         for command in commands.iter().filter(|c| !c.trim().is_empty()) {
-            (runner.say)("gate", command);
-            let code = shell(command, &self.root, runner.gate_to_stderr).map_err(|source| {
-                Error::Gate {
+            runner.say("gate", command);
+            let code = runner
+                .machine
+                .shell(command, &self.root)
+                .map_err(|source| Error::Gate {
                     command: command.clone(),
                     source,
-                }
-            })?;
+                })?;
             if code != Some(0) {
                 let exit = code.map_or("was stopped".to_owned(), |c| format!("exited {c}"));
                 self.stop_local(
@@ -755,7 +882,7 @@ impl Release {
         state.commit = Some(id.clone());
         state.touched.clear();
         save(&self.checkpoint_path(), state)?;
-        (runner.say)("commit", &format!("{} {message}", short(&id)));
+        runner.say("commit", &format!("{} {message}", short(&id)));
         report.commit = Some(id.clone());
         report.mark(
             "commit",
@@ -814,29 +941,49 @@ impl Release {
         };
         let forge = forge.as_ref();
 
-        if !self.push(runner, report, state)? {
+        if !runner.stepping(report, "push", |runner, report| {
+            self.push(runner, report, state)
+        })? {
             return Ok(());
         }
-        if !self.ci(runner, report, state, forge)? {
+        if !runner.stepping(report, "ci", |runner, report| {
+            self.ci(runner, report, state, forge)
+        })? {
             return Ok(());
         }
-        if !self.tag(runner, report, state)? {
+        if !runner.stepping(report, "tag", |runner, report| {
+            self.tag(runner, report, state)
+        })? {
             return Ok(());
         }
-        if !self.publish(runner, report, state, forge)? {
+        if !runner.stepping(report, "publish", |runner, report| {
+            self.publish(runner, report, state, forge)
+        })? {
             return Ok(());
         }
-        if !self.verify_step(runner, report, state, forge)? {
+        if !runner.stepping(report, "verify", |runner, report| {
+            self.verify_step(runner, report, state, forge)
+        })? {
             return Ok(());
         }
-        if !self.install_step(runner, report, state, forge)? {
+        if !runner.stepping(report, "install", |runner, report| {
+            self.install_step(runner, report, state, forge)
+        })? {
             return Ok(());
         }
-        if !self.deploy_step(runner, report, state)? {
+        if !runner.stepping(report, "deploy", |runner, report| {
+            self.deploy_step(runner, report, state)
+        })? {
             return Ok(());
         }
-        self.notes_step(runner, report, state, forge);
-        self.record(runner, report, state, forge)?;
+        runner.stepping(report, "notes", |runner, report| {
+            self.notes_step(runner, report, state, forge);
+            Ok(true)
+        })?;
+        runner.stepping(report, "record", |runner, report| {
+            self.record(runner, report, state, forge)?;
+            Ok(true)
+        })?;
         remove(&self.checkpoint_path())?;
         report.released = true;
         Ok(())
@@ -886,7 +1033,7 @@ impl Release {
             }
             let refspec = format!("HEAD:{}", state.merge);
             self.repo.git().push(&state.remote, &[&refspec])?;
-            (runner.say)(
+            runner.say(
                 "push",
                 &format!("{} to {} {}", short(&head), state.remote, state.merge),
             );
@@ -923,7 +1070,7 @@ impl Release {
         }
         let workflow = self.config.ci.workflow.clone();
         let branch = state.branch.clone();
-        let say = &mut *runner.say;
+        let tell = &mut *runner.tell;
         let waited = hosting::wait(
             forge,
             &pushed,
@@ -931,7 +1078,7 @@ impl Release {
             &[workflow.as_str()],
             forge.pace(),
             runner.sleep,
-            &mut |runs| say("ci", &states(runs)),
+            &mut |runs| tell(Told::said("ci", &states(runs))),
         )
         .map_err(Error::Forge)?;
         let lines = run_lines(waited.runs());
@@ -1089,7 +1236,7 @@ impl Release {
         }
         state.tagged = Some(green.clone());
         save(&self.checkpoint_path(), state)?;
-        (runner.say)("tag", &format!("{tag} on {}", short(&green)));
+        runner.say("tag", &format!("{tag} on {}", short(&green)));
         report.mark(
             "tag",
             StepStatus::Done,
@@ -1152,7 +1299,7 @@ impl Release {
         }
         if !expect.is_empty() {
             let expected: Vec<&str> = expect.iter().map(String::as_str).collect();
-            let say = &mut *runner.say;
+            let tell = &mut *runner.tell;
             let waited = hosting::wait(
                 forge,
                 &tagged,
@@ -1160,7 +1307,7 @@ impl Release {
                 &expected,
                 forge.pace(),
                 runner.sleep,
-                &mut |runs| say("publish", &states(runs)),
+                &mut |runs| tell(Told::said("publish", &states(runs))),
             )
             .map_err(Error::Forge)?;
             lines = run_lines(waited.runs());
@@ -1232,7 +1379,7 @@ impl Release {
             (_, true) => "nothing is published to a registry".to_owned(),
             _ => format!("{version} is in {}", registries.join(", ")),
         };
-        (runner.say)("publish", &summary);
+        runner.say("publish", &summary);
         report.registries = registries;
         report.page = page;
         report.mark("publish", StepStatus::Done, summary, lines);
@@ -1325,7 +1472,7 @@ impl Release {
             .collect::<Vec<_>>()
             .join(", ")
             + " pass";
-        (runner.say)("verify", &summary);
+        runner.say("verify", &summary);
         report.mark("verify", StepStatus::Done, summary, lines);
         Ok(true)
     }
@@ -1358,7 +1505,7 @@ impl Release {
             return Ok(true);
         }
         let bin = self.config.bin(post);
-        let say = &mut *runner.say;
+        let tell = &mut *runner.tell;
         let checks = install::install(
             &Order {
                 root: &self.root,
@@ -1371,7 +1518,7 @@ impl Release {
             },
             forge,
             runner.machine,
-            &mut |line| say("install", line),
+            &mut |line| tell(Told::said("install", line)),
         );
         let lines: Vec<String> = checks
             .iter()
@@ -1402,7 +1549,7 @@ impl Release {
             "{bin} {} is installed, the release's own build",
             state.version
         );
-        (runner.say)("install", &summary);
+        runner.say("install", &summary);
         report.mark("install", StepStatus::Done, summary, lines);
         Ok(true)
     }
@@ -1433,7 +1580,7 @@ impl Release {
             );
             return Ok(true);
         }
-        (runner.say)("deploy", "turnout deploy");
+        runner.say("deploy", "turnout deploy");
         let ran = runner.machine.run("turnout", &DEPLOY, &self.root, &[]);
         let stop = match ran {
             Ok(Some(0)) => None,
@@ -1460,7 +1607,7 @@ impl Release {
         state.deployed = true;
         save(&self.checkpoint_path(), state)?;
         let summary = format!("{} is on its stand, deployed by turnout", state.tag);
-        (runner.say)("deploy", &summary);
+        runner.say("deploy", &summary);
         report.mark("deploy", StepStatus::Done, summary, Vec::new());
         Ok(true)
     }
@@ -1495,7 +1642,7 @@ impl Release {
         match ticked {
             Ok(true) => {
                 let summary = format!("ticked what the run proved on the page of {}", state.tag);
-                (runner.say)("notes", &summary);
+                runner.say("notes", &summary);
                 report.mark("notes", StepStatus::Done, summary, Vec::new());
             }
             Ok(false) => report.mark(
@@ -1564,7 +1711,7 @@ impl Release {
         };
         match record.shipped(&self.config.project.name, &self.root, &shipped) {
             Ok(()) => {
-                (runner.say)("record", &format!("{} shipped", state.tag));
+                runner.say("record", &format!("{} shipped", state.tag));
                 report.mark(
                     "record",
                     StepStatus::Done,
@@ -1663,25 +1810,6 @@ fn remove(path: &Path) -> Result<(), Error> {
             source,
         }),
     }
-}
-
-/// Runs one gate command in `dir` through the shell, its output on the
-/// terminal: a gate is watched while it runs. Returns the exit code, `None`
-/// when it was killed.
-fn shell(command: &str, dir: &Path, to_stderr: bool) -> std::io::Result<Option<i32>> {
-    #[cfg(windows)]
-    let (program, flag) = (
-        std::env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()),
-        "/C",
-    );
-    #[cfg(not(windows))]
-    let (program, flag) = (std::ffi::OsString::from("sh"), "-c");
-    let mut cmd = std::process::Command::new(program);
-    cmd.arg(flag).arg(command).current_dir(dir);
-    if to_stderr {
-        cmd.stdout(std::process::Stdio::from(std::io::stderr()));
-    }
-    Ok(cmd.status()?.code())
 }
 
 #[cfg(test)]

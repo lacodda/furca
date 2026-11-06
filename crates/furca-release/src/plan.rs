@@ -54,10 +54,12 @@ pub(crate) struct Bumps {
 
 /// What the next release is, what stands in its way and what a run does.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Plan {
     pub project: String,
     /// The last version released, by tags and registries; `None` before the
     /// first release.
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub released: Option<Version>,
     pub proposed: Option<Proposal>,
     /// The stage the record says is being built.
@@ -73,7 +75,9 @@ pub struct Plan {
 
 /// The number the plan proposes, and where it came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Proposal {
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub version: Version,
     pub tag: String,
     pub source: Origin,
@@ -82,6 +86,7 @@ pub struct Proposal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Origin {
     /// The stage the record aims at.
@@ -94,6 +99,7 @@ pub enum Origin {
 
 /// One thing that has to hold before a release.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Check {
     /// A stable identifier: `number`, `commits`, `stack`, `manifests`,
     /// `readme`, `descriptions`, `texts`, `changelog`, `registries`,
@@ -105,6 +111,8 @@ pub struct Check {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "CheckStatus"))]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Pass,
@@ -118,6 +126,7 @@ pub enum Status {
 
 /// What a run does, in order, as far as the plan can tell.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Steps {
     /// Every edit the bump makes, empty when the files already say the new
     /// number.
@@ -135,6 +144,7 @@ pub struct Steps {
 
 /// One version the bump rewrites.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Edit {
     pub path: String,
     /// The key in a manifest, or `line N` in a text.
@@ -144,6 +154,7 @@ pub struct Edit {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CiStep {
     pub provider: Provider,
     pub workflow: String,
@@ -152,11 +163,13 @@ pub struct CiStep {
 
 /// A package the tag publishes, and what its registry holds now.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Publish {
     pub registry: Registry,
     pub name: String,
     /// The newest version the registry holds; `None` when it does not hold
     /// the package or was not asked.
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub latest: Option<Version>,
     /// The registry has never seen the package: the first publish is by
     /// hand, and only then can a tag publish it.

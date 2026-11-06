@@ -12,8 +12,8 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use furca_release::hosting::{Forge, Pace, Page, Run, State};
 use furca_release::{
-    CHECKPOINT, Machine, Provider, Reading, Record, Registries, Registry, Release, Report, Runner,
-    Shipped, StepStatus, TARGET, Web,
+    CHECKPOINT, Local, Machine, Output, Provider, Reading, Record, Registries, Registry, Release,
+    Report, Runner, Shipped, StepStatus, TARGET, Told, Web,
 };
 use semver::Version;
 
@@ -365,6 +365,8 @@ struct World {
     draft: Cell<bool>,
     /// A file the page carries besides the two every release has.
     extra_asset: RefCell<Option<(String, Vec<u8>)>>,
+    /// The steps in the order the run told them, each as it began and ended.
+    told: RefCell<Vec<String>>,
     /// The notes on the release page.
     notes: RefCell<Option<String>>,
     /// Whether the forge refuses to write them.
@@ -399,6 +401,7 @@ impl World {
             deployed: Cell::new(0),
             draft: Cell::new(false),
             extra_asset: RefCell::new(None),
+            told: RefCell::new(Vec::new()),
             notes: RefCell::new(Some(LIVE_NOTES.to_owned())),
             notes_refused: Cell::new(false),
         })
@@ -552,6 +555,13 @@ impl Machine for FakeMachine {
         }
     }
 
+    fn shell(&self, line: &str, dir: &Path) -> std::io::Result<Option<i32>> {
+        Local {
+            output: Output::Stderr,
+        }
+        .shell(line, dir)
+    }
+
     fn find(&self, name: &str) -> Option<PathBuf> {
         Some(self.bin.join(exe(name))).filter(|p| p.is_file())
     }
@@ -596,7 +606,14 @@ fn go(pair: &Pair, world: &Rc<World>, mode: Mode) -> (Report, Vec<String>) {
         Some(Box::new(FakeForge(forge_world.clone())))
     };
     let mut said = Vec::new();
-    let mut say = |step: &str, line: &str| said.push(format!("{step}: {line}"));
+    let mut tell = |told: Told| match told {
+        Told::Said { step, line } => said.push(format!("{step}: {line}")),
+        Told::Began { step } => world.told.borrow_mut().push(format!("began {step}")),
+        Told::Ended { step } => world
+            .told
+            .borrow_mut()
+            .push(format!("ended {} {:?}", step.name, step.status)),
+    };
     let mut runner = Runner {
         registries: &registries,
         web: &web,
@@ -605,8 +622,7 @@ fn go(pair: &Pair, world: &Rc<World>, mode: Mode) -> (Report, Vec<String>) {
         machine: &machine,
         now: &|| UNIX_EPOCH + Duration::from_secs(NOW),
         sleep: &|_| {},
-        gate_to_stderr: true,
-        say: &mut say,
+        tell: &mut tell,
     };
     let report = match mode {
         Mode::Run => release.run(&mut runner),
@@ -651,6 +667,23 @@ fn a_release_with_no_registries_waits_for_its_publish_workflow() {
     assert!(world.shipped.borrow()[0].registries.is_empty());
 }
 
+/// Stopped on a draft, the page put out by hand, the run resumed: `verify` saw
+/// the fresh page, and the record has to hear of the same one.
+#[test]
+fn the_record_hears_of_a_page_put_out_between_a_stop_and_a_resume() {
+    let pair = Pair::new(PASS);
+    let world = World::new(&pair);
+    world.draft.set(true);
+    let (report, said) = go(&pair, &world, Mode::Run);
+    assert_eq!(stopped_at(&report), "verify", "{report:#?}\n{said:#?}");
+
+    world.draft.set(false);
+    let (report, said) = go(&pair, &world, Mode::Resume);
+    assert!(report.released, "{report:#?}\n{said:#?}");
+    assert!(world.shipped.borrow()[0].release, "{:#?}", world.shipped);
+    assert!(!report.page.expect("a page").draft);
+}
+
 /// A desktop release: the file for this machine is named in `release.toml`, is
 /// the program itself rather than an archive, and the proof holds it to the
 /// bytes on the page.
@@ -689,21 +722,76 @@ fn another_program_than_the_file_named_for_the_target_stops_the_install() {
     assert_eq!(stopped_at(&report), "install", "{report:#?}");
 }
 
-/// Stopped on a draft, the page put out by hand, the run resumed: `verify` saw
-/// the fresh page, and the record has to hear of the same one.
+/// The run is told step by step, in order: what a window draws while it goes.
 #[test]
-fn the_record_hears_of_a_page_put_out_between_a_stop_and_a_resume() {
+fn a_run_tells_each_step_as_it_begins_and_ends() {
     let pair = Pair::new(PASS);
     let world = World::new(&pair);
-    world.draft.set(true);
     let (report, said) = go(&pair, &world, Mode::Run);
-    assert_eq!(stopped_at(&report), "verify", "{report:#?}\n{said:#?}");
-
-    world.draft.set(false);
-    let (report, said) = go(&pair, &world, Mode::Resume);
     assert!(report.released, "{report:#?}\n{said:#?}");
-    assert!(world.shipped.borrow()[0].release, "{:#?}", world.shipped);
-    assert!(!report.page.expect("a page").draft);
+
+    let told = world.told.borrow();
+    let expected: Vec<String> = furca_release::STEPS
+        .iter()
+        .flat_map(|step| {
+            let ended = report
+                .steps
+                .iter()
+                .find(|s| s.name == *step)
+                .expect("a step");
+            [
+                format!("began {step}"),
+                format!("ended {step} {:?}", ended.status),
+            ]
+        })
+        .collect();
+    assert_eq!(*told, expected);
+}
+
+#[test]
+fn a_run_tells_the_step_it_stopped_at_and_says_nothing_of_the_rest() {
+    let pair = Pair::new(r#""exit 1""#);
+    let world = World::new(&pair);
+    let (report, _) = go(&pair, &world, Mode::Run);
+    assert_eq!(stopped_at(&report), "gate", "{report:#?}");
+
+    let told = world.told.borrow();
+    assert_eq!(told.last().map(String::as_str), Some("ended gate Stopped"));
+    assert!(
+        !told.iter().any(|line| line.contains("commit")),
+        "{told:#?}"
+    );
+}
+
+/// What a window shows of a run that stopped, before anything is run again.
+#[test]
+fn a_run_past_its_commit_is_under_way_from_the_step_it_stopped_at() {
+    let pair = Pair::new(PASS);
+    let world = World::new(&pair);
+    world.ci.set(State::Failure);
+    let (report, _) = go(&pair, &world, Mode::Run);
+    assert_eq!(stopped_at(&report), "ci", "{report:#?}");
+
+    let release = Release::open(pair.work()).expect("release.toml reads");
+    let under_way = release.under_way().expect("reads").expect("under way");
+    assert_eq!(under_way.tag, "v0.3.0");
+    assert!(under_way.resumable);
+    assert_eq!(under_way.next, Some("ci"));
+    let done: Vec<&str> = under_way
+        .steps
+        .iter()
+        .filter(|s| s.status == StepStatus::Done)
+        .map(|s| s.name)
+        .collect();
+    assert_eq!(
+        done,
+        ["plan", "bump", "changelog", "gate", "commit", "push"]
+    );
+
+    world.ci.set(State::Success);
+    let (report, _) = go(&pair, &world, Mode::Resume);
+    assert!(report.released, "{report:#?}");
+    assert!(release.under_way().expect("reads").is_none());
 }
 
 #[test]
@@ -972,8 +1060,8 @@ fn an_interrupted_run_is_taken_back_by_the_next() {
             bin: pair.bin(),
         };
         let forge = |_: &str, _: Provider| -> Option<Box<dyn Forge>> { None };
-        let mut say = |step: &str, _: &str| {
-            if step == "gate" {
+        let mut tell = |told: Told| {
+            if matches!(told, Told::Said { step: "gate", .. }) {
                 panic!("killed");
             }
         };
@@ -985,8 +1073,7 @@ fn an_interrupted_run_is_taken_back_by_the_next() {
             machine: &machine,
             now: &|| UNIX_EPOCH + Duration::from_secs(NOW),
             sleep: &|_| {},
-            gate_to_stderr: true,
-            say: &mut say,
+            tell: &mut tell,
         };
         let _ = release.run(&mut runner);
     }));
@@ -996,6 +1083,14 @@ fn an_interrupted_run_is_taken_back_by_the_next() {
         "the bump was on disk"
     );
     assert!(pair.checkpoint().exists());
+    // Nothing to carry on: the next run takes the edits back.
+    let under_way = Release::open(pair.work())
+        .expect("release.toml reads")
+        .under_way()
+        .expect("reads")
+        .expect("under way");
+    assert!(!under_way.resumable);
+    assert_eq!(under_way.next, None);
 
     let (report, said) = go(&pair, &world, Mode::Run);
     assert!(
