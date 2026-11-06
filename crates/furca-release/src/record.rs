@@ -1,6 +1,6 @@
 //! The owner's record of the project: which version the current stage aims
-//! at, under what title and for which Friday - and, once a release is out,
-//! the word that it went out. The record is rigger's; furca asks it and
+//! at and under what title - and, once a release is out, the word that it
+//! went out. The record is rigger's; furca asks it and
 //! tells it through its CLI.
 //!
 //! The record is optional. Without rigger on the machine, or without the
@@ -22,10 +22,6 @@ pub struct Stage {
     pub version: Version,
     /// The stage's title, in the record's own language.
     pub title: String,
-    /// The calendar week it is aimed at, such as `2026-W41`.
-    pub week: Option<String>,
-    /// The Friday it should ship on.
-    pub friday: Option<String>,
 }
 
 /// What the record says about a project, or why it says nothing.
@@ -154,8 +150,6 @@ pub(crate) fn stage(json: &serde_json::Value) -> Option<Stage> {
     Some(Stage {
         version,
         title: text("title").unwrap_or_default(),
-        week: text("week"),
-        friday: text("friday"),
     })
 }
 
@@ -255,14 +249,12 @@ mod tests {
             "project": "furca",
             "version": "v0.3.0",
             "title": "Release engine: plan",
-            "week": "2026-W41",
-            "friday": "2026-10-09",
             "status": "planned",
             "tasks": []
         });
         let read = stage(&json).expect("a stage");
         assert_eq!(read.version, Version::new(0, 3, 0));
-        assert_eq!(read.friday.as_deref(), Some("2026-10-09"));
+        assert_eq!(read.title, "Release engine: plan");
 
         let short = serde_json::json!({ "version": "v1.15", "title": "x" });
         assert_eq!(
@@ -276,8 +268,6 @@ mod tests {
         );
         assert_eq!(stage_version("v1..2"), None);
 
-        let unaimed = serde_json::json!({ "version": "v0.3.0", "title": "x", "week": null });
-        assert_eq!(stage(&unaimed).expect("a stage").week, None);
         assert_eq!(stage(&serde_json::json!({ "version": "next" })), None);
     }
 

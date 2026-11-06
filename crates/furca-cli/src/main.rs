@@ -754,12 +754,7 @@ fn plan_text(plan: &Plan) -> String {
         None => out.push(format!("{} {released} -> nothing to propose", plan.project)),
     }
     if let Some(stage) = &plan.stage {
-        let due = stage
-            .friday
-            .as_deref()
-            .map(|f| format!(", due {f}"))
-            .unwrap_or_default();
-        out.push(format!("stage v{} \"{}\"{due}", stage.version, stage.title));
+        out.push(format!("stage v{} \"{}\"", stage.version, stage.title));
     }
     out.push(String::new());
 

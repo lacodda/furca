@@ -1289,12 +1289,7 @@ fn record_check(reading: Option<&Reading>, config: &Config) -> Check {
             Vec::new(),
         ),
         Some(Reading::Read { stage, gate }) => {
-            let due = match (&stage.friday, &stage.week) {
-                (Some(friday), _) => format!("due {friday}"),
-                (None, Some(week)) => format!("aimed at {week}"),
-                (None, None) => "not aimed at a week yet".to_owned(),
-            };
-            let summary = format!("stage v{} \"{}\", {due}", stage.version, stage.title);
+            let summary = format!("stage v{} \"{}\"", stage.version, stage.title);
             let ours = config.gate.commands.join(" && ");
             match gate {
                 Some(theirs) if theirs.trim() != ours => check(
@@ -1393,8 +1388,6 @@ mod tests {
         Stage {
             version: v(version),
             title: "A stage".to_owned(),
-            week: None,
-            friday: None,
         }
     }
 

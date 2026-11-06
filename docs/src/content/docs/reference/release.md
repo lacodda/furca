@@ -44,7 +44,7 @@ stage v0.3.0 "Release engine: plan"
                         crates.io `furca`: 0.2.0
   pass  trigger       pushing v0.3.0 starts publish.yml
   pass  installers    2 installers ask for 3 targets the release page carries
-  pass  record        stage v0.3.0 "Release engine: plan", not aimed at a week yet
+  pass  record        stage v0.3.0 "Release engine: plan"
 
 The run would
   bump       Cargo.toml workspace.package.version: 0.2.0 -> 0.3.0
@@ -452,7 +452,7 @@ $ furca release plan --json
   "project": "furca",
   "released": "0.2.0",
   "proposed": { "version": "0.3.0", "tag": "v0.3.0", "source": "record", "bump": "minor" },
-  "stage": { "version": "0.3.0", "title": "Release engine: plan", "week": null, "friday": null },
+  "stage": { "version": "0.3.0", "title": "Release engine: plan" },
   "changes": [
     { "id": "297fbea…", "subject": "chore(deps): update the toolchain and dependencies", "kind": "chore", "scope": "deps", "breaking": false }
   ],

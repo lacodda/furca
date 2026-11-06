@@ -210,8 +210,6 @@ impl Record for Aimed {
             stage: Stage {
                 version: Version::parse(self.0).unwrap(),
                 title: "Demo stage".to_owned(),
-                week: Some("2026-W40".to_owned()),
-                friday: Some("2026-10-02".to_owned()),
             },
             gate: Some("cargo test".to_owned()),
         }
@@ -755,7 +753,7 @@ fn the_plan_serializes_to_the_documented_shape() {
     assert_eq!(json["proposed"]["version"], "0.3.0");
     assert_eq!(json["proposed"]["source"], "record");
     assert_eq!(json["proposed"]["bump"], "minor");
-    assert_eq!(json["stage"]["friday"], "2026-10-02");
+    assert_eq!(json["stage"]["title"], "Demo stage");
     assert_eq!(json["checks"][0]["name"], "number");
     assert_eq!(json["checks"][0]["status"], "pass");
     assert_eq!(json["steps"]["ci"]["provider"], "github");
