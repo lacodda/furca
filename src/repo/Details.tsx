@@ -8,7 +8,6 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { Splitter, SplitterHandle, SplitterPane } from '@/components/ui/splitter'
-import { TreeView } from '@/components/ui/tree-view'
 import { fileTree, folderIds } from '@/lib/changes'
 import { useDetails } from '@/lib/details'
 import type { Details as Read } from '@/lib/generated/Details'
@@ -16,6 +15,7 @@ import type { FileChange } from '@/lib/generated/FileChange'
 import type { Layout } from '@/lib/generated/Layout'
 import { short } from '@/lib/names'
 import { DiffPane } from './DiffPane'
+import { FileTree } from './FileTree'
 import { fileNodes } from './Files'
 
 export interface DetailsProps {
@@ -200,20 +200,18 @@ function ChangedFiles({
 }) {
   const { t } = useTranslation()
   const tree = useMemo(() => fileTree(files), [files])
+  const nodes = useMemo(() => fileNodes(tree), [tree])
   const [open, setOpen] = useState<Set<string>>(() => new Set(folderIds(tree).map((id) => `d:${id}`)))
   return (
-    <ScrollArea label={t('details.filesLabel')} orientation="vertical" className="h-full">
-      <TreeView
-        label={t('details.filesLabel')}
-        nodes={fileNodes(tree)}
-        open={open}
-        onOpenChange={setOpen}
-        selected={chosen === undefined ? undefined : `f:${chosen}`}
-        onSelect={(id) => {
-          if (id.startsWith('f:')) onChoose(id.slice(2))
-        }}
-        className="p-1.5"
-      />
-    </ScrollArea>
+    <FileTree
+      label={t('details.filesLabel')}
+      nodes={nodes}
+      open={open}
+      onOpenChange={setOpen}
+      selected={chosen === undefined ? undefined : `f:${chosen}`}
+      onSelect={(id) => {
+        if (id.startsWith('f:')) onChoose(id.slice(2))
+      }}
+    />
   )
 }

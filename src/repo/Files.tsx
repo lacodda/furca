@@ -50,7 +50,7 @@ function FileRow({ file }: { file: FileChange }) {
     stored?.kind === 'submodule' ? <Package aria-hidden /> : stored !== null ? <FileBox aria-hidden /> : file.lines !== null ? <FileCode aria-hidden /> : <File aria-hidden />
   return (
     <span
-      className="furca-file-row flex min-w-0 flex-1 items-center gap-1.5"
+      className="flex min-w-0 items-center gap-1.5"
       title={file.from === null ? file.path : `${file.from} → ${file.path}`}
     >
       <span className={cn('w-3 shrink-0 text-center font-mono text-2xs font-semibold', STATUS_TONE[file.status])} aria-label={t(`details.status.${file.status}`)}>

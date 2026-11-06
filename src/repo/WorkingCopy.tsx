@@ -3,10 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { TriangleAlert } from 'lucide-react'
 import { Alert } from '@/components/ui/alert'
 import { EmptyState } from '@/components/ui/empty-state'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { Splitter, SplitterHandle, SplitterPane } from '@/components/ui/splitter'
-import { TreeView } from '@/components/ui/tree-view'
 import type { TreeNode } from '@/components/ui/tree-rows'
 import { fileTree, folderIds } from '@/lib/changes'
 import type { Conflicted } from '@/lib/generated/Conflicted'
@@ -16,6 +14,7 @@ import type { Layout } from '@/lib/generated/Layout'
 import type { Status } from '@/lib/generated/Status'
 import { readAs, rowToShow, useWorkingCopy, type Area, type Chosen } from '@/lib/working'
 import { DiffPane } from './DiffPane'
+import { FileTree } from './FileTree'
 import { fileNodes } from './Files'
 
 /** Which row of each repository was open, kept while the window is. */
@@ -181,30 +180,27 @@ function RowTree({
   const open = useMemo(() => new Set(folders.filter((id) => !closed.has(id))), [closed, folders])
 
   return (
-    <ScrollArea label={t('changes.filesLabel')} orientation="vertical" className="h-full">
-      <TreeView
-        label={t('changes.filesLabel')}
-        nodes={nodes}
-        open={open}
-        onOpenChange={(next) => {
-          const shut = new Set(folders.filter((id) => !next.has(id)))
-          closedFolders.set(path, shut)
-          setClosed(shut)
-        }}
-        selected={chosen === null ? undefined : `${chosen.area}|f:${chosen.path}`}
-        onSelect={(id) => {
-          const row = /^(conflicted|staged|unstaged|untracked)\|f:(.*)$/s.exec(id)
-          if (row?.[1] !== undefined && row[2] !== undefined) onChoose({ area: row[1] as Area, path: row[2] })
-        }}
-        className="p-1.5"
-      />
-    </ScrollArea>
+    <FileTree
+      label={t('changes.filesLabel')}
+      nodes={nodes}
+      open={open}
+      onOpenChange={(next) => {
+        const shut = new Set(folders.filter((id) => !next.has(id)))
+        closedFolders.set(path, shut)
+        setClosed(shut)
+      }}
+      selected={chosen === null ? undefined : `${chosen.area}|f:${chosen.path}`}
+      onSelect={(id) => {
+        const row = /^(conflicted|staged|unstaged|untracked)\|f:(.*)$/s.exec(id)
+        if (row?.[1] !== undefined && row[2] !== undefined) onChoose({ area: row[1] as Area, path: row[2] })
+      }}
+    />
   )
 }
 
 function SectionLabel({ title, count }: { title: string; count: number }) {
   return (
-    <span className="furca-file-row flex min-w-0 flex-1 items-center gap-2 font-medium">
+    <span className="flex min-w-0 items-center gap-2 font-medium">
       <span className="truncate">{title}</span>
       <span className="ml-auto shrink-0 font-mono text-2xs font-normal text-dim">{count}</span>
     </span>
@@ -214,7 +210,7 @@ function SectionLabel({ title, count }: { title: string; count: number }) {
 function ConflictRow({ conflict }: { conflict: Conflicted }): ReactNode {
   const { t } = useTranslation()
   return (
-    <span className="furca-file-row flex min-w-0 flex-1 items-center gap-1.5" title={conflict.path}>
+    <span className="flex min-w-0 items-center gap-1.5" title={conflict.path}>
       <TriangleAlert aria-hidden className="size-3.5 shrink-0 text-bad" />
       <span className="truncate">{conflict.path}</span>
       <span className="ml-auto shrink-0 pl-2 text-2xs text-dim">{t(`changes.conflict.${conflict.kind}`)}</span>
