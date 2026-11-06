@@ -208,6 +208,13 @@ impl Keeper {
                 Err(error) => self.unwatched = Some(error.to_string()),
             }
         }
+        if let Word::Heard(Batch {
+            unwatched: Some(why),
+            ..
+        }) = &word
+        {
+            self.unwatched = Some(why.clone());
+        }
         let refreshed = match (self.cache.as_mut(), &word) {
             (Some(cache), Word::Heard(batch)) if !batch.everything => {
                 cache.refresh(&repo, &batch.paths)

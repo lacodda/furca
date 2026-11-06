@@ -229,8 +229,9 @@ costs nothing. See
 
 Only the tab in front is watched; the others are read when they come forward. A
 working tree that cannot be watched - on Linux, one past the system's limit of
-inotify watches - is read when the window gets the focus, and the foot of the
-window says so.
+inotify watches, where each folder takes one and what git ignores takes none - is
+read when the window gets the focus, and the foot of the window says so. See
+[ADR 0016](https://github.com/lacodda/furca/blob/main/docs/adr/0016-on-linux-the-folders-are-walked.md).
 
 ## What the window writes
 
