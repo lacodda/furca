@@ -430,7 +430,7 @@ reported at once; an unknown key is a problem, not something to ignore.
 | `project.changelog` | The changelog the release adds a section to, under its header. |
 | `project.manifests` | Every file that carries the version: a `Cargo.toml` (a package, or a workspace root that brings in its members) or a JSON file with a top-level `"version"`. |
 | `project.as_written` | Files, or directories ending in `/`, whose versions are left as written. The changelog always is. |
-| `gate.commands` | Shell commands run from the root, in order; the first to fail stops the release before anything is committed. |
+| `gate.commands` | Shell commands run from the root, in order; the first to fail stops the release before anything is committed. Keep it to what takes seconds: what needs a build is CI's, and the `ci` step waits for it before the tag. |
 | `ci.provider` | `github` or `forgejo`. |
 | `ci.workflow` | The workflow that has to be green on the release commit before it is tagged, as a file in `.github/workflows/` or `.forgejo/workflows/`. |
 | `ci.publish` | The workflow a tag starts to publish the packages, if there is one. |

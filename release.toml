@@ -16,18 +16,11 @@ as_written = [
     "docs/src/content/docs/reference/refs.md",
 ]
 
+# Formatting only: it takes seconds and compiles nothing. The rest of the gate is
+# CI, which the run waits for before the tag (ADR 0017).
 [gate]
 commands = [
     "cargo fmt --all --check",
-    "cargo clippy --workspace --all-targets -- -D warnings",
-    "cargo test --workspace",
-    "cargo bench -p furca-core --bench budgets",
-    "pnpm lint",
-    # The window as `tauri build` makes it, built and measured in one step:
-    # the benchmark's build is the release build of the app.
-    "pnpm build",
-    "cargo bench -p furca-desktop --bench window --features custom-protocol",
-    "cd docs && pnpm build",
 ]
 
 [ci]

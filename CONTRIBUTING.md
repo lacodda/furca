@@ -25,7 +25,7 @@ pnpm install && pnpm tauri dev         # the desktop window
 its tabs, sessions and webview profile - so a run from the source never
 touches the window you use.
 
-Before a commit, all of these are green:
+CI runs the gate on three systems, and what you push has to come back green:
 
 ```sh
 cargo fmt --all --check
@@ -38,7 +38,9 @@ cargo bench -p furca-desktop --bench window --features custom-protocol
 cd docs && pnpm build
 ```
 
-That is the gate (`rigger gate furca`), in its order. The window's benchmark
+That is the gate, in its order. Your machine does not have to run it: before a
+commit `cargo fmt --all --check` is enough, and a test or a package of your own
+as you work ([ADR 0017](docs/adr/0017-ci-is-the-gate.md)). The window's benchmark
 builds the app as `tauri build` does - its build is the release build of the
 window - so the gate does not build the window a second time.
 
@@ -65,5 +67,6 @@ rigger.
 
 `cargo run -p furca -- release plan` says whether this repository is ready to
 release, from its own `release.toml`. A release is `furca release run` from a
-clean `main`, with the installed CLI rather than one in `target/`: the gate
-rebuilds `target/` while the run waits for it.
+clean `main`. Its `gate` step only checks the formatting and its `ci` step waits
+for CI on the release commit; what comes back red is fixed, pushed and picked up
+with `furca release resume`.

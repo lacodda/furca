@@ -261,8 +261,7 @@ in a terminal shows here as far as its checkpoint says, and the run keeps going 
 you move to another tab.
 
 Closing the window stops a run where it is, as closing a terminal would, and the
-checkpoint knows where that was. When furca releases itself, the window has to run
-from a copy outside `target/`, because the gate rebuilds it. See
+checkpoint knows where that was. See
 [ADR 0015](https://github.com/lacodda/furca/blob/main/docs/adr/0015-the-window-runs-the-release-the-engine-decides.md).
 
 ## What the window writes
