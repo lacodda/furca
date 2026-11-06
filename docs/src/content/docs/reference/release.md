@@ -219,12 +219,12 @@ standard output at the end. Lists are shortened here.
 | `push` | Pushes the branch to its remote. | The remote moved on. |
 | `ci` | Waits for `ci.workflow` on the pushed commit, as [push --wait-ci](/furca/reference/push/) does. | It fails, is skipped, never starts, or is still running after two hours. |
 | `tag` | Makes the annotated tag on the green commit and pushes it. Every package must already be in its registry: a tag cannot create one. | A package was never published, or the tag already names another commit, here or on the remote. |
-| `publish` | Waits for the workflows the tag starts, `ci.publish` among them, then for each registry to hold the version. | A workflow fails, or a registry still lacks the version ten minutes after. |
+| `publish` | Waits for the workflows the tag starts, `ci.publish` among them, then for each registry to hold the version. A release with no packages waits for `ci.publish` all the same: it is what puts the release page out. | A workflow fails, or a registry still lacks the version ten minutes after. |
 | `verify` | Checks the shop windows of the tag, as [`verify`](#verify) does: the page and its files, the registries, the links. | Any of them fails. |
 | `install` | With `[post.install]`: runs `tools/install.ps1` (Windows) or `tools/install.sh` with `{APP}_VERSION` pinned to the tag, then proves it - see [The install proof](#the-install-proof). Skipped without it. | The installer fails, or the proof does. |
 | `deploy` | With `[post.deploy]`: runs `turnout deploy --foreground` from the root. turnout's own configuration names the stand; it checks the stand's health and rolls a failed deploy back. Skipped without it. | turnout exits non-zero or is not installed. |
 | `notes` | Ticks the first box of the `### Checked live` list the release's notes end with, if they do: the install and the deploy have just proved it. The boxes after it stay for a person. Skipped when the run did neither, or there is nothing to tick. | Never: a list it cannot tick is said, and left to tick by hand. |
-| `record` | Writes the release into the owner's [record](https://lacodda.github.io/rigger/) as shipped - tag, registries, release page, install, deploy - when rigger keeps this project here. Without one it says so and carries on. | - |
+| `record` | Writes the release into the owner's [record](https://lacodda.github.io/rigger/) as shipped - tag, registries, the release page as it stands now, install, deploy - when rigger keeps this project here. Without one it says so and carries on. | - |
 
 ### The install proof
 

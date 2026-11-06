@@ -836,7 +836,7 @@ impl Release {
             return Ok(());
         }
         self.notes_step(runner, report, state, forge);
-        self.record(runner, report, state)?;
+        self.record(runner, report, state, forge)?;
         remove(&self.checkpoint_path())?;
         report.released = true;
         Ok(())
@@ -1131,7 +1131,9 @@ impl Release {
         let mut lines = Vec::new();
         let mut missing = self.missing_from_registries(runner.registries, &version)?;
         let publish = self.config.ci.publish.clone();
-        let held = missing.is_empty();
+        // With no registries nothing is held, and the workflow is what puts the
+        // release out at all: it is waited for like any other publish.
+        let held = !self.config.package.is_empty() && missing.is_empty();
         let keep = |run: &Run| {
             run.reference.as_deref() == Some(tag.as_str())
                 && !(held && publish.as_deref() == Some(run.workflow.as_str()))
@@ -1514,8 +1516,17 @@ impl Release {
         &self,
         runner: &mut Runner,
         report: &mut Report,
-        state: &Checkpoint,
+        state: &mut Checkpoint,
+        forge: &dyn Forge,
     ) -> Result<(), Error> {
+        // A page may have been put out by hand between a stop and this resume,
+        // and what the publish step saw says nothing of it. Not to be read is
+        // no reason to hold back a release that is out and proven: the page
+        // the run last saw then stands.
+        if let Ok(Some(page)) = forge.page(&state.tag) {
+            state.page = Some(page);
+        }
+        report.page.clone_from(&state.page);
         let Some(record) = runner.record else {
             report.mark(
                 "record",

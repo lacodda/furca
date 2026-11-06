@@ -261,6 +261,21 @@ impl Pair {
     fn bin(&self) -> PathBuf {
         self.dir.path().join("bin")
     }
+
+    /// The form a desktop release takes: nothing in a registry, and the page
+    /// put out by `release.yml`, which the tag starts.
+    fn without_registries(&self) {
+        let toml = release_toml(PASS)
+            .replace("publish = \"publish.yml\"", "publish = \"release.yml\"")
+            .replace(
+                "[[package]]\nregistry = \"crates\"\nname = \"demo\"\nmanifest = \"Cargo.toml\"\n\n",
+                "",
+            );
+        assert!(!toml.contains("[[package]]"));
+        self.write("release.toml", &toml);
+        self.write(".github/workflows/release.yml", PUBLISH);
+        self.commit("chore: release from a workflow", NOW - DAY);
+    }
 }
 
 /// The test's own `git`, with the machine's configuration shut out and the
@@ -326,6 +341,8 @@ struct World {
     deploy_exit: Cell<i32>,
     installed: Cell<usize>,
     deployed: Cell<usize>,
+    /// The release page is a draft.
+    draft: Cell<bool>,
     /// The notes on the release page.
     notes: RefCell<Option<String>>,
     /// Whether the forge refuses to write them.
@@ -358,6 +375,7 @@ impl World {
             deploy_exit: Cell::new(0),
             installed: Cell::new(0),
             deployed: Cell::new(0),
+            draft: Cell::new(false),
             notes: RefCell::new(Some(LIVE_NOTES.to_owned())),
             notes_refused: Cell::new(false),
         })
@@ -401,7 +419,7 @@ impl Forge for FakeForge {
         .filter(|a| lacks.as_deref() != Some(a.as_str()))
         .collect();
         Ok(Some(Page {
-            draft: false,
+            draft: self.0.draft.get(),
             assets,
             url: format!("https://forge.example/releases/{tag}"),
         }))
@@ -582,6 +600,43 @@ fn stopped_at(report: &Report) -> &str {
 }
 
 const PASS: &str = r#""exit 0""#;
+
+/// `release.yml` is what puts a release with no registries out at all: until
+/// it has ended there is no page to check, and `verify` would say so.
+#[test]
+fn a_release_with_no_registries_waits_for_its_publish_workflow() {
+    let pair = Pair::new(PASS);
+    pair.without_registries();
+    let world = World::new(&pair);
+    world.release.set(State::Pending);
+    let (report, said) = go(&pair, &world, Mode::Run);
+
+    assert_eq!(stopped_at(&report), "publish", "{report:#?}\n{said:#?}");
+    assert_eq!(status(&report, "verify"), StepStatus::Ahead);
+
+    world.release.set(State::Success);
+    let (report, said) = go(&pair, &world, Mode::Resume);
+    assert!(report.released, "{report:#?}\n{said:#?}");
+    assert!(world.shipped.borrow()[0].release);
+    assert!(world.shipped.borrow()[0].registries.is_empty());
+}
+
+/// Stopped on a draft, the page put out by hand, the run resumed: `verify` saw
+/// the fresh page, and the record has to hear of the same one.
+#[test]
+fn the_record_hears_of_a_page_put_out_between_a_stop_and_a_resume() {
+    let pair = Pair::new(PASS);
+    let world = World::new(&pair);
+    world.draft.set(true);
+    let (report, said) = go(&pair, &world, Mode::Run);
+    assert_eq!(stopped_at(&report), "verify", "{report:#?}\n{said:#?}");
+
+    world.draft.set(false);
+    let (report, said) = go(&pair, &world, Mode::Resume);
+    assert!(report.released, "{report:#?}\n{said:#?}");
+    assert!(world.shipped.borrow()[0].release, "{:#?}", world.shipped);
+    assert!(!report.page.expect("a page").draft);
+}
 
 #[test]
 fn a_run_ticks_what_it_proved_and_leaves_the_rest_to_a_person() {
