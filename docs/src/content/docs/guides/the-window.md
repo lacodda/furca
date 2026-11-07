@@ -197,7 +197,7 @@ back to the history) shows what differs from `HEAD`, kept up to date as files ar
 saved. Nothing needs refreshing: save a file in your editor and its row and its
 open change follow in a moment.
 
-![Local changes: the lists of the working copy on the left - staged, not staged and untracked, a binary named with its size - and the change of the file chosen, side by side](../../../assets/window-changes.png)
+![Local changes: the lists of the working copy on the left, a binary named with its size, and under them the commit to make, with a warning about a large file; on the right the change of the file chosen, side by side, with a bar and a button above each hunk](../../../assets/window-changes.png)
 
 | List | What it holds |
 | --- | --- |
