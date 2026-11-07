@@ -653,3 +653,29 @@ fn a_run_keeps_when_it_was_what_went_in_and_what_git_said() {
     assert_ne!(run.code, Some(0));
     assert!(run.at > 1_600_000_000_000, "{run:?}");
 }
+
+/// What most people on Windows have: `\n` in the index and `\r\n` on disk. The
+/// hunk has to go in as the index keeps it, or a clean file comes back as every
+/// line changed.
+#[test]
+fn a_hunk_goes_in_as_the_index_keeps_its_lines_under_autocrlf() {
+    let pair = Pair::new();
+    git(&pair.work(), &["config", "core.autocrlf", "true"]);
+    let lines = |two: &str, nine: &str| format!("1\n{two}\n3\n4\n5\n6\n7\n8\n{nine}\n10\n");
+    pair.write("ten.txt", &lines("2", "9"));
+    git(&pair.work(), &["add", "--", "ten.txt"]);
+    git(
+        &pair.work(),
+        &["commit", "--quiet", "-m", "chore: ten lines"],
+    );
+    pair.write("ten.txt", &lines("TWO", "NINE").replace('\n', "\r\n"));
+
+    let repo = pair.open();
+    let status = repo.status().expect("status");
+    let file = modified(&status, "ten.txt");
+    let diff = repo.diff(file).expect("diff");
+    assert_eq!(diff.hunks.len(), 2, "{diff:#?}");
+
+    repo.stage_hunk(file, diff.hunks[0]).expect("stages");
+    assert_eq!(in_index(&pair, "ten.txt"), lines("TWO", "9"));
+}

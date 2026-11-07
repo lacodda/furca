@@ -26,7 +26,7 @@ const NAMED = 2
 
 /** What each repository's form held, kept while the window is: going to the
  * history to look something up does not lose a message half written. */
-const kept = new Map<string, { draft: Draft; amend: boolean; before: Draft | null }>()
+const kept = new Map<string, { draft: Draft; amend: boolean; before: Draft | null; pushed: boolean }>()
 
 /** The types of the convention and whether Claude Code is here, asked once. */
 let types: Promise<string[]> | null = null
@@ -55,7 +55,7 @@ export function Composer({ path, staged, conflicted, warnings }: ComposerProps) 
   const [amend, setAmend] = useState(held?.amend ?? false)
   // The form as it was before an amend filled it, for when the amend is called off.
   const before = useRef<Draft | null>(held?.before ?? null)
-  const [pushed, setPushed] = useState(false)
+  const [pushed, setPushed] = useState(held?.pushed ?? false)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
   const [made, setMade] = useState<string | null>(null)
@@ -65,7 +65,7 @@ export function Composer({ path, staged, conflicted, warnings }: ComposerProps) 
   const [asking, setAsking] = useState(false)
 
   useEffect(() => {
-    kept.set(path, { draft, amend, before: before.current })
+    kept.set(path, { draft, amend, before: before.current, pushed })
   })
 
   useEffect(() => {
@@ -146,7 +146,9 @@ export function Composer({ path, staged, conflicted, warnings }: ComposerProps) 
       .then(
         (id) => {
           setMade(id)
-          setDraft(afterCommit(amend && before.current !== null ? before.current : draft))
+          // An amend hands the form back as it was: what was being written for
+          // the next commit is still being written.
+          setDraft(amend && before.current !== null ? before.current : afterCommit(draft))
           before.current = null
           setAmend(false)
           setPushed(false)

@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { api, failure } from './api'
+import { forgetConsole } from './console'
 import { forgetGraph, graphComplete, openGraph } from './graph'
 import { forgetWorkingCopy } from './working'
 import type { Maintenance } from './generated/Maintenance'
@@ -114,6 +115,7 @@ export function forget(path: string): void {
   standings.forget(path)
   forgetGraph(path)
   forgetWorkingCopy(path)
+  forgetConsole(path)
 }
 
 /** Reads every one of `paths` in turn, one after another rather than all at

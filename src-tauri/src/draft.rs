@@ -60,6 +60,8 @@ pub fn available() -> bool {
 
 /// Asks in a new process with no console of its own.
 fn command(program: &Path) -> Command {
+    // Only the Windows branch below changes it.
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut command = Command::new(program);
     #[cfg(windows)]
     {
