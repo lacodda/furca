@@ -381,7 +381,7 @@ impl Release {
         let (trigger, put_back) = self.trigger_check(proposed.as_ref())?;
         checks.push(trigger);
         checks.push(self.installers_check()?);
-        checks.push(record_check(reading.as_ref(), config));
+        checks.push(record_check(reading.as_ref()));
 
         let ready = checks.iter().all(|c| c.status != Status::Fail);
         let to = proposed.as_ref().map(|p| p.version.to_string());
@@ -1387,7 +1387,7 @@ fn registries_check(
     check("registries", status, summary, details)
 }
 
-fn record_check(reading: Option<&Reading>, config: &Config) -> Check {
+fn record_check(reading: Option<&Reading>) -> Check {
     match reading {
         None => check(
             "record",
@@ -1401,24 +1401,12 @@ fn record_check(reading: Option<&Reading>, config: &Config) -> Check {
             format!("no stage from the record ({why}); the number comes from the commits"),
             Vec::new(),
         ),
-        Some(Reading::Read { stage, gate }) => {
-            let summary = format!("stage v{} \"{}\"", stage.version, stage.title);
-            let ours = config.gate.commands.join(" && ");
-            match gate {
-                Some(theirs) if theirs.trim() != ours => check(
-                    "record",
-                    Status::Warn,
-                    summary,
-                    vec![
-                        "the record runs another gate than release.toml; one of them is stale"
-                            .to_owned(),
-                        format!("record: {theirs}"),
-                        format!("release.toml: {ours}"),
-                    ],
-                ),
-                _ => check("record", Status::Pass, summary, Vec::new()),
-            }
-        }
+        Some(Reading::Read { stage }) => check(
+            "record",
+            Status::Pass,
+            format!("stage v{} \"{}\"", stage.version, stage.title),
+            Vec::new(),
+        ),
     }
 }
 

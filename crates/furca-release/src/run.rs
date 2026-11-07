@@ -1691,23 +1691,12 @@ impl Release {
                 .as_ref()
                 .is_some_and(|p| !p.draft && !p.assets.is_empty()),
             registries: state.published.clone().unwrap_or_default(),
-            text: {
-                let mut text = format!(
-                    "released by `furca release run` from {}; every shop window checked",
-                    state.commit.as_deref().map(short).unwrap_or_default()
-                );
-                if let Some(post) = &self.config.post.install {
-                    text.push_str(&format!(
-                        "; {} {} installed from the release and proven by its hash",
-                        self.config.bin(post),
-                        state.version
-                    ));
-                }
-                if self.config.post.deploy.is_some() {
-                    text.push_str("; deployed by turnout");
-                }
-                text
-            },
+            installed: state.installed,
+            deployed: state.deployed,
+            text: format!(
+                "released by `furca release run` from {}; every shop window checked",
+                state.commit.as_deref().map(short).unwrap_or_default()
+            ),
         };
         match record.shipped(&self.config.project.name, &self.root, &shipped) {
             Ok(()) => {

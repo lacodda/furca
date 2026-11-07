@@ -108,7 +108,7 @@ followed: the release takes the next free number.
 | `registries` | A registry could not be asked, so the number is not proven free. A package no registry has seen is a warning: the first publish is by hand, and only then can a tag publish it. |
 | `trigger` | Pushing the tag would not start `ci.publish`: its tag filter leaves the tag out, it starts on pushed branches only, or it cannot be read. A held trigger - no push event at all - is a warning, and the bump puts it back (see below). |
 | `installers` | `tools/install.ps1` or `tools/install.sh` asks for a target - `x86_64-unknown-linux-musl`, or the tail of one built from a variable - that no file of `[page] assets` is built for. An installer whose targets cannot be read, or `[page]` missing, is a warning. |
-| `record` | Never fails. A warning when there is no stage to read, or when the record runs another gate than `release.toml`. |
+| `record` | Never fails. A warning when there is no stage to read. |
 
 `warn` is worth reading and does not stop the release; `fail` does.
 

@@ -910,11 +910,11 @@ fn a_run_goes_from_the_plan_to_the_record() {
     assert_eq!(shipped[0].tag, "v0.3.0");
     assert!(shipped[0].release);
     assert_eq!(shipped[0].registries, ["crates.io"]);
+    assert!(shipped[0].installed, "{:#?}", shipped[0]);
+    assert!(shipped[0].deployed, "{:#?}", shipped[0]);
     assert!(
-        shipped[0].text.ends_with(
-            "; demo 0.3.0 installed from the release and proven by its hash; deployed by turnout"
-        ),
-        "{}",
+        !shipped[0].text.contains("installed") && !shipped[0].text.contains("deployed"),
+        "the flags say it, the text need not: {}",
         shipped[0].text
     );
     assert_eq!((world.installed.get(), world.deployed.get()), (1, 1));

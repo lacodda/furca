@@ -211,7 +211,6 @@ impl Record for Aimed {
                 version: Version::parse(self.0).unwrap(),
                 title: "Demo stage".to_owned(),
             },
-            gate: Some("cargo test".to_owned()),
         }
     }
 

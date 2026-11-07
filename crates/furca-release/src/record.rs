@@ -33,8 +33,6 @@ pub struct Stage {
 pub enum Reading {
     Read {
         stage: Stage,
-        /// The gate the record runs for the project, as one shell line.
-        gate: Option<String>,
     },
     /// Nothing to read, and why: no rigger, an unknown project, a project
     /// recorded at another path.
@@ -49,6 +47,10 @@ pub struct Shipped {
     pub release: bool,
     /// The registries that hold the version, by label: `crates.io`, `npm`.
     pub registries: Vec<String>,
+    /// The run installed it for the owner and proved it the release's own build.
+    pub installed: bool,
+    /// The run deployed it, and the deploy said so.
+    pub deployed: bool,
     /// One line on how it went.
     pub text: String,
 }
@@ -74,21 +76,15 @@ pub struct Rigger;
 
 impl Record for Rigger {
     fn read(&self, name: &str, root: &Path) -> Reading {
-        let project = match self.here(name, root) {
-            Ok(project) => project,
-            Err(why) => return Reading::Absent(why),
-        };
-        let gate = project
-            .get("gate")
-            .and_then(|g| g.as_str())
-            .map(str::to_owned);
-
+        if let Err(why) = self.here(name, root) {
+            return Reading::Absent(why);
+        }
         let version = match rigger(&["version", "show", name, "--json"]) {
             Ok(version) => version,
             Err(why) => return Reading::Absent(why),
         };
         match stage(&version) {
-            Some(stage) => Reading::Read { stage, gate },
+            Some(stage) => Reading::Read { stage },
             None => Reading::Absent(format!(
                 "the record's stage for `{name}` names no version furca can read"
             )),
@@ -111,6 +107,12 @@ impl Record for Rigger {
         }
         for registry in &shipped.registries {
             args.extend(["--registry", registry.as_str()]);
+        }
+        if shipped.installed {
+            args.push("--installed");
+        }
+        if shipped.deployed {
+            args.push("--deployed");
         }
         if !shipped.text.is_empty() {
             args.push(shipped.text.as_str());
