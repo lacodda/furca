@@ -7,7 +7,8 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-rust-version.workspace = true
+# `File::try_lock`, which holds a release to one run at a time (ADR 0018).
+rust-version = "1.89"
 readme = "../../README.md"
 keywords = ["git", "cli", "gitoxide", "log"]
 categories = ["command-line-utilities", "development-tools"]

@@ -56,7 +56,9 @@ pub use plan::{
 };
 pub use record::{Kept, Reading, Record, Rigger, Shipped, Stage};
 pub use registry::{Http, Registries};
-pub use run::{CHECKPOINT, ForgeFor, Report, Runner, STEPS, Step, StepStatus, Told, UnderWay};
+pub use run::{
+    CHECKPOINT, ForgeFor, LOCK, Report, Runner, STEPS, Step, StepStatus, Told, UnderWay, running,
+};
 pub use texts::Mention;
 pub use verify::{Shops, Verified, Web};
 pub use version::Bump;

@@ -41,6 +41,11 @@ use crate::version;
 /// The checkpoint, inside the repository's `.git`: never committed, kept
 /// between runs, one per repository.
 pub const CHECKPOINT: &str = "furca-release.json";
+/// The file a run holds a lock on for as long as it goes, beside its checkpoint.
+/// The system lets go of it when the process ends, however it ended, so a run
+/// that was killed leaves nothing to clear and a process id reused by something
+/// else cannot pass for a run (ADR 0018).
+pub const LOCK: &str = "furca-release.lock";
 
 /// The steps of a run, in order.
 pub const STEPS: [&str; 14] = [
@@ -391,6 +396,17 @@ impl Release {
 
     fn steps(&self, runner: &mut Runner, mode: Mode, report: &mut Report) -> Result<(), Error> {
         (runner.tell)(Told::Began { step: "plan" });
+        // Before the checkpoint is read: a second run would take the edits of
+        // the first for ones an interrupted run left behind, and put them back.
+        let Some(_held) = hold(&self.repo.git_dir().join(LOCK))? else {
+            report.mark(
+                "plan",
+                StepStatus::Stopped,
+                "a run of this release is going already, in a terminal or a window".to_owned(),
+                vec!["wait for it to end, then look at where it got to".to_owned()],
+            );
+            return Ok(());
+        };
         let path = self.checkpoint_path();
         let mut state = load(&path)?;
         if let Some(saved) = &state {
@@ -1746,6 +1762,43 @@ fn run_lines(runs: &[Run]) -> Vec<String> {
 
 fn short(id: &str) -> &str {
     &id[..id.len().min(7)]
+}
+
+/// The lock on `path` while the file stays open; `None` when a run holds it. A
+/// file system with no locks is no reason to refuse a release: the lock is there
+/// to stop a mistake, and the checkpoint still says where things stand.
+fn hold(path: &Path) -> Result<Option<std::fs::File>, Error> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .map_err(|source| Error::Write {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(source))
+            if source.kind() == std::io::ErrorKind::Unsupported =>
+        {
+            Ok(Some(file))
+        }
+        Err(std::fs::TryLockError::Error(source)) => Err(Error::Write {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+/// Whether a run of a release is going in `repo` now, from any door: the window
+/// holds off changing the index until it ends, since whatever is staged goes
+/// into the release's commit.
+pub fn running(repo: &furca_core::Repository) -> bool {
+    let path = repo.git_dir().join(LOCK);
+    // No file, no run has ever held it; asking must not make one.
+    path.exists() && matches!(hold(&path), Ok(None))
 }
 
 fn load(path: &Path) -> Result<Option<Checkpoint>, Error> {

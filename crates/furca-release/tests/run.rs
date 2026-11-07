@@ -647,6 +647,38 @@ fn stopped_at(report: &Report) -> &str {
 
 const PASS: &str = r#""exit 0""#;
 
+/// Two doors on one release: the second would take the edits of the first for
+/// ones an interrupted run left behind, and put them back under it.
+#[test]
+fn a_run_going_already_stops_a_second_one_before_it_touches_anything() {
+    let pair = Pair::new(PASS);
+    let world = World::new(&pair);
+    let repo = furca_core::Repository::at(pair.work()).expect("opens");
+    assert!(!furca_release::running(&repo));
+    assert!(
+        !pair.work().join(".git").join(furca_release::LOCK).exists(),
+        "asking makes no file"
+    );
+
+    let lock =
+        std::fs::File::create(pair.work().join(".git").join(furca_release::LOCK)).expect("creates");
+    lock.try_lock().expect("locks");
+    assert!(furca_release::running(&repo));
+    let (report, said) = go(&pair, &world, Mode::Run);
+    assert_eq!(stopped_at(&report), "plan", "{report:#?}\n{said:#?}");
+    let stop = report.stopped().expect("stopped");
+    assert!(stop.summary.contains("going already"), "{stop:#?}");
+    assert!(!pair.checkpoint().exists());
+    assert_eq!(git(&pair.work(), &["status", "--porcelain"], NOW), "");
+
+    // Let go, as the system does when a process ends however it ended.
+    drop(lock);
+    assert!(!furca_release::running(&repo));
+    let (report, said) = go(&pair, &world, Mode::Run);
+    assert!(report.released, "{report:#?}\n{said:#?}");
+    assert!(!furca_release::running(&repo), "a run lets go when it ends");
+}
+
 /// `release.yml` is what puts a release with no registries out at all: until
 /// it has ended there is no page to check, and `verify` would say so.
 #[test]

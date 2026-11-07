@@ -258,6 +258,11 @@ the problem, commit the fix, and `run` again - a fix made on top of
 uncommitted release edits would ride into `chore(release)` and miss the
 changelog section written before it.
 
+One run goes at a time, whichever door it came through. A run holds a lock on
+`.git/furca-release.lock`, which the system lets go of when the process ends,
+however it ended; a second run stops at `plan` and says one is going
+([ADR 0018](https://github.com/lacodda/furca/blob/main/docs/adr/0018-a-run-holds-a-lock-the-system-lets-go-of.md)).
+
 After the commit the steps are remote and slow, and a stop there keeps its
 place in a checkpoint, `.git/furca-release.json`. `resume` carries on from the
 step that stopped:
