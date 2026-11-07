@@ -2,9 +2,10 @@
 //! it, its lines as a patch, and the working copy.
 
 use furca_core::{
-    ConflictKind, Content, Details, FileChange, FileLog, FileStatus, HeadSummary, LineKind, Patch,
-    Repository, Side, Status, StatusCache,
+    ConflictKind, Content, Details, Endings, FileChange, FileLog, FileStatus, HeadSummary,
+    LineKind, Patch, Repository, Side, Status, StatusCache, Warning,
 };
+use furca_release::message::Finding;
 use serde::Serialize;
 
 /// What `furca status` says: where `HEAD` is, and the working copy against it.
@@ -14,6 +15,74 @@ pub struct WorkingCopy {
     head: HeadSummary,
     #[serde(flatten)]
     status: Status,
+}
+
+impl WorkingCopy {
+    /// What is staged.
+    pub fn staged(&self) -> &[FileChange] {
+        &self.status.staged
+    }
+}
+
+/// The text `furca doctor` prints: a line per thing worth saying.
+pub fn doctor_text(warnings: &[Warning]) -> String {
+    if warnings.is_empty() {
+        return "Nothing to say about what is staged.".to_owned();
+    }
+    let endings = |endings: Endings| match endings {
+        Endings::Lf => "LF",
+        Endings::Crlf => "CRLF",
+        Endings::Mixed => "mixed",
+        Endings::NoEnding => "none",
+    };
+    let lines: Vec<String> = warnings
+        .iter()
+        .map(|warning| match warning {
+            Warning::Endings {
+                path,
+                before: Some(before),
+                after,
+            } => format!(
+                "endings    {path}: {} -> {}",
+                endings(*before),
+                endings(*after)
+            ),
+            Warning::Endings {
+                path,
+                before: None,
+                after,
+            } => format!("endings    {path}: a new file in {}", endings(*after)),
+            Warning::Large { path, size } => {
+                format!("large      {path}: {:.1} MB", *size as f64 / 1_048_576.0)
+            }
+            Warning::Assistant { path } => format!("assistant  {path}: an assistant's file"),
+        })
+        .collect();
+    lines.join("\n")
+}
+
+/// The text `furca message check` prints: a line per finding.
+pub fn findings_text(findings: &[Finding]) -> String {
+    if findings.is_empty() {
+        return "The message reads well.".to_owned();
+    }
+    let lines: Vec<String> = findings
+        .iter()
+        .map(|finding| match finding {
+            Finding::Empty => "the message is empty".to_owned(),
+            Finding::NotConventional => {
+                "not a Conventional Commit: expected `type(scope): description`".to_owned()
+            }
+            Finding::UnknownType { name } => format!("`{name}` is not a type of the convention"),
+            Finding::NoBlankLine => "the second line should be blank".to_owned(),
+            Finding::LongSubject { length, most } => {
+                format!("the subject is {length} characters, {most} at most")
+            }
+            Finding::FinalPeriod => "the subject ends in a full stop".to_owned(),
+            Finding::NotEnglish => "the message is not in English".to_owned(),
+        })
+        .collect();
+    lines.join("\n")
 }
 
 /// Reads the status and then every file in it: a terminal asked for one

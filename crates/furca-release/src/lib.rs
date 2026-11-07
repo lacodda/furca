@@ -34,6 +34,7 @@ mod error;
 pub mod hosting;
 mod install;
 mod manifest;
+pub mod message;
 mod plan;
 mod record;
 mod registry;

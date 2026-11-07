@@ -90,6 +90,16 @@ enum Command {
         #[arg(short = 'U', long, default_value_t = 3)]
         context: u32,
     },
+    /// Say what is staged that would cost more to mend after the commit: line endings, large files, an assistant's files.
+    Doctor {
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Read a commit message as the release engine will, for a commit-msg hook or an assistant.
+    Message {
+        #[command(subcommand)]
+        command: MessageCommand,
+    },
     /// Push the current branch to the remote it follows.
     Push {
         #[command(flatten)]
@@ -119,6 +129,18 @@ enum Command {
     Release {
         #[command(subcommand)]
         command: ReleaseCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum MessageCommand {
+    /// Say what is wrong with a message. Answers no when it goes against the convention.
+    Check {
+        /// The file holding the message, as a commit-msg hook is given it; standard input when left out or `-`.
+        file: Option<PathBuf>,
+        /// Print JSON instead of text.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -252,6 +274,28 @@ fn run(command: Command) -> Result<Answer, String> {
                 Answer::No
             })
         }
+        Command::Doctor { common } => {
+            let copy = show::working_copy(&open(&common.repo)?)?;
+            let warnings = furca_core::doctor(copy.staged());
+            emit(common.json, warnings.as_slice(), show::doctor_text)?;
+            Ok(if warnings.is_empty() {
+                Answer::Yes
+            } else {
+                Answer::No
+            })
+        }
+        Command::Message {
+            command: MessageCommand::Check { file, json },
+        } => {
+            let text = message_text(file.as_deref())?;
+            let findings = furca_release::message::check(&text);
+            emit(json, findings.as_slice(), show::findings_text)?;
+            Ok(if findings.iter().any(|f| f.breaks_the_convention()) {
+                Answer::No
+            } else {
+                Answer::Yes
+            })
+        }
         Command::Push { common, wait_ci } => push(&common, wait_ci),
         Command::Checks { common, revision } => checks(&common, &revision),
         Command::Release {
@@ -287,6 +331,16 @@ fn run(command: Command) -> Result<Answer, String> {
 
 fn open(path: &Path) -> Result<Repository, String> {
     Repository::open(path).map_err(|e| e.to_string())
+}
+
+/// The message in `file`, or on standard input when there is none or it is `-`.
+fn message_text(file: Option<&Path>) -> Result<String, String> {
+    match file.filter(|file| *file != Path::new("-")) {
+        Some(file) => std::fs::read_to_string(file)
+            .map_err(|e| format!("could not read {}: {e}", file.display())),
+        None => std::io::read_to_string(std::io::stdin())
+            .map_err(|e| format!("could not read standard input: {e}")),
+    }
 }
 
 /// The forge behind a remote's address, asked over HTTPS.
