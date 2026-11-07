@@ -175,7 +175,7 @@ pub struct FileDiff {
 
 /// Lines of the text before that became lines of the text after. One of the
 /// two is empty for a pure addition or removal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Hunk {
     pub before: LineRange,
@@ -184,7 +184,7 @@ pub struct Hunk {
 
 /// A run of lines: the first, counted from 0, and how many. An empty run
 /// sits before the line `start` names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LineRange {
     pub start: u32,
@@ -384,6 +384,17 @@ impl Repository {
         cache: &mut gix::diff::blob::Platform,
         file: &FileChange,
     ) -> Result<Compared, Error> {
+        self.compare_keeping(cache, file, false)
+    }
+
+    /// The same, keeping the bytes of both sides when `bytes` asks: the texts
+    /// are for reading, and a byte that is not UTF-8 does not survive them.
+    pub(crate) fn compare_keeping(
+        &self,
+        cache: &mut gix::diff::blob::Platform,
+        file: &FileChange,
+        bytes: bool,
+    ) -> Result<Compared, Error> {
         let failed = |source: Source| Error::Diff {
             path: file.path.clone(),
             source,
@@ -401,6 +412,7 @@ impl Repository {
                 similarity: None,
                 hunks: Vec::new(),
                 texts: None,
+                bytes: None,
             });
         }
         let before_path = file.from.as_deref().unwrap_or(&file.path);
@@ -461,6 +473,7 @@ impl Repository {
                 similarity: None,
                 hunks: Vec::new(),
                 texts: None,
+                bytes: None,
             });
         };
 
@@ -490,6 +503,7 @@ impl Repository {
             before,
             after,
             hunks,
+            bytes: bytes.then(|| (old.to_vec(), new.to_vec())),
         })
     }
 
@@ -544,8 +558,10 @@ pub(crate) struct Compared {
     /// How much of the old text the new one kept, in percent, when both are
     /// text.
     similarity: Option<u8>,
-    hunks: Vec<Hunk>,
+    pub(crate) hunks: Vec<Hunk>,
     texts: Option<(Option<String>, Option<String>)>,
+    /// The two sides as they are, when they were asked for and both are text.
+    pub(crate) bytes: Option<(Vec<u8>, Vec<u8>)>,
 }
 
 impl Compared {

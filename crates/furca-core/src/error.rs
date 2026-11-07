@@ -50,6 +50,20 @@ pub enum Error {
     Submodules(#[source] Source),
     #[error("could not watch the working tree: {0}")]
     Watch(#[source] Source),
+    #[error("could not write {path}: {source}")]
+    Write {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    /// A change to `path` is not what was asked for any more: it was shown, and
+    /// has moved on since.
+    #[error("{path} changed since it was read; look at it again")]
+    Moved { path: String },
+    /// `path` changes as a whole - added, deleted, moved, not text - and has no
+    /// hunk to take apart from the rest.
+    #[error("{path} changes as a whole file, not by hunks")]
+    NotByHunks { path: String },
     #[error("could not run git: {source}; is it installed and on PATH?")]
     GitMissing {
         #[source]

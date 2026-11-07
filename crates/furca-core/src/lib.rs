@@ -37,6 +37,7 @@
 
 mod commit_graph;
 mod diff;
+mod doctor;
 mod error;
 mod file_log;
 mod find;
@@ -47,6 +48,7 @@ mod log;
 mod refs;
 mod remote;
 mod repo;
+mod stage;
 mod standing;
 mod stash;
 mod status;
@@ -61,10 +63,11 @@ pub use diff::{
     Changes, Content, Details, Endings, FileChange, FileDiff, FileMode, FileStatus, Hunk,
     LineCount, LineKind, LineRange, Patch, PatchHunk, PatchLine, Side,
 };
+pub use doctor::{LARGE_FILE, Warning, doctor};
 pub use error::Error;
 pub use file_log::{FileLog, FileRevision};
 pub use find::repositories;
-pub use git_cmd::{Git, GitRun};
+pub use git_cmd::{Git, GitRun, hear_git_runs};
 pub use graph::{COLORS, Graph, Query, Row, Segment, SegmentKind};
 pub use history::History;
 pub use log::{Commit, Log, Person, Tips};

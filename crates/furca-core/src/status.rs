@@ -343,6 +343,11 @@ impl StatusCache {
 
     /// Whether any file is still to be read.
     pub fn has_unread(&self) -> bool {
+        self.has_unread_in(usize::MAX)
+    }
+
+    /// Whether any file among the first `rows` of a list is still to be read.
+    pub fn has_unread_in(&self, rows: usize) -> bool {
         let lists = [
             (Area::Staged, &self.status.staged),
             (Area::Unstaged, &self.status.unstaged),
@@ -350,6 +355,7 @@ impl StatusCache {
         ];
         lists.iter().any(|(area, list)| {
             list.iter()
+                .take(rows)
                 .any(|file| is_unread(file) && !self.failed.contains(&(*area, file.path.clone())))
         })
     }
@@ -360,6 +366,13 @@ impl StatusCache {
     /// filter does not stop the list, and opening the file says what is
     /// wrong.
     pub fn read_files(&mut self, repo: &Repository, most: usize) -> usize {
+        self.read_rows(repo, most, usize::MAX)
+    }
+
+    /// The same among the first `rows` of each list: what is past the rows
+    /// anyone is shown need not be read, and a formatter's eight thousand files
+    /// cost what the screen shows of them.
+    pub fn read_rows(&mut self, repo: &Repository, most: usize, rows: usize) -> usize {
         let mut read = 0;
         let lists = [
             (Area::Staged, &mut self.status.staged),
@@ -368,7 +381,7 @@ impl StatusCache {
         ];
         for (area, list) in lists {
             let mut cache: Option<Result<gix::diff::blob::Platform, Source>> = None;
-            for file in list.iter_mut() {
+            for file in list.iter_mut().take(rows) {
                 if read == most {
                     return read;
                 }
