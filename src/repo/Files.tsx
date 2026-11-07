@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { File, FileBox, FileCode, Folder, Package } from 'lucide-react'
 import { cn } from 'dowel-ui'
@@ -12,18 +13,22 @@ import type { FileChange } from '@/lib/generated/FileChange'
  */
 
 /** A tree of files as the tree view's nodes, their ids under `prefix`: the same
- * path can be in two lists of the working copy at once. */
-export function fileNodes(tree: readonly FileNode[], prefix = ''): TreeNode[] {
+ * path can be in two lists of the working copy at once. `end` is what a row has
+ * at its far edge, by the row's id: a button that moves it across. */
+export function fileNodes(tree: readonly FileNode[], prefix = '', end?: (id: string) => ReactNode): TreeNode[] {
   return tree.map((node) => {
-    const leaf = node.file === undefined ? null : { id: `${prefix}f:${node.file.path}`, label: <FileRow file={node.file} /> }
-    if (node.children.length === 0) return leaf ?? { id: `${prefix}d:${node.id}`, label: node.label }
-    const children = fileNodes(node.children, prefix)
+    const leafId = `${prefix}f:${node.file?.path ?? ''}`
+    const leaf = node.file === undefined ? null : { id: leafId, label: <FileRow file={node.file} end={end?.(leafId)} /> }
+    const folderId = `${prefix}d:${node.id}`
+    if (node.children.length === 0) return leaf ?? { id: folderId, label: node.label }
+    const children = fileNodes(node.children, prefix, end)
     return {
-      id: `${prefix}d:${node.id}`,
+      id: folderId,
       label: (
         <span className="flex min-w-0 items-center gap-1.5">
           <Folder aria-hidden className="size-3.5 shrink-0 text-dim" />
           <span className="truncate">{node.label}</span>
+          {end !== undefined && <span className="ml-auto flex shrink-0 items-center pl-2">{end(folderId)}</span>}
         </span>
       ),
       children: leaf === null ? children : [leaf, ...children],
@@ -42,7 +47,7 @@ const STATUS_TONE = {
 
 /** A changed file: how it changed, its name, and the lines - or, for a
  * binary, a git LFS file or a submodule, what it is and its size. */
-function FileRow({ file }: { file: FileChange }) {
+function FileRow({ file, end }: { file: FileChange; end?: ReactNode }) {
   const { t } = useTranslation()
   const name = file.path.split('/').at(-1) ?? file.path
   const stored = storedAs(file)
@@ -67,6 +72,7 @@ function FileRow({ file }: { file: FileChange }) {
             {file.lines.removed > 0 && <span className="text-bad">−{file.lines.removed}</span>}
           </>
         ) : null}
+        {end}
       </span>
     </span>
   )

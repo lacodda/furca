@@ -2,6 +2,7 @@
 import type { Counts } from "./Counts";
 import type { Refreshed } from "./Refreshed";
 import type { Status } from "./Status";
+import type { Warning } from "./Warning";
 
 export type WorkingRead = { "state": "read", 
 /**
@@ -16,6 +17,11 @@ counts: Counts,
  * What moved since the last time.
  */
 refreshed: Refreshed, 
+/**
+ * What is worth a word about the rows staged, before they are
+ * committed.
+ */
+warnings: Array<Warning>, 
 /**
  * Why nothing is watching the working tree, if nothing is: the list
  * is then only as fresh as the last time the window got the focus.

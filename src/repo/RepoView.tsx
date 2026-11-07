@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FilePen, History, Rocket } from 'lucide-react'
+import { FilePen, History, Rocket, SquareTerminal } from 'lucide-react'
+import { cn } from 'dowel-ui'
+import { Button } from '@/components/ui/button'
 import { RowButton } from '@/components/ui/list-row'
 import { ariaKeyShortcuts, keysOf } from '@/components/ui/shortcut'
 import { Spinner } from '@/components/ui/spinner'
@@ -10,8 +12,10 @@ import type { Tab } from '@/lib/generated/Tab'
 import { positionOf, rowAt, searchGraph, showBranch, useGraph } from '@/lib/graph'
 import { labelsByCommit, nextMatch, type Label } from '@/lib/graph-labels'
 import { readState, useRelease } from '@/lib/release'
+import { failed, useConsole } from '@/lib/console'
 import { useMaintenance, useSidebar } from '@/lib/repos'
 import { counted, useWorkingCopy } from '@/lib/working'
+import { ConsolePanel } from './ConsolePanel'
 import { Details } from './Details'
 import { GraphView } from './GraphView'
 import { ReleasePanel } from './ReleasePanel'
@@ -135,6 +139,14 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
     })
   }
 
+  // Read when pressed: a layout that moved is not a reason to listen again.
+  const toggleConsole = useRef(() => {
+    /* set below, once there is a layout to toggle */
+  })
+  useEffect(() => {
+    toggleConsole.current = () => onLayout({ ...layout, console_open: !layout.console_open })
+  })
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const keys = keysOf(event)
@@ -145,6 +157,9 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
         // Taken with no panel too: left alone, it reloads the page.
         event.preventDefault()
         if (releasable) setView('release')
+      } else if (keys === 'Mod+J') {
+        event.preventDefault()
+        toggleConsole.current()
       } else if (keys === 'Mod+F' && view !== 'history') {
         // The search belongs to the history, and is hidden with it: its key
         // goes there first, and the field can take the focus once it shows.
@@ -157,12 +172,20 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
   }, [releasable, view])
 
   const found = useMemo(() => (search ? new Set(search.rows) : NO_ROWS), [search])
+  const consoleOpen = layout.console_open
   // Read on every render: the row's page arrives after the row is chosen.
   const commit = selected === null ? null : (rowAt(path, selected)?.commit.id ?? null)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-0 flex-1">
+      <Splitter
+        orientation="vertical"
+        defaultSizes={layout.console}
+        onSizesChange={(sizes) => onLayout({ ...layout, console: sizes })}
+        className="min-h-0 flex-1"
+      >
+       <SplitterPane min={20}>
+       <div className="flex h-full min-h-0">
         <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-raise">
           <nav aria-label={t('views.label')} className="flex shrink-0 flex-col gap-0.5 border-b border-line p-1.5">
             <RowButton
@@ -248,8 +271,16 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
             </SplitterPane>
           </Splitter>
         </section>
-      </div>
-      <StatusLine tab={tab} />
+       </div>
+       </SplitterPane>
+       {/* Hidden rather than taken away: the panes of a splitter are its direct
+           children, and the view above it must keep what it has drawn. */}
+       <SplitterHandle label={t('console.resize')} className={consoleOpen ? undefined : 'hidden'} />
+       <SplitterPane min={8} className={cn('border-t border-line', !consoleOpen && 'hidden')}>
+        {consoleOpen && <ConsolePanel path={path} />}
+       </SplitterPane>
+      </Splitter>
+      <StatusLine tab={tab} consoleOpen={consoleOpen} onConsole={() => toggleConsole.current()} />
     </div>
   )
 }
@@ -257,8 +288,10 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
 /** The foot of the window: where the repository is, and the background work
  * on it - git writing a commit-graph is a write the person should be able to
  * see happen. */
-function StatusLine({ tab }: { tab: Tab }) {
+function StatusLine({ tab, consoleOpen, onConsole }: { tab: Tab; consoleOpen: boolean; onConsole: () => void }) {
   const { t } = useTranslation()
+  const runs = useConsole(tab.path)
+  const last = runs.at(-1)
   const step = useMaintenance(tab.path)
   const copy = useWorkingCopy(tab.path)
   const unwatched = copy.state === 'read' ? copy.unwatched : null
@@ -285,6 +318,18 @@ function StatusLine({ tab }: { tab: Tab }) {
           {work}
         </span>
       )}
+      <Button
+        variant="icon"
+        size="xs"
+        aria-pressed={consoleOpen}
+        aria-keyshortcuts={ariaKeyShortcuts('Mod+J')}
+        title={t('console.toggle')}
+        className={cn('h-5 shrink-0', work === null && 'ml-auto', last !== undefined && failed(last) && 'text-bad')}
+        onClick={onConsole}
+      >
+        <SquareTerminal aria-hidden />
+        {t('console.title')}
+      </Button>
     </footer>
   )
 }

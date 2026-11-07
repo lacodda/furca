@@ -12,6 +12,7 @@ import { markShown, useFileDiff } from '@/lib/details'
 import type { DiffLayout } from '@/lib/generated/DiffLayout'
 import type { FileChange } from '@/lib/generated/FileChange'
 import type { FileDiff } from '@/lib/generated/FileDiff'
+import type { Hunk } from '@/lib/generated/Hunk'
 import { short } from '@/lib/names'
 
 type CodeDiffModule = typeof import('./CodeDiff')
@@ -66,6 +67,12 @@ function prepareLanguage(path: string): void {
   void loadCodeDiff().then((module) => module.prepare(path))
 }
 
+/** What can be done to one hunk of a change: stage it, or take it out again. */
+export interface HunkAction {
+  label: string
+  act: (hunk: Hunk) => void
+}
+
 /** The change of one file: what it is, then its lines. `scope` says what the
  * change is read under - a commit, or a moment of the working copy - so the
  * same file is read again once it means something else. */
@@ -75,12 +82,14 @@ export function DiffPane({
   file,
   layout,
   onLayout,
+  hunkAction,
 }: {
   path: string
   scope: string
   file: FileChange
   layout: DiffLayout
   onLayout: (layout: DiffLayout) => void
+  hunkAction?: HunkAction
 }) {
   const { t } = useTranslation()
   const shown = useFileDiff(path, scope, file)
@@ -119,7 +128,7 @@ export function DiffPane({
           retry: t('details.drawAgain'),
         }}
       >
-        <DrawnDiff diff={shown.read.value} layout={layout} onShown={shown.stale ? undefined : markShown} />
+        <DrawnDiff diff={shown.read.value} layout={layout} onShown={shown.stale ? undefined : markShown} hunkAction={shown.stale ? undefined : hunkAction} />
       </ErrorBoundary>
     )
   } else {
@@ -161,7 +170,7 @@ export function DiffPane({
 }
 
 /** The lines of a change, drawn once the drawing has been fetched. */
-function DrawnDiff({ diff, layout, onShown }: { diff: FileDiff; layout: DiffLayout; onShown?: () => void }) {
+function DrawnDiff({ diff, layout, onShown, hunkAction }: { diff: FileDiff; layout: DiffLayout; onShown?: () => void; hunkAction?: HunkAction }) {
   const { t } = useTranslation()
   const module = useCodeDiff()
   const [drawn, setDrawn] = useState(diff)
@@ -173,7 +182,7 @@ function DrawnDiff({ diff, layout, onShown }: { diff: FileDiff; layout: DiffLayo
       </div>
     )
   }
-  return <module.default diff={drawn} layout={layout} onShown={onShown} />
+  return <module.default diff={drawn} layout={layout} onShown={onShown} hunkAction={hunkAction} />
 }
 
 /** A change with no lines to show: what each side is, and its size. */

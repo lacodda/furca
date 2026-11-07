@@ -16,7 +16,9 @@ use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
-use furca_core::{Batch, FileChange, Refreshed, Repository, Status, StatusCache, Watcher};
+use furca_core::{
+    Batch, FileChange, Refreshed, Repository, Status, StatusCache, Warning, Watcher, doctor,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -34,8 +36,6 @@ const SLICE: usize = 32;
 const FIRST_READING: Duration = Duration::from_millis(30);
 /// How often the list goes out again while a long one is read.
 const READING_EVERY: Duration = Duration::from_millis(250);
-/// Files read after any one change: as many rows as the window can be given.
-const MOST_READ: usize = 3 * ROWS;
 
 /// What the window hears of a repository's working copy.
 #[derive(Debug, Clone, Serialize, ts_rs::TS)]
@@ -55,6 +55,9 @@ pub enum WorkingRead {
         counts: Counts,
         /// What moved since the last time.
         refreshed: Refreshed,
+        /// What is worth a word about the rows staged, before they are
+        /// committed.
+        warnings: Vec<Warning>,
         /// Why nothing is watching the working tree, if nothing is: the list
         /// is then only as fresh as the last time the window got the focus.
         unwatched: Option<String>,
@@ -92,6 +95,19 @@ struct Front {
 /// The one repository being watched.
 #[derive(Default)]
 pub struct Watched(Mutex<Option<Front>>);
+
+impl Watched {
+    /// Has the repository at `path` read again if it is the one watched: the
+    /// window just changed it, and the watcher may not be listening.
+    pub fn read_again(&self, path: &str) {
+        if let Ok(front) = self.0.lock()
+            && let Some(front) = front.as_ref()
+            && front.path == path
+        {
+            let _ = front.tell.send(Word::ReadAgain);
+        }
+    }
+}
 
 /// Watches the repository at `path` instead of the one watched now; `None`
 /// when no tab is in front. Asked again for the one it is watching, it reads
@@ -149,14 +165,10 @@ struct Keeper {
 impl Keeper {
     fn run(mut self, told: &Receiver<Word>) {
         self.take(Word::ReadAgain);
-        // How many files were read since the last change, and when the list
-        // last went out while they were.
-        let mut read = 0;
+        // When the list last went out while its files were read.
         let mut sent = Instant::now();
         loop {
-            let reading =
-                read < MOST_READ && self.cache.as_ref().is_some_and(StatusCache::has_unread);
-            let word = if reading {
+            let word = if self.has_more() {
                 match told.try_recv() {
                     Ok(word) => Some(word),
                     Err(TryRecvError::Empty) => None,
@@ -172,11 +184,10 @@ impl Keeper {
                 Some(Word::Stop) => return,
                 Some(word) => {
                     self.take(word);
-                    read = 0;
                     sent = Instant::now();
                 }
                 None => {
-                    read += self.read_slice(READING_EVERY.saturating_sub(sent.elapsed()));
+                    self.read_slice(READING_EVERY.saturating_sub(sent.elapsed()));
                     if sent.elapsed() >= READING_EVERY || !self.has_more() {
                         self.send(Refreshed::Nothing);
                         sent = Instant::now();
@@ -186,8 +197,14 @@ impl Keeper {
         }
     }
 
+    /// Whether a row the window is given is still to be read. What is past
+    /// those is not read at all: one save among eight thousand changed files
+    /// used to set off a pass over the next three thousand, and the list went
+    /// out whole four times a second while it did.
     fn has_more(&self) -> bool {
-        self.cache.as_ref().is_some_and(StatusCache::has_unread)
+        self.cache
+            .as_ref()
+            .is_some_and(|cache| cache.has_unread_in(ROWS))
     }
 
     /// Brings the list up to date for `word`, reads what is quick to read and
@@ -245,29 +262,24 @@ impl Keeper {
         }
     }
 
-    /// Reads files for about `long`; returns how many.
-    fn read_slice(&mut self, long: Duration) -> usize {
+    /// Reads files for about `long`.
+    fn read_slice(&mut self, long: Duration) {
         let (Some(cache), Ok(repo)) = (self.cache.as_mut(), Repository::at(&self.path)) else {
-            return MOST_READ;
+            return;
         };
         let start = Instant::now();
-        let mut read = 0;
-        loop {
-            let done = cache.read_files(&repo, SLICE);
-            read += done;
-            if done == 0 || start.elapsed() >= long {
-                return read;
-            }
-        }
+        while cache.read_rows(&repo, SLICE, ROWS) > 0 && start.elapsed() < long {}
     }
 
     fn send(&self, refreshed: Refreshed) {
         let Some(cache) = &self.cache else { return };
         let status = cache.status();
         let cut = |files: &[FileChange]| files.iter().take(ROWS).cloned().collect();
+        let staged: Vec<FileChange> = cut(&status.staged);
         let read = WorkingRead::Read {
+            warnings: doctor(&staged),
             status: Status {
-                staged: cut(&status.staged),
+                staged,
                 unstaged: cut(&status.unstaged),
                 untracked: cut(&status.untracked),
                 conflicted: status.conflicted.clone(),

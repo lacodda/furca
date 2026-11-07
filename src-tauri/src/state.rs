@@ -50,6 +50,16 @@ pub struct Layout {
     pub files: Vec<f64>,
     /// How a file's change is drawn.
     pub diff: DiffLayout,
+    /// The view above and the console below, in percent of the height.
+    #[serde(default = "console_shares")]
+    pub console: Vec<f64>,
+    /// Whether the console is open.
+    #[serde(default)]
+    pub console_open: bool,
+}
+
+fn console_shares() -> Vec<f64> {
+    vec![70.0, 30.0]
 }
 
 /// How a file's change is drawn.
@@ -68,6 +78,8 @@ impl Default for Layout {
             details: vec![55.0, 45.0],
             files: vec![30.0, 70.0],
             diff: DiffLayout::Split,
+            console: console_shares(),
+            console_open: false,
         }
     }
 }
@@ -97,6 +109,12 @@ impl Layout {
                 first.files
             },
             diff: self.diff,
+            console: if fits(&self.console) {
+                self.console
+            } else {
+                first.console
+            },
+            console_open: self.console_open,
         }
     }
 }
@@ -485,6 +503,8 @@ mod tests {
             details: vec![70.0, 30.0],
             files: vec![25.5, 74.5],
             diff: DiffLayout::Inline,
+            console: vec![60.0, 40.0],
+            console_open: true,
         };
         assert_eq!(kept.clone().held(), kept);
 
@@ -500,11 +520,15 @@ mod tests {
                 details: broken.clone(),
                 files: broken.clone(),
                 diff: DiffLayout::Inline,
+                console: broken.clone(),
+                console_open: true,
             }
             .held();
             assert_eq!(held.details, first.details, "{broken:?}");
             assert_eq!(held.files, first.files, "{broken:?}");
+            assert_eq!(held.console, first.console, "{broken:?}");
             assert_eq!(held.diff, DiffLayout::Inline, "the rest of it stands");
+            assert!(held.console_open, "the rest of it stands");
         }
     }
 }

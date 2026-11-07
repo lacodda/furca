@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FileChange } from './generated/FileChange'
 import type { Status } from './generated/Status'
 import type { WorkingCopy } from './generated/WorkingCopy'
-import { counted, heard, readAs, rowToShow, type Held } from './working'
+import { actOn, counted, heard, readAs, rowToShow, type Held } from './working'
 
 const file = (path: string): FileChange => ({
   path,
@@ -26,6 +26,7 @@ const read = (refreshed: Extract<WorkingCopy['read'], { state: 'read' }>['refres
   status: of,
   counts: { staged: of.staged.length, unstaged: of.unstaged.length, untracked: of.untracked.length },
   refreshed,
+  warnings: [],
   unwatched: null,
 })
 
@@ -122,5 +123,38 @@ describe('counting what is not committed', () => {
     const of = status({ staged: ['a'], unstaged: ['b'] })
     const counts = { staged: 5000, unstaged: 3000, untracked: 7000 }
     expect(counted(of, counts)).toEqual({ changed: 5000, untracked: 7000, total: 12000 })
+  })
+})
+
+describe('actOn', () => {
+  const lists = status({ staged: ['a/one', 'b'], unstaged: ['a/two', 'a/sub/three', 'ab'], untracked: ['c'] })
+
+  it('moves a file across', () => {
+    expect(actOn('unstaged|f:ab', lists)).toEqual({ kind: 'stage', paths: ['ab'] })
+    expect(actOn('untracked|f:c', lists)).toEqual({ kind: 'stage', paths: ['c'] })
+    expect(actOn('staged|f:b', lists)).toEqual({ kind: 'unstage', paths: ['b'] })
+  })
+
+  it('moves what is under a folder in that list and no other', () => {
+    expect(actOn('unstaged|d:a', lists)).toEqual({ kind: 'stage', paths: ['a/two', 'a/sub/three'] })
+    expect(actOn('staged|d:a', lists)).toEqual({ kind: 'unstage', paths: ['a/one'] })
+  })
+
+  it('moves a whole list by name, however few of its rows are here', () => {
+    expect(actOn('staged', lists)).toEqual({ kind: 'unstage-all' })
+    expect(actOn('unstaged', lists)).toEqual({ kind: 'stage-list', list: 'unstaged' })
+    expect(actOn('untracked', lists)).toEqual({ kind: 'stage-list', list: 'untracked' })
+  })
+
+  it('takes the old path of a rename with it, or a deletion stays behind', () => {
+    const renamed: Status = { ...status({}), staged: [{ ...file('new'), status: 'renamed', from: 'old' }] }
+    expect(actOn('staged|f:new', renamed)).toEqual({ kind: 'unstage', paths: ['new', 'old'] })
+  })
+
+  it('takes a row that stands for nothing as nothing', () => {
+    expect(actOn('unstaged|more', lists)).toBeNull()
+    expect(actOn('conflicted', lists)).toBeNull()
+    expect(actOn('conflicted|f:x', lists)).toBeNull()
+    expect(actOn('unstaged|f:gone', lists)).toBeNull()
   })
 })

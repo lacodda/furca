@@ -5,7 +5,9 @@
 //! it off the main thread, and remembers what was open (`state`).
 
 pub mod commands;
+pub mod commit;
 pub mod details;
+mod draft;
 pub mod graph;
 pub mod maintenance;
 pub mod measure;
@@ -105,6 +107,8 @@ pub fn run() {
             app.manage(graphs);
             app.manage(working::Watched::default());
             app.manage(release::Releases::default());
+            app.manage(commit::Console::default());
+            commit::listen(app.handle());
 
             // The window is on the screen before its webview is (ADR 0011):
             // the webview takes some 350 ms to start, and a window that waits
@@ -166,6 +170,19 @@ pub fn run() {
             release::release_state,
             release::release_plan,
             release::release_run,
+            commit::stage_paths,
+            commit::stage_list,
+            commit::unstage_paths,
+            commit::unstage_all,
+            commit::stage_hunk,
+            commit::unstage_hunk,
+            commit::commit_types,
+            commit::check_message,
+            commit::commit,
+            commit::last_commit,
+            commit::draft_available,
+            commit::draft_message,
+            commit::console_log,
             measure::measured,
         ])
         .run(tauri::generate_context!())

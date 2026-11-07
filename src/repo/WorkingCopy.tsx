@@ -1,19 +1,24 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TriangleAlert } from 'lucide-react'
+import { Minus, Plus, TriangleAlert } from 'lucide-react'
+import { cn } from 'dowel-ui'
 import { Alert } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Spinner } from '@/components/ui/spinner'
 import { Splitter, SplitterHandle, SplitterPane } from '@/components/ui/splitter'
 import type { TreeNode } from '@/components/ui/tree-rows'
+import { api, failure } from '@/lib/api'
 import { fileTree, folderIds } from '@/lib/changes'
 import type { Conflicted } from '@/lib/generated/Conflicted'
 import type { Counts } from '@/lib/generated/Counts'
 import type { FileChange } from '@/lib/generated/FileChange'
 import type { Layout } from '@/lib/generated/Layout'
 import type { Status } from '@/lib/generated/Status'
-import { readAs, rowToShow, useWorkingCopy, type Area, type Chosen } from '@/lib/working'
-import { DiffPane } from './DiffPane'
+import type { Warning } from '@/lib/generated/Warning'
+import { actOn, readAs, rowToShow, useWorkingCopy, type Area, type Chosen } from '@/lib/working'
+import { Composer } from './Composer'
+import { DiffPane, type HunkAction } from './DiffPane'
 import { FileTree } from './FileTree'
 import { fileNodes } from './Files'
 
@@ -54,33 +59,29 @@ export function WorkingCopyView({ path, layout, onLayout }: WorkingCopyProps) {
       </div>
     )
   }
-  const { status, counts } = copy
-  const clean = status.conflicted.length + counts.staged + counts.unstaged + counts.untracked === 0
-  if (clean) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-center">
-        <EmptyState plain title={t('changes.clean')} body={t('changes.cleanBody')} />
-      </div>
-    )
-  }
-  return <Lists path={path} status={status} counts={counts} layout={layout} onLayout={onLayout} />
+  const { status, counts, warnings } = copy
+  return <Lists path={path} status={status} counts={counts} warnings={warnings} layout={layout} onLayout={onLayout} />
 }
 
 function Lists({
   path,
   status,
   counts,
+  warnings,
   layout,
   onLayout,
 }: {
   path: string
   status: Status
   counts: Counts
+  warnings: readonly Warning[]
   layout: Layout
   onLayout: (layout: Layout) => void
 }) {
   const { t } = useTranslation()
   const copy = useWorkingCopy(path)
+  const [refused, setRefused] = useState<string | null>(null)
+  const clean = status.conflicted.length + counts.staged + counts.unstaged + counts.untracked === 0
   // The row on show with the lists it was chosen in, which is where the place
   // of a row that has gone is found.
   const [held, setHeld] = useState(() => ({ status, shown: rowToShow(status, openRow.get(path) ?? null) }))
@@ -94,7 +95,34 @@ function Lists({
   })
   const choose = (row: Chosen) => setHeld({ status, shown: row })
 
+  // A change to the index is heard back as the list moving, so all that is left
+  // here is to say what went wrong.
+  const heard = (change: Promise<unknown>) => {
+    setRefused(null)
+    change.catch((cause: unknown) => {
+      setRefused(failure(cause))
+    })
+  }
+
+  const act = (id: string) => {
+    const what = actOn(id, status)
+    if (what === null) return
+    if (what.kind === 'stage') heard(api.stagePaths(path, what.paths))
+    else if (what.kind === 'stage-list') heard(api.stageList(path, what.list))
+    else if (what.kind === 'unstage') heard(api.unstagePaths(path, what.paths))
+    else heard(api.unstageAll(path))
+  }
+
   const file = shown === null || shown.area === 'conflicted' ? null : status[shown.area].find((each) => each.path === shown.path)
+
+  // Only what changed in place has hunks to take apart: a file added or deleted
+  // whole is one hunk, which its row already moves.
+  let hunkAction: HunkAction | undefined
+  if (file?.status === 'modified' && shown?.area === 'unstaged') {
+    hunkAction = { label: t('changes.stageHunk'), act: (hunk) => heard(api.stageHunk(path, file, hunk)) }
+  } else if (file?.status === 'modified' && shown?.area === 'staged') {
+    hunkAction = { label: t('changes.unstageHunk'), act: (hunk) => heard(api.unstageHunk(path, file, hunk)) }
+  }
 
   return (
     <Splitter
@@ -104,11 +132,25 @@ function Lists({
       className="h-full min-h-0"
     >
       <SplitterPane min={15} max={60}>
-        <RowTree path={path} status={status} counts={counts} chosen={shown} onChoose={choose} />
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="min-h-16 flex-1">
+            <RowTree path={path} status={status} counts={counts} chosen={shown} onChoose={choose} onAct={act} />
+          </div>
+          {refused !== null && (
+            <p role="alert" className="max-h-24 shrink-0 overflow-y-auto border-t border-line px-2 py-1 text-2xs whitespace-pre-wrap text-bad">
+              {refused}
+            </p>
+          )}
+          <Composer key={path} path={path} staged={counts.staged} conflicted={status.conflicted.length} warnings={warnings} />
+        </div>
       </SplitterPane>
       <SplitterHandle label={t('details.resizeFiles')} />
       <SplitterPane min={30}>
-        {shown?.area === 'conflicted' ? (
+        {clean ? (
+          <div className="flex h-full items-center justify-center p-6 text-center">
+            <EmptyState plain title={t('changes.clean')} body={t('changes.cleanBody')} />
+          </div>
+        ) : shown?.area === 'conflicted' ? (
           <ConflictNote conflict={status.conflicted.find((each) => each.path === shown.path)} />
         ) : file !== null && file !== undefined && shown !== null ? (
           <DiffPane
@@ -117,6 +159,7 @@ function Lists({
             file={file}
             layout={layout.diff}
             onLayout={(diff) => onLayout({ ...layout, diff })}
+            hunkAction={hunkAction}
           />
         ) : null}
       </SplitterPane>
@@ -132,17 +175,26 @@ function RowTree({
   counts,
   chosen,
   onChoose,
+  onAct,
 }: {
   path: string
   status: Status
   counts: Counts
   chosen: Chosen | null
   onChoose: (row: Chosen) => void
+  onAct: (id: string) => void
 }) {
   const { t } = useTranslation()
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => closedFolders.get(path) ?? new Set())
 
+  // Read when pressed, not a reason to build the rows again.
+  const acting = useRef(onAct)
+  useEffect(() => {
+    acting.current = onAct
+  })
+
   const { nodes, folders } = useMemo(() => {
+    const act = (id: string) => acting.current(id)
     const nodes: TreeNode[] = []
     const folders: string[] = []
     if (status.conflicted.length > 0) {
@@ -165,14 +217,16 @@ function RowTree({
       if (count === 0) continue
       const tree = fileTree(files)
       folders.push(area, ...folderIds(tree).map((id) => `${area}|d:${id}`))
-      const children = fileNodes(tree, `${area}|`)
+      const staged = area === 'staged'
+      const end = (id: string) => <RowAction id={id} staged={staged} onAct={act} />
+      const children = fileNodes(tree, `${area}|`, end)
       if (count > files.length) {
         children.push({
           id: `${area}|more`,
           label: <span className="text-xs text-dim">{t('changes.more', { count: count - files.length })}</span>,
         })
       }
-      nodes.push({ id: area, label: <SectionLabel title={title} count={count} />, children })
+      nodes.push({ id: area, label: <SectionLabel title={title} count={count} end={<RowAction id={area} staged={staged} onAct={act} always />} />, children })
     }
     return { nodes, folders }
   }, [counts, status, t])
@@ -189,6 +243,7 @@ function RowTree({
         closedFolders.set(path, shut)
         setClosed(shut)
       }}
+      onAct={onAct}
       selected={chosen === null ? undefined : `${chosen.area}|f:${chosen.path}`}
       onSelect={(id) => {
         const row = /^(conflicted|staged|unstaged|untracked)\|f:(.*)$/s.exec(id)
@@ -198,12 +253,38 @@ function RowTree({
   )
 }
 
-function SectionLabel({ title, count }: { title: string; count: number }) {
+function SectionLabel({ title, count, end }: { title: string; count: number; end?: ReactNode }) {
   return (
     <span className="flex min-w-0 items-center gap-2 font-medium">
       <span className="truncate">{title}</span>
       <span className="ml-auto shrink-0 font-mono text-2xs font-normal text-dim">{count}</span>
+      {end}
     </span>
+  )
+}
+
+/** The button at a row's edge that moves it across: to the index, or out of it.
+ * The tree is one tab stop and Space does the same from the keyboard, so this is
+ * for the pointer, and comes up with it; a list's own row always shows it. */
+function RowAction({ id, staged, onAct, always = false }: { id: string; staged: boolean; onAct: (id: string) => void; always?: boolean }) {
+  const { t } = useTranslation()
+  const label = staged ? t('changes.unstage') : t('changes.stage')
+  return (
+    <Button
+      type="button"
+      variant="icon"
+      size="icon-xs"
+      tabIndex={-1}
+      aria-label={label}
+      title={label}
+      className={cn('shrink-0 font-sans', !always && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
+      onClick={(event: MouseEvent) => {
+        event.stopPropagation()
+        onAct(id)
+      }}
+    >
+      {staged ? <Minus aria-hidden /> : <Plus aria-hidden />}
+    </Button>
   )
 }
 

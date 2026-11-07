@@ -16,6 +16,9 @@ export interface FileTreeProps {
    * walks the tree with the arrows and chooses with Enter. */
   selected?: string
   onSelect: (id: string) => void
+  /** Space on a row, when the rows can be acted on: where Enter chooses, this
+   * does what the row is for. */
+  onAct?: (id: string) => void
 }
 
 /**
@@ -26,7 +29,7 @@ export interface FileTreeProps {
  * it because its `list` and `listitem` roles would be wrong in a `tree`, so it
  * shares the arithmetic instead (`src/lib/file-tree.ts`).
  */
-export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect }: FileTreeProps) {
+export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect, onAct }: FileTreeProps) {
   const base = useId()
   const { viewport, scrollTop, viewportHeight, scrollTo } = useScrollBox()
   const [cursor, setCursor] = useState<string | undefined>(undefined)
@@ -72,6 +75,14 @@ export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect 
   }
 
   const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === ' ' && onAct !== undefined) {
+      const row = rows[active]
+      if (row !== undefined) {
+        event.preventDefault()
+        onAct(row.node.id)
+      }
+      return
+    }
     const action = actionFor(event.key, rows, active, open)
     if (action === null) return
     event.preventDefault()
@@ -125,7 +136,7 @@ export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect 
                   else onSelect(node.id)
                 }}
                 className={cn(
-                  'absolute inset-x-0 flex cursor-pointer items-center gap-1 rounded-sm pr-2 transition-colors',
+                  'group absolute inset-x-0 flex cursor-pointer items-center gap-1 rounded-sm pr-2 transition-colors',
                   node.id === selected ? 'bg-accent-soft text-text' : 'hover:bg-soft',
                   index === active && node.id !== selected && 'bg-softer',
                 )}

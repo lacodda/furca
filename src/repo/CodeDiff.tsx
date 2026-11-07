@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { Change, diff as characters, MergeView, unifiedMergeView, type DiffConfig } from '@codemirror/merge'
 import { Compartment, EditorState, type Extension, type StateEffect } from '@codemirror/state'
-import { EditorView, highlightSpecialChars, lineNumbers } from '@codemirror/view'
+import { Decoration, EditorView, highlightSpecialChars, lineNumbers, WidgetType } from '@codemirror/view'
 import { HighlightStyle, LanguageDescription, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
 import { tags } from '@lezer/highlight'
 import type { FileDiff } from '@/lib/generated/FileDiff'
+import type { Hunk } from '@/lib/generated/Hunk'
 import { hunkChanges, refine } from '@/lib/changes'
 
 /*
@@ -76,7 +77,101 @@ const furcaTheme = EditorView.theme({
     fontSize: 'var(--text-2xs)',
   },
   '.cm-collapsedLines:hover': { color: 'var(--text)' },
+  '.furca-hunk-bar': {
+    padding: '1px 0',
+    fontFamily: 'var(--font-sans)',
+    fontSize: 'var(--text-2xs)',
+    color: 'var(--dim)',
+    background: 'var(--raise)',
+    borderBlock: '1px solid var(--line)',
+  },
+  // Held at the left edge of what shows: a long line scrolls the column sideways,
+  // and the button must not go with it.
+  '.furca-hunk-bar > div': {
+    position: 'sticky',
+    left: '0.75ch',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '1ch',
+  },
+  '.furca-hunk-bar button': {
+    cursor: 'pointer',
+    padding: '0 0.75ch',
+    color: 'var(--accent)',
+    background: 'transparent',
+    border: '1px solid var(--line)',
+    borderRadius: 'var(--radius-sm)',
+  },
+  '.furca-hunk-bar button:hover': { borderColor: 'var(--line-2)', color: 'var(--text)' },
+  '.furca-hunk-bar.furca-level button': { visibility: 'hidden' },
 })
+
+/** A hunk's bar: where it is and how large, with what can be done to it. It is
+ * in the drawing and not around it, so it sits with the lines it is about and
+ * scrolls with them. */
+class HunkBar extends WidgetType {
+  private readonly hunk: Hunk
+  private readonly label: string
+  private readonly act: ((hunk: Hunk) => void) | null
+
+  /** With no `act`, the bar only keeps the column it is in level with the one
+   * that has the button: it takes the same room, and says nothing. */
+  constructor(hunk: Hunk, label: string, act: ((hunk: Hunk) => void) | null) {
+    super()
+    this.hunk = hunk
+    this.label = label
+    this.act = act
+  }
+
+  override eq(other: HunkBar): boolean {
+    return (
+      other.label === this.label &&
+      other.act === this.act &&
+      other.hunk.after.start === this.hunk.after.start &&
+      other.hunk.before.start === this.hunk.before.start
+    )
+  }
+
+  override toDOM(): HTMLElement {
+    const bar = document.createElement('div')
+    const { act, hunk } = this
+    bar.className = act === null ? 'furca-hunk-bar furca-level' : 'furca-hunk-bar'
+    const size = document.createElement('span')
+    size.textContent = act === null ? '' : `−${String(hunk.before.count)} +${String(hunk.after.count)}`
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = this.label
+    if (act !== null) {
+      button.addEventListener('click', () => {
+        act(hunk)
+      })
+    } else {
+      button.tabIndex = -1
+    }
+    const held = document.createElement('div')
+    held.append(button, size)
+    bar.append(held)
+    return bar
+  }
+
+  override ignoreEvent(): boolean {
+    return true
+  }
+}
+
+/** The bars over a text's hunks, for the editor that shows the side the hunks
+ * land in. A block has to come from a value and not a view plugin, because it
+ * changes how tall the document is before anything is drawn. */
+function hunkBars(text: string, hunks: readonly Hunk[], side: 'before' | 'after', label: string, act: ((hunk: Hunk) => void) | null): Extension {
+  const doc = EditorState.create({ doc: text, extensions: EditorState.lineSeparator.of('\n') }).doc
+  const bars = hunks.map((hunk) => {
+    const line = hunk[side].start
+    const inside = line < doc.lines
+    const widget = Decoration.widget({ widget: new HunkBar(hunk, label, act), block: true, side: inside ? -2 : 1 })
+    return widget.range(inside ? doc.line(line + 1).from : doc.length)
+  })
+  return EditorView.decorations.of(Decoration.set(bars, true))
+}
 
 /**
  * The nonce Tauri gave the page's own `<style>` in index.html. CodeMirror
@@ -129,9 +224,12 @@ export interface CodeDiffProps {
   layout: Layout
   /** Told once the change is drawn, highlighted, on the screen. */
   onShown?: () => void
+  /** What can be done to a hunk, when anything can: staging it, or taking it
+   * out again. A commit's change has none. */
+  hunkAction?: { label: string; act: (hunk: Hunk) => void }
 }
 
-export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
+export default function CodeDiff({ diff, layout, onShown, hunkAction }: CodeDiffProps) {
   const host = useRef<HTMLDivElement>(null)
   // Where the reader was: a file of the working copy is drawn again each time
   // it is saved, and that must not throw them back to its top.
@@ -141,6 +239,13 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
   useEffect(() => {
     shownRef.current = onShown
   })
+  // The same for the action: a new function is not a reason to draw again, only
+  // whether there is one, and what it is called.
+  const act = useRef(hunkAction?.act)
+  useEffect(() => {
+    act.current = hunkAction?.act
+  })
+  const hunkLabel = hunkAction?.label
 
   useEffect(() => {
     const parent = host.current
@@ -164,6 +269,13 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
           : characters(a, b),
     }
     const collapse = { margin: CONTEXT, minSize: CONTEXT + 1 }
+    const barred = hunkLabel !== undefined && diff.before !== null && diff.after !== null
+    const bars: Extension = barred
+      ? hunkBars(after, diff.hunks, 'after', hunkLabel, (hunk) => {
+          act.current?.(hunk)
+        })
+      : []
+    const levels: Extension = barred ? hunkBars(before, diff.hunks, 'before', hunkLabel, null) : []
 
     // One editor scrolls itself, and keeps its place by what is at the top of
     // the screen: lines fold and unfold, so a height means little. Two kept
@@ -187,8 +299,8 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
       keep = () => view.scrollSnapshot()
     } else if (layout === 'split') {
       const view = new MergeView({
-        a: { doc: before, extensions: common(language, loaded) },
-        b: { doc: after, extensions: common(language, loaded) },
+        a: { doc: before, extensions: [common(language, loaded), levels] },
+        b: { doc: after, extensions: [common(language, loaded), bars] },
         parent,
         highlightChanges: true,
         gutter: true,
@@ -204,6 +316,7 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
         doc: after,
         extensions: [
           common(language, loaded),
+          bars,
           unifiedMergeView({
             original: before,
             highlightChanges: true,
@@ -254,7 +367,7 @@ export default function CodeDiff({ diff, layout, onShown }: CodeDiffProps) {
       place.current = { path: diff.file.path, layout, kept: keep() }
       destroy()
     }
-  }, [diff, layout])
+  }, [diff, layout, hunkLabel])
 
   return <div ref={host} className="furca-diff h-full min-h-0 overflow-hidden" />
 }

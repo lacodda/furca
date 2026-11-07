@@ -198,6 +198,45 @@ fn each_list_says_what_git_says() {
     );
 }
 
+/// A formatter's eight thousand files: the window is given the first rows of
+/// each list, and what is past them is not worth reading again after every save.
+#[test]
+fn reading_stops_at_the_rows_anyone_is_shown() {
+    let dir = repo();
+    for name in ["new-1", "new-2", "new-3", "new-4", "new-5"] {
+        write(dir.path(), &format!("{name}.txt"), "new\n");
+    }
+    let repo = Repository::open(dir.path()).expect("open");
+    let mut cache = StatusCache::read(&repo).expect("read the status");
+    assert!(cache.has_unread_in(2));
+
+    assert_eq!(cache.read_rows(&repo, 16, 2), 2, "the two rows shown");
+    assert!(!cache.has_unread_in(2), "nothing shown is left to read");
+    assert!(cache.has_unread_in(3), "the row past them still is");
+    assert!(cache.has_unread());
+    assert_eq!(
+        cache.read_rows(&repo, 16, 2),
+        0,
+        "a second pass reads nothing"
+    );
+
+    let untracked = &cache.status().untracked;
+    let unread = |file: &furca_core::FileChange| {
+        file.after
+            .as_ref()
+            .is_some_and(|side| side.content == furca_core::Content::Unread)
+    };
+    assert!(!unread(&untracked[0]) && !unread(&untracked[1]));
+    assert!(untracked[2..].iter().all(unread));
+
+    assert_eq!(
+        cache.read_files(&repo, 16),
+        3,
+        "the rest, when all are asked for"
+    );
+    assert!(!cache.has_unread());
+}
+
 #[test]
 fn a_status_is_read_before_any_file_is_opened() {
     let dir = repo();

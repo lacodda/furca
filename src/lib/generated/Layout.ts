@@ -19,4 +19,12 @@ files: Array<number>,
 /**
  * How a file's change is drawn.
  */
-diff: DiffLayout, };
+diff: DiffLayout, 
+/**
+ * The view above and the console below, in percent of the height.
+ */
+console: Array<number>, 
+/**
+ * Whether the console is open.
+ */
+console_open: boolean, };

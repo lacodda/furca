@@ -17,6 +17,7 @@ import type { Opened } from '@/lib/generated/Opened'
 import type { WindowState } from '@/lib/generated/WindowState'
 import { openGraph } from '@/lib/graph'
 import { forget, listenForMaintenance, listenForRefs, readAll, refresh, sidebars } from '@/lib/repos'
+import { listenForConsole } from '@/lib/console'
 import { listenForWorkingCopy } from '@/lib/working'
 import { Home } from '@/home/Home'
 import { preloadDiff } from '@/repo/DiffPane'
@@ -206,7 +207,7 @@ function Shell({ initial }: { initial: WindowState }) {
     if (!inTauri()) return
     let cancelled = false
     let task: ReturnType<typeof setTimeout> | undefined
-    const listening = Promise.all([listenForWorkingCopy(), listenForRefs()])
+    const listening = Promise.all([listenForWorkingCopy(), listenForRefs(), listenForConsole()])
     const frame = requestAnimationFrame(() => {
       task = setTimeout(() => {
         void listening.then(() => {

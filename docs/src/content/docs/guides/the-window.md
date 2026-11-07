@@ -1,6 +1,6 @@
 ---
 title: The window
-description: Open repositories in tabs, save sets of them as sessions, read their history as a graph, search it, see their branches, remotes, tags, stashes and submodules, and watch the working copy as files are saved.
+description: Open repositories in tabs, save sets of them as sessions, read their history as a graph, search it, see their branches, remotes, tags, stashes and submodules, watch the working copy as files are saved, stage and commit, and see every git command the window runs.
 ---
 
 The desktop window is the third door onto the same engine as the CLI: what it
@@ -222,9 +222,8 @@ the file is saved again. A file staged in a terminal moves to the other list wit
 the choice following it; one that has gone from every list hands over to the row
 now in its place.
 
-This is reading only, and writes nothing: staging and committing come in a later
-version. What git ignores never wakes the list, so a build in an ignored folder
-costs nothing. See
+What git ignores never wakes the list, so a build in an ignored folder costs
+nothing. See
 [ADR 0014](https://github.com/lacodda/furca/blob/main/docs/adr/0014-the-status-is-kept-by-the-paths-a-watcher-names.md).
 
 Only the tab in front is watched; the others are read when they come forward. A
@@ -232,6 +231,60 @@ working tree that cannot be watched - on Linux, one past the system's limit of
 inotify watches, where each folder takes one and what git ignores takes none - is
 read when the window gets the focus, and the foot of the window says so. See
 [ADR 0016](https://github.com/lacodda/furca/blob/main/docs/adr/0016-on-linux-the-folders-are-walked.md).
+
+## Committing
+
+Staging goes through your own `git`, one command at a time, so the index is never
+something only furca understands. Every row moves across with the button at its
+edge, or <kbd>Space</kbd> with the keyboard on it: to **Staged** from the other two
+lists, and back. A folder moves what is under it in that list, and a list's own
+row moves all of it, however long it is. A file staged as a rename takes its old
+path back with it.
+
+A file changed in place has a bar above each change, with **Stage hunk**, or
+**Unstage hunk** in **Staged**. Only that hunk moves, byte for byte, whatever the
+file's encoding and line endings. If the file has moved on since it was drawn, git
+refuses the patch and nothing changes: the change on the screen is read again and
+you press again. Added and deleted files are one hunk, which their row moves.
+
+Under the lists is the commit to make: its type, scope and description, a body, and
+**Breaking** for the `!` of a Conventional Commit. <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+commits. The author, signing and hooks are your git's, as in a terminal.
+
+| | What it says |
+| --- | --- |
+| **Your commit-msg hook** | Your hook is asked each time typing pauses, the one `git commit` will run, wherever `core.hooksPath` puts it, and what it refuses is shown in its own words. This needs git 2.36; on an older one the hook is heard when you commit. |
+| **The message** | It is read with the parser the [release engine](/furca/reference/release/) reads commits by: not Conventional, an unknown type, a long subject, a final full stop, another language. All of it is advice. **No type** writes a subject as you typed it, for a repository that does not use the convention. |
+| **What is staged** | Line endings that changed, which read as every line changed; files of 5 MB or more that are not in git LFS; an assistant's files. See [`furca doctor`](/furca/reference/doctor/). |
+
+The button stops only at what git would refuse: nothing staged, no description, a
+merge left unresolved. It also stops while a release is running in this repository,
+from a terminal or a window, since whatever is staged goes into the release's
+commit.
+
+**Amend** fills the form from the last commit, and what is staged goes into it;
+leaving the box again brings back what you had typed. It warns when that commit has
+been pushed, because amending rewrites what others may already have.
+
+**Draft** asks [Claude Code](https://claude.com/claude-code) for a message, when its
+CLI is on this machine; without it there is no button. Nothing is sent until you
+press it, and then what is staged goes to your own CLI, under your own session. Its
+draft lands in the form to read and change, and it commits nothing. It is off while
+the form holds something you typed. See
+[ADR 0019](https://github.com/lacodda/furca/blob/main/docs/adr/0019-a-commit-is-made-by-git-and-judged-by-its-hook.md).
+
+## The console
+
+**Console** at the foot of the window (<kbd>Ctrl</kbd>+<kbd>J</kbd>) lists every run
+of git the window made in this repository: when, the command as you could type it (a
+click copies it), how long it took, and how it ended. Under it is what it was given,
+the paths of an `add`, a commit's message, a patch, and what git said. A password or
+a token in an address is taken out before it gets here.
+
+It holds what this window did, the release engine's pushes and the background's
+commit-graph included, up to the last 500 runs of each repository, and starts clean
+with the window. Reads go through gitoxide, in-process, and are not here. The button
+turns red when the last run failed.
 
 ## Releasing
 
@@ -266,7 +319,7 @@ checkpoint knows where that was. See
 
 ## What the window writes
 
-Nothing in your history, unless you press **Run** or **Resume**. One file, in the background: when a repository has no
+Nothing in your history, unless you press **Commit**, **Run** or **Resume**. One file, in the background: when a repository has no
 commit-graph file, or one more than a thousand commits behind, the window has
 git write one - `git commit-graph write --reachable --split`, the file `git gc`
 writes on its own - and the status line along the foot says so. Without it the

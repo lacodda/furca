@@ -181,7 +181,74 @@
       "deleted-by-them": "deleted by them"
     },
     "conflictTitle": "A merge left this file unresolved: {{kind}}",
-    "conflictBody": "Settle it with git in a terminal; the file leaves this list as soon as it is staged."
+    "conflictBody": "Settle it with git in a terminal; the file leaves this list as soon as it is staged.",
+    "stage": "Stage",
+    "unstage": "Unstage",
+    "stageHunk": "Stage hunk",
+    "unstageHunk": "Unstage hunk",
+    "refused": "git did not do that"
+  },
+  "composer": {
+    "label": "The commit to make",
+    "type": "Type",
+    "noType": "no type",
+    "scope": "Scope",
+    "breaking": "Breaking",
+    "breakingHint": "Marks the commit with a ! before the colon: it breaks something for whoever uses this",
+    "description": "What it does, in a line",
+    "body": "Why, if the line cannot say it",
+    "amend": "Amend",
+    "commit": "Commit",
+    "commitFiles_one": "Commit {{count}} file",
+    "commitFiles_other": "Commit {{count}} files",
+    "commitAmend": "Amend the last commit",
+    "made": "Committed {{id}}",
+    "failed": "git did not commit",
+    "hookRefuses": "Your commit-msg hook refuses this",
+    "pushed": "The last commit has been pushed: amending it rewrites what others may have.",
+    "draft": "Draft",
+    "asking": "Claude Code is writing a draft",
+    "draftHint": "Sends what is staged to the Claude Code CLI on this machine, and puts its draft in the form to read and change",
+    "draftOver": "Clear the message first: a draft does not write over what you typed",
+    "doctorLabel": "What is worth a word before this is committed",
+    "andMore_one": "and {{count}} more",
+    "andMore_other": "and {{count}} more",
+    "doctor": {
+      "endings_one": "{{count}} file ends its lines another way, which reads as every line changed",
+      "endings_other": "{{count}} files end their lines another way, which reads as every line changed",
+      "large_one": "{{count}} large file, which every clone carries for good",
+      "large_other": "{{count}} large files, which every clone carries for good",
+      "assistant_one": "{{count}} assistant's file is going into the repository",
+      "assistant_other": "{{count}} assistant's files are going into the repository"
+    },
+    "not": {
+      "conflicted": "A merge left files unresolved",
+      "nothing-staged": "Nothing is staged",
+      "no-description": "Say what it does first",
+      "busy": "git is working"
+    },
+    "finding": {
+      "empty": "The message is empty.",
+      "notConventional": "Not a Conventional Commit: the release engine will not read what kind of change this is.",
+      "unknownType": "{{name}} is not a type of the convention.",
+      "noBlankLine": "The second line should be blank: git takes it as more of the subject.",
+      "longSubject": "The subject is {{length}} characters; {{most}} is the most that reads well.",
+      "finalPeriod": "The subject ends in a full stop.",
+      "notEnglish": "The message is not in English."
+    }
+  },
+  "console": {
+    "title": "Console",
+    "label": "The runs of git made here",
+    "toggle": "Show what git this window has run",
+    "resize": "Resize the console",
+    "empty": "git has not been run here yet",
+    "emptyBody": "Reads go through gitoxide. What changes a repository runs git, and shows up here as you could have typed it.",
+    "copy": "Copy the command",
+    "copied": "Copied",
+    "exit": "exit {{code}}",
+    "stopped": "stopped",
+    "millis": "{{millis}} ms"
   },
   "status": {
     "unwatched": "Not watching the working tree: it is read when the window gets the focus",

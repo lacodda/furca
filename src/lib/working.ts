@@ -3,7 +3,9 @@ import { listen } from '@tauri-apps/api/event'
 import type { Conflicted } from './generated/Conflicted'
 import type { Counts } from './generated/Counts'
 import type { FileChange } from './generated/FileChange'
+import type { List } from './generated/List'
 import type { Status } from './generated/Status'
+import type { Warning } from './generated/Warning'
 import type { WorkingCopy } from './generated/WorkingCopy'
 
 /*
@@ -24,6 +26,8 @@ export type Held =
       counts: Counts
       /** Why nothing is watching the working tree, if nothing is. */
       unwatched: string | null
+      /** What the doctor says of what is staged. */
+      warnings: readonly Warning[]
       /** Goes up each time the whole list was read again. */
       everything: number
       /** Goes up, per path, each time that file was read again. */
@@ -43,6 +47,7 @@ export function heard(held: Held, read: WorkingCopy['read']): Held {
     status: read.status,
     counts: read.counts,
     unwatched: read.unwatched,
+    warnings: read.warnings,
     everything: refreshed.kind === 'everything' ? everything + 1 : everything,
     files,
   } as const
@@ -93,6 +98,34 @@ export function rowToShow(status: Status, chosen: Chosen | null, before: Status 
     if (first !== undefined) return { area, path: first.path }
   }
   return null
+}
+
+/** What a row of the tree of lists stands for when it is acted on. */
+export type Act =
+  | { kind: 'stage'; paths: string[] }
+  | { kind: 'stage-list'; list: Extract<List, 'unstaged' | 'untracked'> }
+  | { kind: 'unstage'; paths: string[] }
+  | { kind: 'unstage-all' }
+
+/**
+ * What acting on the row `id` does: a file moves across, a folder moves what is
+ * under it in that list, and a list's own row moves all of it, which is said by
+ * name because the window holds only the first rows of a long list. A file
+ * staged as renamed takes its old path with it: unstaged alone, the rename
+ * would leave a deletion behind. `null` for a row that stands for nothing.
+ */
+export function actOn(id: string, status: Status): Act | null {
+  if (id === 'staged') return { kind: 'unstage-all' }
+  if (id === 'unstaged' || id === 'untracked') return { kind: 'stage-list', list: id }
+  const row = /^(staged|unstaged|untracked)\|([fd]):(.*)$/s.exec(id)
+  if (row === null) return null
+  const [, area, kind, name] = row as unknown as [string, 'staged' | 'unstaged' | 'untracked', 'f' | 'd', string]
+  const files = status[area].filter((file) => (kind === 'f' ? file.path === name : file.path.startsWith(`${name}/`)))
+  if (files.length === 0) return null
+  if (area === 'staged') {
+    return { kind: 'unstage', paths: files.flatMap((file) => (file.from === null ? [file.path] : [file.path, file.from])) }
+  }
+  return { kind: 'stage', paths: files.map((file) => file.path) }
 }
 
 /** What is not committed, in the words the bar above the graph counts it: a

@@ -11,4 +11,17 @@ args: Array<string>,
 /**
  * The exit code; `None` when git was stopped by a signal.
  */
-code: number | null, millis: number, };
+code: number | null, millis: number, 
+/**
+ * When it started, in milliseconds since the Unix epoch.
+ */
+at: number, 
+/**
+ * What it was given on standard input, as words, up to 16 KB of it: the
+ * paths of an `add`, a commit's message, a patch.
+ */
+input: string, 
+/**
+ * What git printed on standard error, up to 16 KB of it.
+ */
+said: string, };
