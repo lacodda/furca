@@ -673,10 +673,24 @@ fn a_run_going_already_stops_a_second_one_before_it_touches_anything() {
 
     // Let go, as the system does when a process ends however it ended.
     drop(lock);
-    assert!(!furca_release::running(&repo));
+    wait_until_let_go(&repo);
     let (report, said) = go(&pair, &world, Mode::Run);
     assert!(report.released, "{report:#?}\n{said:#?}");
-    assert!(!furca_release::running(&repo), "a run lets go when it ends");
+    wait_until_let_go(&repo);
+}
+
+/// Known flake, narrowly: on Linux a lock lasts until every copy of its
+/// descriptor is closed, and the other tests here fork `git` all the time. A
+/// child holds a copy from its fork until its exec closes it, so a lock let go
+/// can stay held for a moment. A lock that is never let go still fails here.
+fn wait_until_let_go(repo: &furca_core::Repository) {
+    for _ in 0..500 {
+        if !furca_release::running(repo) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("the lock was never let go");
 }
 
 /// `release.yml` is what puts a release with no registries out at all: until
