@@ -304,7 +304,7 @@ $ furca release run --json
   "registries": ["crates.io"],
   "page": { "draft": false, "assets": ["furca-v0.4.0-x86_64-pc-windows-msvc.zip"], "url": "https://github.com/lacodda/furca/releases/tag/v0.4.0" },
   "git": [
-    { "args": ["push", "--quiet", "origin", "HEAD:refs/heads/main"], "code": 0, "millis": 1840 }
+    { "args": ["push", "--quiet", "origin", "HEAD:refs/heads/main"], "code": 0, "millis": 1840, "at": 1794021295042, "input": "", "said": "" }
   ]
 }
 ```
@@ -322,7 +322,7 @@ The window runs the same engine: see [Releasing](/furca/guides/the-window/#relea
 | `steps[].details` | For `verify` and `install`, one line per check: `pass build: ...`, its details indented under it. |
 | `registries` | The registries that hold the version. |
 | `page` | The release page the tag's workflows put out; `null` when there is none. |
-| `git` | Every git command the run made, in order. |
+| `git` | Every git command the run made, in order: `at` is when it started, in milliseconds since the Unix epoch, `input` what it was given on standard input, and `said` what it printed on standard error, with any password in an address taken out. |
 
 ### In CI
 

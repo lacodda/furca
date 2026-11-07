@@ -234,8 +234,8 @@ read when the window gets the focus, and the foot of the window says so. See
 
 ## Committing
 
-Staging goes through your own `git`, one command at a time, so the index is never
-something only furca understands. Every row moves across with the button at its
+Staging goes through your own `git`, 2.25 or later, one command at a time, so the
+index is never something only furca understands. Every row moves across with the button at its
 edge, or <kbd>Space</kbd> with the keyboard on it: to **Staged** from the other two
 lists, and back. A folder moves what is under it in that list, and a list's own
 row moves all of it, however long it is. A file staged as a rename takes its old
