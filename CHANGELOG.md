@@ -8,6 +8,25 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.12.0] - 2026-11-07
+
+### Bug Fixes
+- Hold a release to one run at a time
+- Hand the form back after an amend, and build the draft everywhere
+
+### Documentation
+- Describe committing and the console in the window
+- Say what a git run keeps, and the git the window needs
+
+### Features
+- Tell the record of an install and a deploy by flag
+- Stage files and hunks, commit and amend through git
+- Say what is staged that would cost more later, and read a message
+- Stage and commit from the window, with a console of what git ran
+
+### Breaking Changes
+- `Shipped` has `installed` and `deployed`, and
+
 ## [0.11.0] - 2026-11-06
 
 ### Bug Fixes
