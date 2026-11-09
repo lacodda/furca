@@ -8,6 +8,31 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.14.0] - 2026-11-09
+
+### Bug Fixes
+- Keep a list's grab zone off the line numbers beside it
+
+### Documentation
+- Fetch, pull, push and the remotes, in the window and the CLI
+
+### Features
+- Fetch, pull and push with progress, and keep the remotes
+- Fetch, pull, push to every remote with a lease, and remote
+- Fetch, pull and push from the window, and edit remotes
+
+### Performance
+- Give macOS its menu bar once the window is on the screen
+
+### Testing
+- Mark where a measured start spends its time before setup
+
+### Breaking Changes
+- Git::fetch takes Remotes, prune and a progress
+listener, and returns what moved, in place of a remote and refspecs.
+- `furca push --json` reports `pushed` and `failed`
+remote by remote in place of `commit` and `remote`.
+
 ## [0.13.0] - 2026-11-09
 
 ### Bug Fixes
