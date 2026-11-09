@@ -79,6 +79,11 @@ pub fn run() {
         }));
     }
     let app = builder
+        // macOS's menu bar gets Tauri's default menu once the window is on
+        // the screen (below) rather than while the app is built: building
+        // the app is a tenth of a second there, against six milliseconds on
+        // Windows, and a click waits to see the window, not the menu bar.
+        .enable_macos_default_menu(false)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
@@ -139,6 +144,12 @@ pub fn run() {
             window.set_background_color(Some(ground))?;
             window.show()?;
             measure::mark("shown");
+            // The same menu Tauri would have made, Edit and its keys with it:
+            // a webview on macOS copies and pastes through the menu bar.
+            // Compiled on every system, so a build on any of them checks it.
+            if cfg!(target_os = "macos") {
+                app.set_menu(tauri::menu::Menu::default(app.handle())?)?;
+            }
 
             let mut webview = WebviewBuilder::from_config(&config)
                 .auto_resize()
