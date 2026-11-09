@@ -12,7 +12,12 @@ export type Steps = {
  * Every edit the bump makes, empty when the files already say the new
  * number.
  */
-bump: Array<Edit>, changelog: string, gate: Array<string>, commit: string | null, ci: CiStep, tag: string | null, publish: Array<Publish>, 
+bump: Array<Edit>, 
+/**
+ * The commands run once the new number is written, whose changes go into
+ * the release commit.
+ */
+after_bump: Array<string>, changelog: string, gate: Array<string>, commit: string | null, ci: CiStep, tag: string | null, publish: Array<Publish>, 
 /**
  * The shop windows the run checks after the publish.
  */

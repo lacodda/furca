@@ -21,6 +21,9 @@ pub const FILE: &str = "release.toml";
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub project: Project,
+    /// What the bump does besides writing the new number.
+    #[serde(default)]
+    pub bump: Bump,
     pub gate: Gate,
     pub ci: Ci,
     /// What the release publishes, one entry per package per registry.
@@ -76,6 +79,18 @@ pub struct Project {
     /// listed.
     #[serde(default)]
     pub as_written: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Bump {
+    /// Shell commands run from the root once the new number is written and
+    /// before the gate, in order: what has to be made by the new version
+    /// itself, such as a fixture its own binary writes. The files they change
+    /// go into the release commit with the bump; a file they make that git
+    /// does not track stops the run, since nothing would commit it.
+    #[serde(default)]
+    pub after: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

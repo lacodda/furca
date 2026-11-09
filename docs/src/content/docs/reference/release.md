@@ -212,7 +212,7 @@ standard output at the end. Lists are shortened here.
 | Step | What it does | It stops when |
 | --- | --- | --- |
 | `plan` | Makes the plan. The branch must follow a remote, the working tree must be clean, and the remote must have nothing the branch lacks. | A check fails. |
-| `bump` | Rewrites every place in `steps.bump` and nothing else, keeping each file's formatting: comments, key order, line endings. A Cargo workspace's tracked `Cargo.lock` is bumped with it, so a build does not change it later. A held tag trigger is put back. | A file no longer says what the plan saw. |
+| `bump` | Rewrites every place in `steps.bump` and nothing else, keeping each file's formatting: comments, key order, line endings. A Cargo workspace's tracked `Cargo.lock` is bumped with it, so a build does not change it later. A held tag trigger is put back. Then runs `bump.after` from the root, as the gate runs its commands, and takes the tracked files they changed into the release's edits: they go into the release commit, or back with the rest. | A file no longer says what the plan saw, or a command after the bump fails or makes a file git does not track. |
 | `changelog` | Renders the release's section with [git-cliff](https://git-cliff.org/) from the repository's `cliff.toml` (git-cliff's default without one) and puts it under the changelog's header. Everything already in the file stays byte for byte. | - |
 | `gate` | Runs `gate.commands` one by one from the root, through `cmd /C` on Windows and `sh -c` elsewhere, their output on the terminal. | A command fails, or the gate changed a tracked file: a gate checks, it does not edit. |
 | `commit` | Commits the release's edits as `chore(release): vX.Y.Z` with your own `git`, hooks and all. | git refuses. |
@@ -390,6 +390,9 @@ changelog = "CHANGELOG.md"
 manifests = ["Cargo.toml", "npm/package.json"]
 as_written = ["docs/adr/"]
 
+[bump]
+after = ["cargo run --quiet -- export --to tests/fixtures/export.json"]
+
 [gate]
 commands = [
     "cargo fmt --all --check",
@@ -435,6 +438,7 @@ reported at once; an unknown key is a problem, not something to ignore.
 | `project.changelog` | The changelog the release adds a section to, under its header. |
 | `project.manifests` | Every file that carries the version: a `Cargo.toml` (a package, or a workspace root that brings in its members) or a JSON file with a top-level `"version"`. |
 | `project.as_written` | Files, or directories ending in `/`, whose versions are left as written. The changelog always is. |
+| `bump.after` | Shell commands run from the root once the new number is written and before the gate, in order: what only the new version can make, such as a fixture its own binary writes. The tracked files they change are committed with the bump. A file they make that git does not track stops the run - nothing would commit it - so commit it once by hand first. |
 | `gate.commands` | Shell commands run from the root, in order; the first to fail stops the release before anything is committed. Keep it to what takes seconds: what needs a build is CI's, and the `ci` step waits for it before the tag. |
 | `ci.provider` | `github` or `forgejo`. |
 | `ci.workflow` | The workflow that has to be green on the release commit before it is tagged, as a file in `.github/workflows/` or `.forgejo/workflows/`. |
@@ -475,6 +479,7 @@ $ furca release plan --json
       { "path": "Cargo.toml", "at": "workspace.package.version", "from": "0.2.0", "to": "0.3.0" },
       { "path": "README.md", "at": "line 50", "from": "v0.2.0", "to": "v0.3.0" }
     ],
+    "after_bump": [],
     "changelog": "CHANGELOG.md",
     "gate": ["cargo fmt --all --check"],
     "commit": "chore(release): v0.3.0",
@@ -505,6 +510,7 @@ Lists are shortened here to one entry each.
 | `checks[].name` | `number`, `commits`, `stack`, `manifests`, `readme`, `descriptions`, `texts`, `changelog`, `registries`, `trigger`, `installers`, `record` - stable identifiers. |
 | `checks[].status` | `pass`, `warn`, `fail`, or `skip` for a source that was not asked. |
 | `steps.bump` | Every edit the bump makes: a manifest key, or a line of a text. |
+| `steps.after_bump` | The commands `bump.after` runs once the new number is written. |
 | `steps.publish[].first` | `true` when the registry has never seen the package. |
 | `steps.verify` | What the `verify` step looks at. |
 | `steps.post` | `install` and `deploy` as `release.toml` has them; `null` for one it does not ask for. |

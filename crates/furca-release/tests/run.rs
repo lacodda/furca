@@ -1444,3 +1444,84 @@ fn a_held_tag_trigger_comes_back_in_the_release_commit() {
         "name: Publish\non:\n  push:\n    tags: ['v*']\n  workflow_dispatch:"
     );
 }
+
+/// A pair whose `release.toml` runs `after` once the bump is written, with a
+/// tracked `fixture.txt` for it to write.
+fn with_commands_after_the_bump(gate: &str, after: &str) -> Pair {
+    let pair = Pair::new(gate);
+    let toml = pair.read("release.toml");
+    pair.write(
+        "release.toml",
+        &format!("{toml}\n[bump]\nafter = [{after}]\n"),
+    );
+    pair.write("fixture.txt", "made by 0.2.0\n");
+    pair.commit("test: a fixture the new version writes", NOW - DAY);
+    git(&pair.work(), &["push", "--quiet"], NOW);
+    pair
+}
+
+#[test]
+fn what_the_commands_after_the_bump_change_goes_into_the_release_commit() {
+    let pair = with_commands_after_the_bump(PASS, r#""echo again>> fixture.txt""#);
+    let world = World::new(&pair);
+    let (report, _) = go(&pair, &world, Mode::Run);
+
+    assert!(report.released, "{report:#?}");
+    let bump = report
+        .steps
+        .iter()
+        .find(|s| s.name == "bump")
+        .expect("bump");
+    assert!(
+        bump.summary.ends_with("; the commands after it changed 1"),
+        "{bump:#?}"
+    );
+    let commit = report.commit.clone().expect("a release commit");
+    let files = git(
+        &pair.work(),
+        &["show", "--name-only", "--format=", &commit],
+        NOW,
+    );
+    assert!(files.lines().any(|f| f == "fixture.txt"), "{files}");
+    assert!(files.lines().any(|f| f == "Cargo.toml"), "{files}");
+    let held = git(&pair.work(), &["show", "v0.3.0:fixture.txt"], NOW);
+    assert!(held.starts_with("made by 0.2.0\nagain"), "{held}");
+}
+
+#[test]
+fn a_red_gate_takes_back_what_the_commands_after_the_bump_changed() {
+    let pair = with_commands_after_the_bump(r#""exit 3""#, r#""echo again>> fixture.txt""#);
+    let head = pair.head();
+    let world = World::new(&pair);
+    let (report, _) = go(&pair, &world, Mode::Run);
+
+    assert_eq!(stopped_at(&report), "gate", "{report:#?}");
+    assert_eq!(pair.read("fixture.txt"), "made by 0.2.0\n");
+    assert!(pair.read("Cargo.toml").contains("version = \"0.2.0\""));
+    assert_eq!(pair.head(), head, "nothing is committed");
+}
+
+#[test]
+fn a_command_after_the_bump_that_fails_or_makes_an_untracked_file_stops_it() {
+    let pair = with_commands_after_the_bump(PASS, r#""exit 4""#);
+    let world = World::new(&pair);
+    let (report, _) = go(&pair, &world, Mode::Run);
+    assert_eq!(stopped_at(&report), "bump", "{report:#?}");
+    let stopped = report.stopped().expect("stopped");
+    assert_eq!(stopped.summary, "`exit 4` after the bump exited 4");
+    assert!(pair.read("Cargo.toml").contains("version = \"0.2.0\""));
+
+    let pair = with_commands_after_the_bump(PASS, r#""echo new> stray.txt""#);
+    let world = World::new(&pair);
+    let (report, _) = go(&pair, &world, Mode::Run);
+    assert_eq!(stopped_at(&report), "bump", "{report:#?}");
+    let stopped = report.stopped().expect("stopped");
+    assert!(
+        stopped
+            .details
+            .iter()
+            .any(|d| d.starts_with("stray.txt: commit it once by hand")),
+        "{stopped:#?}"
+    );
+    assert!(pair.read("Cargo.toml").contains("version = \"0.2.0\""));
+}

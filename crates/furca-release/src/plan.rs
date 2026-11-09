@@ -142,6 +142,9 @@ pub struct Steps {
     /// Every edit the bump makes, empty when the files already say the new
     /// number.
     pub bump: Vec<Edit>,
+    /// The commands run once the new number is written, whose changes go into
+    /// the release commit.
+    pub after_bump: Vec<String>,
     pub changelog: String,
     pub gate: Vec<String>,
     pub commit: Option<String>,
@@ -195,6 +198,9 @@ fn would(project: &str, proposed: Option<&Proposal>, steps: &Steps) -> Vec<Would
             "bump",
             format!("{} {}: {} -> {}", edit.path, edit.at, edit.from, edit.to),
         ));
+    }
+    for command in &steps.after_bump {
+        run.push(("bump", format!("then `{command}`")));
     }
     if let Some(proposed) = proposed {
         run.push((
@@ -416,6 +422,7 @@ impl Release {
 
         let steps = Steps {
             bump,
+            after_bump: config.bump.after.clone(),
             changelog: config.project.changelog.clone(),
             gate: config.gate.commands.clone(),
             commit: proposed

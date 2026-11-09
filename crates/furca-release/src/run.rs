@@ -657,12 +657,27 @@ impl Release {
             trigger,
         } = bumps;
         if fields.is_empty() && mentions.is_empty() && trigger.is_none() {
-            report.mark(
-                "bump",
-                StepStatus::Skipped,
-                format!("the files say {to} already"),
-                Vec::new(),
-            );
+            let Some(made) = self.after_bump(runner, report, state)? else {
+                return Ok(false);
+            };
+            if made.is_empty() {
+                report.mark(
+                    "bump",
+                    StepStatus::Skipped,
+                    format!("the files say {to} already"),
+                    Vec::new(),
+                );
+            } else {
+                report.mark(
+                    "bump",
+                    StepStatus::Done,
+                    format!(
+                        "the files say {to} already; the commands after it changed {}",
+                        made.len()
+                    ),
+                    made,
+                );
+            }
             return Ok(true);
         }
         let touched = bump::apply(&self.root, fields, mentions, trigger.as_deref(), to)?;
@@ -707,13 +722,139 @@ impl Release {
             )?;
             return Ok(false);
         }
+        let Some(made) = self.after_bump(runner, report, state)? else {
+            return Ok(false);
+        };
         let places = fields.len() + mentions.len();
-        let summary = match trigger {
+        let mut summary = match trigger {
             Some(_) => format!("{places} places say {to}; the tag trigger is back"),
             None => format!("{places} places say {to}"),
         };
+        if !made.is_empty() {
+            summary.push_str(&format!("; the commands after it changed {}", made.len()));
+        }
+        let mut details = details;
+        details.extend(made);
         report.mark("bump", StepStatus::Done, summary, details);
         Ok(true)
+    }
+
+    /// Runs the commands `[bump] after` names, now that the new number is
+    /// written, and takes what they changed into the release's edits, so it is
+    /// committed with the bump or taken back with it. The files they changed,
+    /// in words; `None` when one failed or made a file git does not track, and
+    /// the run stopped.
+    fn after_bump(
+        &self,
+        runner: &mut Runner,
+        report: &mut Report,
+        state: &mut Checkpoint,
+    ) -> Result<Option<Vec<String>>, Error> {
+        let commands: Vec<String> = self
+            .config
+            .bump
+            .after
+            .iter()
+            .filter(|c| !c.trim().is_empty())
+            .cloned()
+            .collect();
+        if commands.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+        let untracked_before: BTreeSet<String> = self
+            .repo
+            .status()?
+            .untracked
+            .into_iter()
+            .map(|file| file.path)
+            .collect();
+        for command in &commands {
+            runner.say("bump", command);
+            let code = runner
+                .machine
+                .shell(command, &self.root)
+                .map_err(|source| Error::AfterBump {
+                    command: command.clone(),
+                    source,
+                })?;
+            if code != Some(0) {
+                let exit = code.map_or("was stopped".to_owned(), |c| format!("exited {c}"));
+                self.stop_local(
+                    report,
+                    state,
+                    "bump",
+                    format!("`{command}` after the bump {exit}"),
+                    vec![
+                        "the release edits were taken back".to_owned(),
+                        "fix it, commit the fix, then `furca release run` again".to_owned(),
+                    ],
+                )?;
+                return Ok(None);
+            }
+        }
+
+        let made: Vec<String> = self
+            .repo
+            .status()?
+            .untracked
+            .into_iter()
+            .map(|file| file.path)
+            .filter(|path| !untracked_before.contains(path))
+            .collect();
+        if !made.is_empty() {
+            self.stop_local(
+                report,
+                state,
+                "bump",
+                "a command after the bump made files git does not track".to_owned(),
+                made.iter()
+                    .map(|path| {
+                        format!("{path}: commit it once by hand, or have the command leave it")
+                    })
+                    .chain(["the release edits were taken back".to_owned()])
+                    .collect(),
+            )?;
+            return Ok(None);
+        }
+
+        // What they changed joins the release's edits: a file the bump wrote is
+        // taken as it is now, and any other is taken back to what HEAD holds.
+        let mut changed = Vec::new();
+        for path in self.repo.changed_paths()? {
+            let full = self.root.join(&path);
+            let now = std::fs::read_to_string(&full).map_err(|source| Error::Read {
+                path: full.clone(),
+                source,
+            })?;
+            match state.touched.iter_mut().find(|file| file.path == path) {
+                Some(file) if file.after == now => {}
+                Some(file) => {
+                    file.after = now;
+                    changed.push(format!(
+                        "{path}: changed again by the commands after the bump"
+                    ));
+                }
+                None => {
+                    let held = self.repo.file_at("HEAD", &path)?.unwrap_or_default();
+                    let before = String::from_utf8(held).map_err(|_| Error::Read {
+                        path: full.clone(),
+                        source: std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "HEAD holds it as bytes that are not UTF-8",
+                        ),
+                    })?;
+                    state.touched.push(Touched {
+                        path: path.clone(),
+                        before,
+                        after: now,
+                    });
+                    changed.push(format!("{path}: changed by the commands after the bump"));
+                }
+            }
+        }
+        state.touched.sort_by(|a, b| a.path.cmp(&b.path));
+        save(&self.checkpoint_path(), state)?;
+        Ok(Some(changed))
     }
 
     fn changelog(

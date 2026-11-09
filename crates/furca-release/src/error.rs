@@ -40,6 +40,12 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
+    #[error("could not run the command `{command}` after the bump: {source}")]
+    AfterBump {
+        command: String,
+        #[source]
+        source: std::io::Error,
+    },
     /// A forge or a registry could not be asked.
     #[error("{0}")]
     Forge(String),
