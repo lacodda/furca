@@ -8,6 +8,23 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.13.0] - 2026-11-09
+
+### Bug Fixes
+- Compare a stash entry's commit without a string per entry
+
+### Documentation
+- Describe picking lines, discarding and the stash in the window
+
+### Features
+- Take lines of a hunk, discard them, and keep a stash
+- Run commands after the bump and commit what they change
+- Pick lines to stage or discard, and stash from the window
+
+### Breaking Changes
+- Repository::stage_hunk and unstage_hunk are gone;
+pass Picked::whole(hunk) to stage_lines and unstage_lines.
+
 ## [0.12.0] - 2026-11-07
 
 ### Bug Fixes
