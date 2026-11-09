@@ -49,6 +49,10 @@ fn paths(args: impl IntoIterator<Item = String>, cwd: &Path) -> Vec<PathBuf> {
 /// Build and run the desktop application.
 pub fn run() {
     measure::start();
+    // Measured from outside, the start splits here into what the system
+    // takes to start the process, what Tauri takes to build the app, and
+    // what its event loop takes to come up (`built` to `setup`).
+    measure::mark("run");
     let chosen = std::env::var_os(DATA).map(PathBuf::from);
     let mut builder = tauri::Builder::default();
     // One window per data directory: two windows on one store would each
@@ -73,7 +77,7 @@ pub fn run() {
             }
         }));
     }
-    builder
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
@@ -191,8 +195,10 @@ pub fn run() {
             commit::console_log,
             measure::measured,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the furca application");
+        .build(tauri::generate_context!())
+        .expect("error while building the furca application");
+    measure::mark("built");
+    app.run(|_, _| {});
 }
 
 #[cfg(test)]
