@@ -10,6 +10,7 @@
 //! not green), 2 when it could not answer at all - the same split as `grep`.
 
 mod line;
+mod reach;
 mod show;
 
 use std::io::Write;
@@ -17,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use furca_core::{FileChange, Log, Patch, Refs, Repository, Tips};
-use furca_release::hosting::{self, Run, Waited, forge_at as forge};
+use furca_core::{FileChange, Log, Patch, Reconcile, Refs, Remotes, Repository, Tips};
+use furca_release::hosting::{Run, Waited, forge_at as forge};
 use furca_release::{
     Check, Config, Local, Output, Plan, Provider, Release, Report, Runner, Shops, Sources, Status,
     Told, Verified,
@@ -100,13 +101,58 @@ enum Command {
         #[command(subcommand)]
         command: MessageCommand,
     },
-    /// Push the current branch to the remote it follows.
+    /// Fetch from the remote the current branch follows, from one remote, or from every one.
+    Fetch {
+        #[command(flatten)]
+        common: Common,
+        /// The remote to fetch from. Defaults to the one the current branch follows, or `origin`.
+        #[arg(value_name = "REMOTE", conflicts_with = "all")]
+        remote: Option<String>,
+        /// Fetch from every remote.
+        #[arg(long)]
+        all: bool,
+        /// Also take away the remote-tracking branches whose branch the remote no longer has.
+        #[arg(long)]
+        prune: bool,
+    },
+    /// Pull into the current branch from the branch it follows.
+    Pull {
+        #[command(flatten)]
+        common: Common,
+        /// Merge what came, whatever the configuration says.
+        #[arg(long, conflicts_with_all = ["rebase", "ff_only"])]
+        merge: bool,
+        /// Replay the branch's own commits on what came.
+        #[arg(long, conflicts_with = "ff_only")]
+        rebase: bool,
+        /// Only fast-forward, and refuse when the branch and its upstream have parted.
+        #[arg(long)]
+        ff_only: bool,
+    },
+    /// Push the current branch where it goes, to one remote, or to every one.
     Push {
         #[command(flatten)]
         common: Common,
+        /// The remote to push to. Defaults to where the branch is pushed, the remote it follows, or `origin`.
+        #[arg(long, value_name = "NAME", conflicts_with = "all_remotes")]
+        remote: Option<String>,
+        /// Push to every remote, one after another.
+        #[arg(long)]
+        all_remotes: bool,
+        /// Replace what the remote's branch holds, but only if it is what the last fetch saw there.
+        #[arg(long)]
+        force_with_lease: bool,
         /// Then wait for the CI runs the push starts, and say how they ended.
         #[arg(long)]
         wait_ci: bool,
+    },
+    /// List the remotes, or add, rename, point elsewhere, remove or prune one.
+    #[command(args_conflicts_with_subcommands = true)]
+    Remote {
+        #[command(subcommand)]
+        command: Option<RemoteCommand>,
+        #[command(flatten)]
+        common: Common,
     },
     /// Show the CI runs on a commit and how they ended.
     Checks {
@@ -141,6 +187,43 @@ enum MessageCommand {
         /// Print JSON instead of text.
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum RemoteCommand {
+    /// Add a remote. Nothing is fetched from it yet.
+    Add {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+        url: String,
+    },
+    /// Rename a remote: its remote-tracking branches and the branches that follow it go with it.
+    Rename {
+        #[command(flatten)]
+        common: Common,
+        from: String,
+        to: String,
+    },
+    /// Point a remote at another address.
+    SetUrl {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+        url: String,
+    },
+    /// Remove a remote and its remote-tracking branches. What is on the remote stays.
+    Remove {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+    },
+    /// Take away the remote-tracking branches whose branch the remote no longer has.
+    Prune {
+        #[command(flatten)]
+        common: Common,
+        name: String,
     },
 }
 
@@ -296,7 +379,44 @@ fn run(command: Command) -> Result<Answer, String> {
                 Answer::Yes
             })
         }
-        Command::Push { common, wait_ci } => push(&common, wait_ci),
+        Command::Fetch {
+            common,
+            remote,
+            all,
+            prune,
+        } => reach::fetch(&common, remote, all, prune),
+        Command::Pull {
+            common,
+            merge,
+            rebase,
+            ff_only,
+        } => {
+            let how = if merge {
+                Reconcile::Merge
+            } else if rebase {
+                Reconcile::Rebase
+            } else if ff_only {
+                Reconcile::FastForward
+            } else {
+                Reconcile::AsConfigured
+            };
+            reach::pull(&common, how)
+        }
+        Command::Push {
+            common,
+            remote,
+            all_remotes,
+            force_with_lease,
+            wait_ci,
+        } => {
+            let to = match (remote, all_remotes) {
+                (Some(name), _) => Remotes::Named(name),
+                (None, true) => Remotes::All,
+                (None, false) => Remotes::Default,
+            };
+            reach::push(&common, &to, force_with_lease, wait_ci)
+        }
+        Command::Remote { command, common } => reach::remote(command, &common),
         Command::Checks { common, revision } => checks(&common, &revision),
         Command::Release {
             command: ReleaseCommand::Run { common },
@@ -450,67 +570,6 @@ fn remote_of(repo: &Repository) -> Result<(String, String), String> {
     }
 }
 
-/// What `push` did, for `--json`.
-#[derive(Serialize)]
-struct Pushed {
-    commit: String,
-    remote: String,
-    branch: String,
-    /// How the CI runs the push started ended; `null` without `--wait-ci`.
-    ci: Option<Waited>,
-}
-
-fn push(common: &Common, wait_ci: bool) -> Result<Answer, String> {
-    let repo = open(&common.repo)?;
-    let upstream = repo.upstream().map_err(|e| e.to_string())?.ok_or(
-        "the current branch follows no remote: push it once with `git push --set-upstream`",
-    )?;
-    let commit = repo
-        .head()
-        .map_err(|e| e.to_string())?
-        .commit
-        .ok_or("there is nothing to push: no commits yet")?;
-    let refspec = format!("HEAD:{}", upstream.merge);
-    repo.git()
-        .push(&upstream.remote, &[&refspec])
-        .map_err(|e| e.to_string())?;
-    say(
-        "push",
-        &format!(
-            "{} to {} {}",
-            short(&commit),
-            upstream.remote,
-            upstream.merge
-        ),
-    );
-
-    let mut pushed = Pushed {
-        commit: commit.clone(),
-        remote: upstream.remote.clone(),
-        branch: upstream.branch.clone(),
-        ci: None,
-    };
-    if wait_ci {
-        let forge = forge(&upstream.url, provider_of(&repo))
-            .ok_or_else(|| not_a_forge(&upstream.remote, &upstream.url))?;
-        let waited = hosting::wait(
-            forge.as_ref(),
-            &commit,
-            &|run| run.reference.as_deref() == Some(upstream.branch.as_str()),
-            &[],
-            forge.pace(),
-            &std::thread::sleep,
-            &mut |runs| say("ci", &states(runs)),
-        )?;
-        pushed.ci = Some(waited);
-    }
-    emit(common.json, &pushed, pushed_text)?;
-    Ok(match &pushed.ci {
-        None | Some(Waited::Green { .. }) => Answer::Yes,
-        Some(_) => Answer::No,
-    })
-}
-
 /// What `checks` read, for `--json`.
 #[derive(Serialize)]
 struct Checks {
@@ -576,23 +635,16 @@ fn run_lines(runs: &[Run]) -> Vec<String> {
         .collect()
 }
 
-fn pushed_text(pushed: &Pushed) -> String {
-    let mut out = vec![format!(
-        "Pushed {} to {} {}",
-        short(&pushed.commit),
-        pushed.remote,
-        pushed.branch
-    )];
-    if let Some(ci) = &pushed.ci {
-        out.extend(run_lines(ci.runs()));
-        out.push(match ci {
-            Waited::Green { .. } => "CI is green.".to_owned(),
-            Waited::Red { .. } => "CI failed.".to_owned(),
-            Waited::Missing { .. } => "No CI run started for the push.".to_owned(),
-            Waited::Timeout { .. } => "CI is still running; `furca checks` looks again.".to_owned(),
-        });
-    }
-    out.join("\n")
+/// How the CI runs a push started ended, a line each and a word for all.
+fn waited_lines(ci: &Waited) -> Vec<String> {
+    let mut out = run_lines(ci.runs());
+    out.push(match ci {
+        Waited::Green { .. } => "CI is green.".to_owned(),
+        Waited::Red { .. } => "CI failed.".to_owned(),
+        Waited::Missing { .. } => "No CI run started for the push.".to_owned(),
+        Waited::Timeout { .. } => "CI is still running; `furca checks` looks again.".to_owned(),
+    });
+    out
 }
 
 fn checks_text(checks: &Checks) -> String {

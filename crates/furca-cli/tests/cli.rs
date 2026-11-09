@@ -428,12 +428,122 @@ fn release_run_without_a_remote_stops_before_touching_anything() {
 }
 
 #[test]
-fn push_without_an_upstream_says_how_to_set_one_and_exits_two() {
+fn push_without_a_remote_says_to_add_one_and_exits_two() {
     let dir = repo_with(&["first"]);
     let output = furca(dir.path(), &["push"]);
     assert_eq!(output.status.code(), Some(2));
     let error = String::from_utf8(output.stderr).expect("utf-8");
-    assert!(error.contains("git push --set-upstream"), "{error}");
+    assert!(error.contains("no remote to push to"), "{error}");
+}
+
+/// The id `rev` names in the repository at `dir`.
+fn rev(dir: &Path, rev: &str) -> String {
+    let output = Command::new("git")
+        .args(["rev-parse", rev])
+        .current_dir(dir)
+        .output()
+        .expect("git runs");
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn bare_repo() -> tempfile::TempDir {
+    let bare = tempfile::tempdir().expect("temp dir");
+    git(
+        bare.path(),
+        &["init", "--quiet", "--bare", "--initial-branch=main"],
+    );
+    bare
+}
+
+#[test]
+fn remotes_are_added_fetched_pushed_to_together_renamed_pruned_and_removed() {
+    let dir = repo_with(&["first"]);
+    let (origin, mirror) = (bare_repo(), bare_repo());
+    let origin_url = origin.path().to_str().expect("utf-8");
+    let mirror_url = mirror.path().to_str().expect("utf-8");
+
+    let added = json(&furca(
+        dir.path(),
+        &["remote", "add", "origin", origin_url, "--json"],
+    ));
+    assert_eq!(added[0]["name"], "origin");
+    let added = json(&furca(
+        dir.path(),
+        &["remote", "add", "mirror", mirror_url, "--json"],
+    ));
+    let names: Vec<&str> = added
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter_map(|r| r["name"].as_str())
+        .collect();
+    assert_eq!(names, ["mirror", "origin"]);
+
+    // A branch that follows nothing goes to `origin` and follows it after.
+    let pushed = json(&furca(dir.path(), &["push", "--all-remotes", "--json"]));
+    assert_eq!(pushed["branch"], "main");
+    assert_eq!(pushed["pushed"].as_array().map(Vec::len), Some(2));
+    assert_eq!(pushed["failed"].as_array().map(Vec::len), Some(0));
+    let followed: Vec<&str> = pushed["pushed"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter(|p| p["upstream_set"] == true)
+        .filter_map(|p| p["remote"].as_str())
+        .collect();
+    assert_eq!(followed, ["origin"]);
+    let head = rev(dir.path(), "HEAD");
+    assert_eq!(rev(origin.path(), "main"), head);
+    assert_eq!(rev(mirror.path(), "main"), head);
+
+    git(mirror.path(), &["branch", "gone", "main"]);
+    let fetched = json(&furca(dir.path(), &["fetch", "--all", "--json"]));
+    assert_eq!(fetched["remotes"], serde_json::json!(["mirror", "origin"]));
+    assert_eq!(fetched["moved"][0]["name"], "refs/remotes/mirror/gone");
+    git(mirror.path(), &["branch", "--delete", "--force", "gone"]);
+    let pruned = stdout(&furca(dir.path(), &["remote", "prune", "mirror"]));
+    assert!(pruned.contains("mirror/gone  gone"), "{pruned}");
+
+    let renamed = stdout(&furca(
+        dir.path(),
+        &["remote", "rename", "mirror", "backup"],
+    ));
+    assert!(
+        renamed.starts_with("Renamed mirror to backup."),
+        "{renamed}"
+    );
+    let removed = json(&furca(
+        dir.path(),
+        &["remote", "remove", "backup", "--json"],
+    ));
+    assert_eq!(removed.as_array().map(Vec::len), Some(1));
+    assert_eq!(stdout(&furca(dir.path(), &["remote"])).lines().count(), 1);
+}
+
+#[test]
+fn pull_brings_what_another_clone_pushed() {
+    let dir = repo_with(&["first"]);
+    let origin = bare_repo();
+    let url = origin.path().to_str().expect("utf-8");
+    git(dir.path(), &["remote", "add", "origin", url]);
+    git(
+        dir.path(),
+        &["push", "--quiet", "--set-upstream", "origin", "main"],
+    );
+    let parent = tempfile::tempdir().expect("temp dir");
+    git(parent.path(), &["clone", "--quiet", url, "other"]);
+    let other = parent.path().join("other");
+    git(
+        &other,
+        &["commit", "--quiet", "--allow-empty", "-m", "theirs"],
+    );
+    git(&other, &["push", "--quiet", "origin", "main"]);
+
+    let pulled = json(&furca(dir.path(), &["pull", "--ff-only", "--json"]));
+    assert_eq!(pulled["upstream"], "origin/main");
+    assert_eq!(pulled["to"], rev(&other, "HEAD"));
+    let again = stdout(&furca(dir.path(), &["pull"]));
+    assert_eq!(again.trim(), "main is up to date with origin/main");
 }
 
 #[test]
@@ -456,10 +566,14 @@ fn push_sends_the_branch_and_checks_refuse_a_remote_that_is_no_forge() {
     );
 
     let value = json(&furca(dir.path(), &["push", "--json"]));
-    assert_eq!(value["remote"], "origin");
+    assert_eq!(value["pushed"][0]["remote"], "origin");
+    assert_eq!(value["pushed"][0]["to"], "refs/heads/main");
     assert_eq!(value["branch"], "main");
     assert!(value["ci"].is_null());
-    let head = value["commit"].as_str().expect("an id").to_owned();
+    let head = value["pushed"][0]["commit"]
+        .as_str()
+        .expect("an id")
+        .to_owned();
     let remote = Command::new("git")
         .args(["rev-parse", "main"])
         .current_dir(bare.path())
