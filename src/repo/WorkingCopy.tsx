@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Minus, Plus, TriangleAlert } from 'lucide-react'
+import { Minus, Plus, TriangleAlert, Undo2 } from 'lucide-react'
 import { cn } from 'dowel-ui'
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -16,9 +16,10 @@ import type { FileChange } from '@/lib/generated/FileChange'
 import type { Layout } from '@/lib/generated/Layout'
 import type { Status } from '@/lib/generated/Status'
 import type { Warning } from '@/lib/generated/Warning'
-import { actOn, readAs, rowToShow, useWorkingCopy, type Area, type Chosen } from '@/lib/working'
+import { actOn, discardOf, readAs, rowToShow, useWorkingCopy, type Area, type Chosen, type Discard } from '@/lib/working'
 import { Composer } from './Composer'
-import { DiffPane, type HunkAction } from './DiffPane'
+import { ConfirmDiscard } from './ConfirmDiscard'
+import { DiffPane, type LineActions } from './DiffPane'
 import { FileTree } from './FileTree'
 import { fileNodes } from './Files'
 
@@ -113,15 +114,31 @@ function Lists({
     else heard(api.unstageAll(path))
   }
 
+  // What a row would throw away, once the window has asked.
+  const [asked, setAsked] = useState<Discard | null>(null)
+  const discard = (id: string) => {
+    const what = discardOf(id, status, counts)
+    if (what !== null) setAsked(what)
+  }
+  const discarded = (what: Discard) => {
+    setAsked(null)
+    if (what.kind === 'list') heard(api.discardList(path, what.list))
+    else heard(api.discardPaths(path, what.tracked, what.untracked))
+  }
+
   const file = shown === null || shown.area === 'conflicted' ? null : status[shown.area].find((each) => each.path === shown.path)
 
-  // Only what changed in place has hunks to take apart: a file added or deleted
-  // whole is one hunk, which its row already moves.
-  let hunkAction: HunkAction | undefined
+  // Only what changed in place has hunks and lines to take apart: a file added
+  // or deleted whole is one hunk, which its row already moves.
+  let lines: LineActions | undefined
   if (file?.status === 'modified' && shown?.area === 'unstaged') {
-    hunkAction = { label: t('changes.stageHunk'), act: (hunk) => heard(api.stageHunk(path, file, hunk)) }
+    lines = {
+      staged: false,
+      move: (picks) => heard(api.stageLines(path, file, picks)),
+      discard: (picks) => heard(api.discardLines(path, file, picks)),
+    }
   } else if (file?.status === 'modified' && shown?.area === 'staged') {
-    hunkAction = { label: t('changes.unstageHunk'), act: (hunk) => heard(api.unstageHunk(path, file, hunk)) }
+    lines = { staged: true, move: (picks) => heard(api.unstageLines(path, file, picks)) }
   }
 
   return (
@@ -134,7 +151,7 @@ function Lists({
       <SplitterPane min={15} max={60}>
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-16 flex-1">
-            <RowTree path={path} status={status} counts={counts} chosen={shown} onChoose={choose} onAct={act} />
+            <RowTree path={path} status={status} counts={counts} chosen={shown} onChoose={choose} onAct={act} onDiscard={discard} />
           </div>
           {refused !== null && (
             <p role="alert" className="max-h-24 shrink-0 overflow-y-auto border-t border-line px-2 py-1 text-2xs whitespace-pre-wrap text-bad">
@@ -159,10 +176,32 @@ function Lists({
             file={file}
             layout={layout.diff}
             onLayout={(diff) => onLayout({ ...layout, diff })}
-            hunkAction={hunkAction}
+            lines={lines}
           />
         ) : null}
       </SplitterPane>
+      <ConfirmDiscard
+        open={asked !== null}
+        onOpenChange={(open) => {
+          if (!open) setAsked(null)
+        }}
+        title={
+          asked === null
+            ? ''
+            : asked.kind === 'list'
+              ? asked.list === 'untracked'
+                ? t('changes.deleteTitle', { count: asked.count })
+                : t('changes.discardTitle', { count: asked.count })
+              : asked.untracked.length > 0
+                ? t('changes.deleteTitle', { count: asked.count })
+                : t('changes.discardTitle', { count: asked.count })
+        }
+        body={t('changes.discardBody')}
+        confirm={asked !== null && (asked.kind === 'list' ? asked.list === 'untracked' : asked.untracked.length > 0) ? t('changes.delete') : t('changes.discard')}
+        onConfirm={() => {
+          if (asked !== null) discarded(asked)
+        }}
+      />
     </Splitter>
   )
 }
@@ -176,6 +215,7 @@ function RowTree({
   chosen,
   onChoose,
   onAct,
+  onDiscard,
 }: {
   path: string
   status: Status
@@ -183,18 +223,22 @@ function RowTree({
   chosen: Chosen | null
   onChoose: (row: Chosen) => void
   onAct: (id: string) => void
+  onDiscard: (id: string) => void
 }) {
   const { t } = useTranslation()
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => closedFolders.get(path) ?? new Set())
 
-  // Read when pressed, not a reason to build the rows again.
+  // Read when pressed, not reasons to build the rows again.
   const acting = useRef(onAct)
+  const discarding = useRef(onDiscard)
   useEffect(() => {
     acting.current = onAct
+    discarding.current = onDiscard
   })
 
   const { nodes, folders } = useMemo(() => {
     const act = (id: string) => acting.current(id)
+    const discard = (id: string) => discarding.current(id)
     const nodes: TreeNode[] = []
     const folders: string[] = []
     if (status.conflicted.length > 0) {
@@ -218,7 +262,12 @@ function RowTree({
       const tree = fileTree(files)
       folders.push(area, ...folderIds(tree).map((id) => `${area}|d:${id}`))
       const staged = area === 'staged'
-      const end = (id: string) => <RowAction id={id} staged={staged} onAct={act} />
+      const end = (id: string) => (
+        <>
+          {!staged && <DiscardAction id={id} untracked={area === 'untracked'} onDiscard={discard} />}
+          <RowAction id={id} staged={staged} onAct={act} />
+        </>
+      )
       const children = fileNodes(tree, `${area}|`, end)
       if (count > files.length) {
         children.push({
@@ -226,7 +275,13 @@ function RowTree({
           label: <span className="text-xs text-dim">{t('changes.more', { count: count - files.length })}</span>,
         })
       }
-      nodes.push({ id: area, label: <SectionLabel title={title} count={count} end={<RowAction id={area} staged={staged} onAct={act} always />} />, children })
+      const sectionEnd = (
+        <>
+          {!staged && <DiscardAction id={area} untracked={area === 'untracked'} onDiscard={discard} always />}
+          <RowAction id={area} staged={staged} onAct={act} always />
+        </>
+      )
+      nodes.push({ id: area, label: <SectionLabel title={title} count={count} end={sectionEnd} />, children })
     }
     return { nodes, folders }
   }, [counts, status, t])
@@ -244,6 +299,7 @@ function RowTree({
         setClosed(shut)
       }}
       onAct={onAct}
+      onDiscard={onDiscard}
       selected={chosen === null ? undefined : `${chosen.area}|f:${chosen.path}`}
       onSelect={(id) => {
         const row = /^(conflicted|staged|unstaged|untracked)\|f:(.*)$/s.exec(id)
@@ -284,6 +340,41 @@ function RowAction({ id, staged, onAct, always = false }: { id: string; staged: 
       }}
     >
       {staged ? <Minus aria-hidden /> : <Plus aria-hidden />}
+    </Button>
+  )
+}
+
+/** The button beside it that throws a row's change away: puts the file back as
+ * the index has it, or deletes it if git does not track it. Delete does the
+ * same from the keyboard, and the window asks first either way. */
+function DiscardAction({
+  id,
+  untracked,
+  onDiscard,
+  always = false,
+}: {
+  id: string
+  untracked: boolean
+  onDiscard: (id: string) => void
+  always?: boolean
+}) {
+  const { t } = useTranslation()
+  const label = untracked ? t('changes.delete') : t('changes.discard')
+  return (
+    <Button
+      type="button"
+      variant="icon"
+      size="icon-xs"
+      tabIndex={-1}
+      aria-label={label}
+      title={label}
+      className={cn('shrink-0 font-sans hover:text-bad', !always && 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100')}
+      onClick={(event: MouseEvent) => {
+        event.stopPropagation()
+        onDiscard(id)
+      }}
+    >
+      <Undo2 aria-hidden />
     </Button>
   )
 }

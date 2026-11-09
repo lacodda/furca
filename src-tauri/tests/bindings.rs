@@ -29,7 +29,8 @@ fn generated_dir() -> PathBuf {
 }
 
 /// Hands every root type to `$each`: what the commands in `src/commands.rs`,
-/// `src/graph.rs`, `src/details.rs` and `src/release.rs` return, what a search sends down its
+/// `src/graph.rs`, `src/details.rs`, `src/commit.rs`, `src/stash.rs` and
+/// `src/release.rs` take and return, what a search sends down its
 /// channel, and the payloads of the maintenance, graph, working copy and release events. What they depend on is
 /// followed from them.
 macro_rules! for_each_root {
@@ -52,6 +53,9 @@ macro_rules! for_each_root {
             furca_desktop_lib::commit::MessageCheck,
             furca_desktop_lib::commit::LastCommit,
             furca_desktop_lib::commit::List,
+            furca_core::Picked,
+            furca_core::Stash,
+            furca_desktop_lib::stash::StashAction,
             furca_desktop_lib::working::RefsMoved,
             furca_release::Plan,
             furca_desktop_lib::release::ReleaseState,
@@ -188,10 +192,11 @@ fn every_type_a_command_names_is_generated() {
     }
     // Tauri's and std's names, and the app's managed state, which are not
     // shapes on the wire.
-    const NOT_ON_THE_WIRE: [&str; 11] = [
+    const NOT_ON_THE_WIRE: [&str; 12] = [
         "State",
         "AppHandle",
         "Store",
+        "Console",
         "Early",
         "Graphs",
         "Releases",
@@ -205,7 +210,14 @@ fn every_type_a_command_names_is_generated() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let committed = read_tree(&generated_dir());
     let mut named = BTreeSet::new();
-    for file in ["commands.rs", "graph.rs", "measure.rs", "release.rs"] {
+    for file in [
+        "commands.rs",
+        "commit.rs",
+        "graph.rs",
+        "measure.rs",
+        "release.rs",
+        "stash.rs",
+    ] {
         let text = std::fs::read_to_string(src.join(file)).expect("the source reads");
         let mut rest = text.as_str();
         while let Some(at) = rest.find("#[tauri::command]") {

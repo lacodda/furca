@@ -19,6 +19,8 @@ export interface FileTreeProps {
   /** Space on a row, when the rows can be acted on: where Enter chooses, this
    * does what the row is for. */
   onAct?: (id: string) => void
+  /** Delete on a row, when what it stands for can be thrown away. */
+  onDiscard?: (id: string) => void
 }
 
 /**
@@ -29,7 +31,7 @@ export interface FileTreeProps {
  * it because its `list` and `listitem` roles would be wrong in a `tree`, so it
  * shares the arithmetic instead (`src/lib/file-tree.ts`).
  */
-export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect, onAct }: FileTreeProps) {
+export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect, onAct, onDiscard }: FileTreeProps) {
   const base = useId()
   const { viewport, scrollTop, viewportHeight, scrollTo } = useScrollBox()
   const [cursor, setCursor] = useState<string | undefined>(undefined)
@@ -80,6 +82,14 @@ export function FileTree({ label, nodes, open, onOpenChange, selected, onSelect,
       if (row !== undefined) {
         event.preventDefault()
         onAct(row.node.id)
+      }
+      return
+    }
+    if (event.key === 'Delete' && onDiscard !== undefined) {
+      const row = rows[active]
+      if (row !== undefined) {
+        event.preventDefault()
+        onDiscard(row.node.id)
       }
       return
     }

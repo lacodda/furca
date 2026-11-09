@@ -13,6 +13,7 @@ pub mod maintenance;
 pub mod measure;
 mod nooma;
 pub mod release;
+pub mod stash;
 pub mod state;
 pub mod working;
 
@@ -174,8 +175,13 @@ pub fn run() {
             commit::stage_list,
             commit::unstage_paths,
             commit::unstage_all,
-            commit::stage_hunk,
-            commit::unstage_hunk,
+            commit::stage_lines,
+            commit::unstage_lines,
+            commit::discard_lines,
+            commit::discard_paths,
+            commit::discard_list,
+            stash::stash_push,
+            stash::stash_act,
             commit::commit_types,
             commit::check_message,
             commit::commit,

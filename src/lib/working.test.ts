@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FileChange } from './generated/FileChange'
 import type { Status } from './generated/Status'
 import type { WorkingCopy } from './generated/WorkingCopy'
-import { actOn, counted, heard, readAs, rowToShow, type Held } from './working'
+import { actOn, counted, discardOf, heard, readAs, rowToShow, type Held } from './working'
 
 const file = (path: string): FileChange => ({
   path,
@@ -156,5 +156,31 @@ describe('actOn', () => {
     expect(actOn('conflicted', lists)).toBeNull()
     expect(actOn('conflicted|f:x', lists)).toBeNull()
     expect(actOn('unstaged|f:gone', lists)).toBeNull()
+  })
+})
+
+describe('discarding a row', () => {
+  const of = status({ staged: ['s.txt'], unstaged: ['a.txt', 'dir/b.txt', 'dir/c.txt'], untracked: ['new.txt', 'dir/d.txt'] })
+  const counts = { staged: 1, unstaged: 30, untracked: 2 }
+
+  it('puts back a file that is not staged, and deletes an untracked one', () => {
+    expect(discardOf('unstaged|f:a.txt', of, counts)).toEqual({ kind: 'paths', tracked: ['a.txt'], untracked: [], count: 1 })
+    expect(discardOf('untracked|f:new.txt', of, counts)).toEqual({ kind: 'paths', tracked: [], untracked: ['new.txt'], count: 1 })
+  })
+
+  it('takes what is under a folder in that list only', () => {
+    expect(discardOf('unstaged|d:dir', of, counts)).toEqual({ kind: 'paths', tracked: ['dir/b.txt', 'dir/c.txt'], untracked: [], count: 2 })
+  })
+
+  it('says a whole list by name, counted as long as it really is', () => {
+    expect(discardOf('unstaged', of, counts)).toEqual({ kind: 'list', list: 'unstaged', count: 30 })
+    expect(discardOf('untracked', of, { ...counts, untracked: 0 })).toBeNull()
+  })
+
+  it('discards nothing staged, conflicted or gone', () => {
+    expect(discardOf('staged', of, counts)).toBeNull()
+    expect(discardOf('staged|f:s.txt', of, counts)).toBeNull()
+    expect(discardOf('conflicted|f:x', of, counts)).toBeNull()
+    expect(discardOf('unstaged|f:gone.txt', of, counts)).toBeNull()
   })
 })

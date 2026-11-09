@@ -99,7 +99,16 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
       return
     }
     let current = true
-    void positionOf(path, id).then((row) => {
+    void positionOf(path, id).then(async (row) => {
+      // A commit chosen that the graph no longer has - a stash entry popped or
+      // dropped - gives way to the one HEAD is on.
+      if (row === null && id !== head && head !== null) {
+        const atHead = await positionOf(path, head)
+        if (!current) return
+        setSelected(atHead)
+        chosen.current = atHead === null ? null : head
+        return
+      }
       if (!current) return
       setSelected(row)
       if (row !== null) chosen.current = id

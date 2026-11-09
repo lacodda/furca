@@ -17,6 +17,7 @@ import { short } from '@/lib/names'
 import { DiffPane } from './DiffPane'
 import { FileTree } from './FileTree'
 import { fileNodes } from './Files'
+import { StashBar, useStashEntry } from './Stash'
 
 export interface DetailsProps {
   path: string
@@ -94,6 +95,7 @@ function Opened({
     () => openFile.get(`${path}\n${details.commit.id}`) ?? files[0]?.path,
   )
   const file = files.find((candidate) => candidate.path === chosen) ?? files[0] ?? null
+  const stash = useStashEntry(path, details.commit.id)
   const choose = (next: string) => {
     openFile.set(`${path}\n${details.commit.id}`, next)
     setChosen(next)
@@ -102,6 +104,7 @@ function Opened({
   return (
     <div className={cn('flex h-full min-h-0 flex-col', stale && 'opacity-60')} aria-busy={stale}>
       <Header details={details} onJump={onJump} />
+      {stash !== null && <StashBar key={stash.commit} path={path} stash={stash} />}
       {files.length === 0 ? (
         <EmptyState plain title={t('details.noFiles')} body={t('details.noFilesBody')} className="flex-1" />
       ) : (

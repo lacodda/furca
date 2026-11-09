@@ -128,6 +128,36 @@ export function actOn(id: string, status: Status): Act | null {
   return { kind: 'stage', paths: files.map((file) => file.path) }
 }
 
+/** What discarding a row of the tree of lists throws away: files put back as
+ * the index has them, untracked files deleted, or a whole list, said by name
+ * for the same reason staging one is. `count` is how many files go. */
+export type Discard =
+  | { kind: 'paths'; tracked: string[]; untracked: string[]; count: number }
+  | { kind: 'list'; list: Extract<List, 'unstaged' | 'untracked'>; count: number }
+
+/**
+ * What discarding the row `id` throws away: a file, what is under a folder in
+ * that list, or a list whole. Only what is not staged can be discarded - a
+ * staged change is taken out of the index first - so a staged or conflicted row
+ * is `null`, as is a row that stands for nothing.
+ */
+export function discardOf(id: string, status: Status, counts: Counts): Discard | null {
+  if (id === 'unstaged' || id === 'untracked') {
+    const count = counts[id]
+    return count === 0 ? null : { kind: 'list', list: id, count }
+  }
+  const row = /^(unstaged|untracked)\|([fd]):(.*)$/s.exec(id)
+  if (row === null) return null
+  const [, area, kind, name] = row as unknown as [string, 'unstaged' | 'untracked', 'f' | 'd', string]
+  const paths = status[area]
+    .filter((file) => (kind === 'f' ? file.path === name : file.path.startsWith(`${name}/`)))
+    .map((file) => file.path)
+  if (paths.length === 0) return null
+  return area === 'unstaged'
+    ? { kind: 'paths', tracked: paths, untracked: [], count: paths.length }
+    : { kind: 'paths', tracked: [], untracked: paths, count: paths.length }
+}
+
 /** What is not committed, in the words the bar above the graph counts it: a
  * file both staged and changed again is one changed file. */
 export function counted(status: Status, counts: Counts): { changed: number; untracked: number; total: number } {

@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, X } from 'lucide-react'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ErrorBoundary } from '@/components/ui/error-boundary'
 import { Segment, SegmentedControl } from '@/components/ui/segmented-control'
@@ -13,7 +14,11 @@ import type { DiffLayout } from '@/lib/generated/DiffLayout'
 import type { FileChange } from '@/lib/generated/FileChange'
 import type { FileDiff } from '@/lib/generated/FileDiff'
 import type { Hunk } from '@/lib/generated/Hunk'
+import type { Picked } from '@/lib/generated/Picked'
 import { short } from '@/lib/names'
+import { NO_PICKS, pickCount, pickedOf, stillPicked, wholeHunk, type Picks } from '@/lib/picks'
+import type { HunkAct } from './CodeDiff'
+import { ConfirmDiscard } from './ConfirmDiscard'
 
 type CodeDiffModule = typeof import('./CodeDiff')
 
@@ -67,10 +72,15 @@ function prepareLanguage(path: string): void {
   void loadCodeDiff().then((module) => module.prepare(path))
 }
 
-/** What can be done to one hunk of a change: stage it, or take it out again. */
-export interface HunkAction {
-  label: string
-  act: (hunk: Hunk) => void
+/** What can be done to the lines of a change in the working copy: move them
+ * across - into the index, or out of it - and, when they are not staged,
+ * discard them. Hunks are taken whole from their bars, and picked lines from
+ * the header. */
+export interface LineActions {
+  /** The lines are staged, and moving them takes them out of the index. */
+  staged: boolean
+  move: (picks: Picked[]) => void
+  discard?: (picks: Picked[]) => void
 }
 
 /** The change of one file: what it is, then its lines. `scope` says what the
@@ -82,17 +92,53 @@ export function DiffPane({
   file,
   layout,
   onLayout,
-  hunkAction,
+  lines,
 }: {
   path: string
   scope: string
   file: FileChange
   layout: DiffLayout
   onLayout: (layout: DiffLayout) => void
-  hunkAction?: HunkAction
+  lines?: LineActions
 }) {
   const { t } = useTranslation()
   const shown = useFileDiff(path, scope, file)
+  const [picks, setPicks] = useState<Picks>(NO_PICKS)
+  // Lines are picked in the change of one file: another file starts with none,
+  // and a pick the file read again no longer changes is let go.
+  const [pickedIn, setPickedIn] = useState(file.path)
+  const read = shown?.read.state === 'read' && shown.read.value.file.path === file.path ? shown.read.value : null
+  let current = picks
+  if (pickedIn !== file.path) {
+    current = NO_PICKS
+  } else if (read !== null) {
+    current = stillPicked(picks, read.hunks)
+  }
+  if (current !== picks || pickedIn !== file.path) {
+    setPicks(current)
+    setPickedIn(file.path)
+  }
+  const [asked, setAsked] = useState<{ picks: Picked[]; lines: number } | null>(null)
+  const acting = lines !== undefined && read !== null && shown?.stale !== true && read.before !== null && read.after !== null
+  const picked = pickCount(current)
+
+  const move = (chosen: Picked[]) => {
+    setPicks(NO_PICKS)
+    lines?.move(chosen)
+  }
+  const discard = (chosen: Picked[]) => {
+    const count = chosen.reduce((sum, each) => sum + each.removed.length + each.added.length, 0)
+    setAsked({ picks: chosen, lines: count })
+  }
+  const hunkActs: HunkAct[] | undefined =
+    lines === undefined
+      ? undefined
+      : [
+          { label: lines.staged ? t('changes.unstageHunk') : t('changes.stageHunk'), act: (hunk) => move([wholeHunk(hunk)]) },
+          ...(lines.discard === undefined
+            ? []
+            : [{ label: t('changes.discardHunk'), bad: true, act: (hunk: Hunk) => discard([wholeHunk(hunk)]) }]),
+        ]
   useEffect(() => {
     prepareLanguage(file.path)
   }, [file.path])
@@ -128,7 +174,14 @@ export function DiffPane({
           retry: t('details.drawAgain'),
         }}
       >
-        <DrawnDiff diff={shown.read.value} layout={layout} onShown={shown.stale ? undefined : markShown} hunkAction={shown.stale ? undefined : hunkAction} />
+        <DrawnDiff
+          diff={shown.read.value}
+          layout={layout}
+          onShown={shown.stale ? undefined : markShown}
+          hunkActs={shown.stale ? undefined : hunkActs}
+          picks={current}
+          onPicks={acting ? setPicks : undefined}
+        />
       </ErrorBoundary>
     )
   } else {
@@ -155,22 +208,79 @@ export function DiffPane({
           <Badge variant="soft">{t('details.mode', { before: t(`details.modes.${known.before!.mode}`), after: t(`details.modes.${known.after!.mode}`) })}</Badge>
         )}
         {endings !== null && <Badge variant="warn">{t('details.endings', endings)}</Badge>}
+        {acting && lines !== undefined && read !== null && (
+          <div className="ml-auto flex min-w-0 shrink items-center gap-1.5">
+            {picked === 0 ? (
+              <span className="truncate text-faint">{t('changes.pickHint')}</span>
+            ) : (
+              <>
+                <span className="shrink-0 text-dim">{t('changes.picked', { count: picked })}</span>
+                <Button size="xs" variant="soft" onClick={() => move(pickedOf(current, read.hunks))}>
+                  {lines.staged ? t('changes.unstageLines') : t('changes.stageLines')}
+                </Button>
+                {lines.discard !== undefined && (
+                  <Button size="xs" variant="danger" onClick={() => discard(pickedOf(current, read.hunks))}>
+                    {t('changes.discardLines')}
+                  </Button>
+                )}
+                <Button
+                  size="icon-xs"
+                  variant="icon"
+                  aria-label={t('changes.letGo')}
+                  title={t('changes.letGo')}
+                  onClick={() => setPicks(NO_PICKS)}
+                >
+                  <X aria-hidden />
+                </Button>
+              </>
+            )}
+          </div>
+        )}
         <SegmentedControl
           value={layout}
           onValueChange={(value) => onLayout(value as DiffLayout)}
-          className="ml-auto shrink-0"
+          className={acting ? 'shrink-0' : 'ml-auto shrink-0'}
         >
           <Segment value="split">{t('details.split')}</Segment>
           <Segment value="inline">{t('details.inline')}</Segment>
         </SegmentedControl>
       </div>
       <div className="min-h-0 flex-1">{body}</div>
+      <ConfirmDiscard
+        open={asked !== null}
+        onOpenChange={(open) => {
+          if (!open) setAsked(null)
+        }}
+        title={t('changes.discardLinesTitle', { count: asked?.lines ?? 0, path: file.path })}
+        body={t('changes.discardBody')}
+        confirm={t('changes.discardLines')}
+        onConfirm={() => {
+          if (asked === null) return
+          setPicks(NO_PICKS)
+          lines?.discard?.(asked.picks)
+          setAsked(null)
+        }}
+      />
     </section>
   )
 }
 
 /** The lines of a change, drawn once the drawing has been fetched. */
-function DrawnDiff({ diff, layout, onShown, hunkAction }: { diff: FileDiff; layout: DiffLayout; onShown?: () => void; hunkAction?: HunkAction }) {
+function DrawnDiff({
+  diff,
+  layout,
+  onShown,
+  hunkActs,
+  picks,
+  onPicks,
+}: {
+  diff: FileDiff
+  layout: DiffLayout
+  onShown?: () => void
+  hunkActs?: readonly HunkAct[]
+  picks: Picks
+  onPicks?: (picks: Picks) => void
+}) {
   const { t } = useTranslation()
   const module = useCodeDiff()
   const [drawn, setDrawn] = useState(diff)
@@ -182,7 +292,7 @@ function DrawnDiff({ diff, layout, onShown, hunkAction }: { diff: FileDiff; layo
       </div>
     )
   }
-  return <module.default diff={drawn} layout={layout} onShown={onShown} hunkAction={hunkAction} />
+  return <module.default diff={drawn} layout={layout} onShown={onShown} hunkActs={hunkActs} picks={picks} onPicks={onPicks} />
 }
 
 /** A change with no lines to show: what each side is, and its size. */

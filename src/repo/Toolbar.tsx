@@ -12,6 +12,7 @@ import { matchNumber } from '@/lib/graph-labels'
 import { aheadBehind } from '@/lib/names'
 import { useStanding } from '@/lib/repos'
 import { counted, useWorkingCopy } from '@/lib/working'
+import { StashButton } from './Stash'
 
 /** How long typing pauses before the search starts. */
 const PAUSE = 150
@@ -64,6 +65,7 @@ export function Toolbar({ path, sidebar, branch, onBranch, query, onQuery, searc
   return (
     <div className="flex h-10 shrink-0 items-center gap-3 border-b border-line bg-raise px-3">
       <Where path={path} />
+      <StashButton path={path} />
       <div className={history ? 'ml-auto flex items-center gap-2' : 'hidden'}>
         {sidebar && (
           <Select

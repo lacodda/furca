@@ -13,7 +13,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::Mutex;
 
-use furca_core::{FileChange, GitRun, Hunk, Repository};
+use furca_core::{FileChange, GitRun, Picked, Repository};
 use furca_release::message::{self, Finding, Parts};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -97,7 +97,7 @@ static CHANGING: Mutex<()> = Mutex::new(());
 
 /// Runs `change` on the repository at `path`, off the thread that draws: one at
 /// a time, never during a release, and the list is read again afterwards.
-async fn changing<T: Send + 'static>(
+pub(crate) async fn changing<T: Send + 'static>(
     app: &AppHandle,
     path: String,
     change: impl FnOnce(&Repository) -> Result<T, furca_core::Error> + Send + 'static,
@@ -172,26 +172,72 @@ pub async fn unstage_all(app: AppHandle, path: String) -> Result<(), String> {
     changing(&app, path, |repo| repo.git().reset_all()).await
 }
 
-/// Stages one hunk of a file that is not staged.
+/// Stages lines of a file that is not staged: whole hunks, or some of their
+/// lines.
 #[tauri::command]
-pub async fn stage_hunk(
+pub async fn stage_lines(
     app: AppHandle,
     path: String,
     file: FileChange,
-    hunk: Hunk,
+    picks: Vec<Picked>,
 ) -> Result<(), String> {
-    changing(&app, path, move |repo| repo.stage_hunk(&file, hunk)).await
+    changing(&app, path, move |repo| repo.stage_lines(&file, &picks)).await
 }
 
-/// Takes one hunk of a staged file out of the index.
+/// Takes lines of a staged file out of the index.
 #[tauri::command]
-pub async fn unstage_hunk(
+pub async fn unstage_lines(
     app: AppHandle,
     path: String,
     file: FileChange,
-    hunk: Hunk,
+    picks: Vec<Picked>,
 ) -> Result<(), String> {
-    changing(&app, path, move |repo| repo.unstage_hunk(&file, hunk)).await
+    changing(&app, path, move |repo| repo.unstage_lines(&file, &picks)).await
+}
+
+/// Puts lines of a file that is not staged back as the index has them. The
+/// window has asked first: nothing keeps what they were.
+#[tauri::command]
+pub async fn discard_lines(
+    app: AppHandle,
+    path: String,
+    file: FileChange,
+    picks: Vec<Picked>,
+) -> Result<(), String> {
+    changing(&app, path, move |repo| repo.discard_lines(&file, &picks)).await
+}
+
+/// Puts the files `tracked` back as the index has them, and deletes the
+/// untracked files `untracked`. The window has asked first.
+#[tauri::command]
+pub async fn discard_paths(
+    app: AppHandle,
+    path: String,
+    tracked: Vec<String>,
+    untracked: Vec<String>,
+) -> Result<(), String> {
+    changing(&app, path, move |repo| {
+        let tracked: Vec<&str> = tracked.iter().map(String::as_str).collect();
+        let untracked: Vec<&str> = untracked.iter().map(String::as_str).collect();
+        repo.git().restore(&tracked)?;
+        repo.git().clean(&untracked)
+    })
+    .await
+}
+
+/// Discards a whole list of the working copy, said by name as staging one is:
+/// every change git tracks that is not staged, every untracked file, or both.
+#[tauri::command]
+pub async fn discard_list(app: AppHandle, path: String, list: List) -> Result<(), String> {
+    changing(&app, path, move |repo| match list {
+        List::Unstaged => repo.git().restore_all(),
+        List::Untracked => repo.git().clean_all(),
+        List::Everything => {
+            repo.git().restore_all()?;
+            repo.git().clean_all()
+        }
+    })
+    .await
 }
 
 /// The types of the convention, for the composer's list.

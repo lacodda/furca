@@ -7,7 +7,6 @@ import type { GitRun } from './generated/GitRun'
 import type { Found } from './generated/Found'
 import type { GraphAnswer } from './generated/GraphAnswer'
 import type { GraphRow } from './generated/GraphRow'
-import type { Hunk } from './generated/Hunk'
 import type { LastCommit } from './generated/LastCommit'
 import type { Layout } from './generated/Layout'
 import type { Line } from './generated/Line'
@@ -15,10 +14,13 @@ import type { List } from './generated/List'
 import type { MessageCheck } from './generated/MessageCheck'
 import type { Opened } from './generated/Opened'
 import type { Parts } from './generated/Parts'
+import type { Picked } from './generated/Picked'
 import type { Plan } from './generated/Plan'
 import type { ReleaseState } from './generated/ReleaseState'
 import type { Sidebar } from './generated/Sidebar'
 import type { Standing } from './generated/Standing'
+import type { Stash } from './generated/Stash'
+import type { StashAction } from './generated/StashAction'
 import type { WindowState } from './generated/WindowState'
 
 /*
@@ -78,8 +80,24 @@ export const api = {
   stageList: (path: string, list: List) => invoke<null>('stage_list', { path, list }),
   unstagePaths: (path: string, paths: string[]) => invoke<null>('unstage_paths', { path, paths }),
   unstageAll: (path: string) => invoke<null>('unstage_all', { path }),
-  stageHunk: (path: string, file: FileChange, hunk: Hunk) => invoke<null>('stage_hunk', { path, file, hunk }),
-  unstageHunk: (path: string, file: FileChange, hunk: Hunk) => invoke<null>('unstage_hunk', { path, file, hunk }),
+  /** Stages lines of a file that is not staged: whole hunks, or some of
+   * their lines. */
+  stageLines: (path: string, file: FileChange, picks: Picked[]) => invoke<null>('stage_lines', { path, file, picks }),
+  unstageLines: (path: string, file: FileChange, picks: Picked[]) => invoke<null>('unstage_lines', { path, file, picks }),
+  /** Puts lines of a file back as the index has them; nothing keeps what they
+   * were, so the window asks first. */
+  discardLines: (path: string, file: FileChange, picks: Picked[]) => invoke<null>('discard_lines', { path, file, picks }),
+  /** Puts the files `tracked` back as the index has them, and deletes the
+   * untracked files `untracked`. */
+  discardPaths: (path: string, tracked: string[], untracked: string[]) =>
+    invoke<null>('discard_paths', { path, tracked, untracked }),
+  /** Discards a whole list, however many rows of it the window was given. */
+  discardList: (path: string, list: List) => invoke<null>('discard_list', { path, list }),
+  /** Puts every change away, untracked files too; the entry made, or `null`
+   * when there was nothing to put away. */
+  stashPush: (path: string, message: string | null) => invoke<Stash | null>('stash_push', { path, message }),
+  /** Applies, pops or drops a stash entry, if it is the same one still. */
+  stashAct: (path: string, stash: Stash, action: StashAction) => invoke<null>('stash_act', { path, stash, action }),
   /** The types of the convention, as the core keeps them. */
   commitTypes: () => invoke<string[]>('commit_types'),
   /** Reads `message`, and asks the repository's own `commit-msg` hook of it. */
