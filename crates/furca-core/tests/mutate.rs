@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use furca_core::{Error, FileChange, Hunk, LineRange, Repository, Status};
+use furca_core::{Error, FileChange, Hunk, LineRange, Picked, Repository, Status};
 
 /// A working repository with an `origin` that is a bare repository next to
 /// it. The working repository's own configuration shuts out the machine's:
@@ -312,7 +312,8 @@ fn staging_one_hunk_takes_that_hunk_and_leaves_the_file_and_the_other_hunk() {
     let diff = repo.diff(file).expect("diff");
     assert_eq!(diff.hunks.len(), 2, "{diff:#?}");
 
-    repo.stage_hunk(file, diff.hunks[1]).expect("stages");
+    repo.stage_lines(file, &[Picked::whole(diff.hunks[1])])
+        .expect("stages");
     assert_eq!(
         in_index(&pair, "ten.txt"),
         "1\n2\n3\n4\n5\n6\n7\n8\nNINE\n10\n"
@@ -329,7 +330,8 @@ fn staging_one_hunk_takes_that_hunk_and_leaves_the_file_and_the_other_hunk() {
     let repo = pair.open();
     let diff = repo.diff(&file).expect("diff");
     assert_eq!(diff.hunks.len(), 1, "{diff:#?}");
-    repo.unstage_hunk(&file, diff.hunks[0]).expect("unstages");
+    repo.unstage_lines(&file, &[Picked::whole(diff.hunks[0])])
+        .expect("unstages");
     assert_eq!(
         in_index(&pair, "ten.txt"),
         "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n"
@@ -346,7 +348,7 @@ fn a_hunk_the_file_no_longer_has_is_refused_and_the_index_stays() {
 
     // Saved again in between, and the hunk has moved.
     pair.write("ten.txt", "new\n1\nTWO\n3\n4\n5\n6\n7\n8\nNINE\n10\n");
-    match repo.stage_hunk(file, hunk) {
+    match repo.stage_lines(file, &[Picked::whole(hunk)]) {
         Err(Error::Moved { path }) => assert_eq!(path, "ten.txt"),
         other => panic!("{other:?}"),
     }
@@ -391,7 +393,8 @@ fn a_hunk_is_put_in_byte_for_byte() {
     let file = modified(&status, path);
     let diff = repo.diff(file).expect("diff");
     assert_eq!(diff.hunks.len(), 2, "{diff:#?}");
-    repo.stage_hunk(file, diff.hunks[1]).expect("stages");
+    repo.stage_lines(file, &[Picked::whole(diff.hunks[1])])
+        .expect("stages");
 
     let mut expected = before.clone();
     let end = expected.len() - b"last \xE9".len();
@@ -420,7 +423,8 @@ fn a_hunk_added_after_a_last_line_with_no_newline_ends_that_line() {
     let file = modified(&status, "a.txt");
     let diff = repo.diff(file).expect("diff");
     assert_eq!(diff.hunks.len(), 1, "{diff:#?}");
-    repo.stage_hunk(file, diff.hunks[0]).expect("stages");
+    repo.stage_lines(file, &[Picked::whole(diff.hunks[0])])
+        .expect("stages");
     assert_eq!(in_index(&pair, "a.txt"), "x\ny\nz\n");
 }
 
@@ -440,7 +444,7 @@ fn a_file_added_whole_has_no_hunks_to_take() {
         after: LineRange { start: 0, count: 1 },
     };
     assert!(matches!(
-        repo.stage_hunk(file, hunk),
+        repo.stage_lines(file, &[Picked::whole(hunk)]),
         Err(Error::NotByHunks { .. })
     ));
 }
@@ -676,6 +680,267 @@ fn a_hunk_goes_in_as_the_index_keeps_its_lines_under_autocrlf() {
     let diff = repo.diff(file).expect("diff");
     assert_eq!(diff.hunks.len(), 2, "{diff:#?}");
 
-    repo.stage_hunk(file, diff.hunks[0]).expect("stages");
+    repo.stage_lines(file, &[Picked::whole(diff.hunks[0])])
+        .expect("stages");
     assert_eq!(in_index(&pair, "ten.txt"), lines("TWO", "9"));
+}
+
+/// A file of four lines in `HEAD` whose middle two are changed in the working
+/// tree: one hunk of two lines removed and two added.
+fn one_block(pair: &Pair) -> Repository {
+    pair.write("four.txt", "1\n2\n3\n4\n");
+    git(&pair.work(), &["add", "--", "four.txt"]);
+    git(
+        &pair.work(),
+        &["commit", "--quiet", "-m", "chore: four lines"],
+    );
+    pair.write("four.txt", "1\nTWO\nTHREE\n4\n");
+    pair.open()
+}
+
+#[test]
+fn picking_lines_takes_those_lines_and_leaves_the_rest_of_the_hunk() {
+    let pair = Pair::new();
+    let repo = one_block(&pair);
+    let status = repo.status().expect("status");
+    let file = modified(&status, "four.txt");
+    let diff = repo.diff(file).expect("diff");
+    assert_eq!(diff.hunks.len(), 1, "{diff:#?}");
+    let hunk = diff.hunks[0];
+
+    // 2 becomes TWO; 3 and THREE are left as they are.
+    let first = Picked {
+        hunk,
+        removed: vec![1],
+        added: vec![1],
+    };
+    repo.stage_lines(file, &[first]).expect("stages");
+    assert_eq!(in_index(&pair, "four.txt"), "1\nTWO\n3\n4\n");
+
+    // What is left is the other line, and it is one hunk of its own now.
+    let repo = pair.open();
+    let status = repo.status().expect("status");
+    let diff = repo.diff(modified(&status, "four.txt")).expect("diff");
+    assert_eq!(diff.hunks.len(), 1, "{diff:#?}");
+    assert_eq!(diff.hunks[0].before, LineRange { start: 2, count: 1 });
+
+    // A line outside the hunk it is said to be in is not taken.
+    let file = staged(&status, "four.txt").clone();
+    let hunk = repo.diff(&file).expect("diff").hunks[0];
+    let outside = Picked {
+        hunk,
+        removed: vec![],
+        added: vec![3],
+    };
+    assert!(matches!(
+        repo.unstage_lines(&file, &[outside]),
+        Err(Error::Moved { .. })
+    ));
+    // Taking out only the line it added leaves the line it removed gone.
+    let added = Picked {
+        hunk,
+        removed: vec![],
+        added: vec![1],
+    };
+    repo.unstage_lines(&file, &[added]).expect("unstages");
+    assert_eq!(in_index(&pair, "four.txt"), "1\n3\n4\n");
+    // And the line it removed comes back on its own.
+    let repo = pair.open();
+    let status = repo.status().expect("status");
+    let file = staged(&status, "four.txt").clone();
+    let hunk = repo.diff(&file).expect("diff").hunks[0];
+    repo.unstage_lines(&file, &[Picked::whole(hunk)])
+        .expect("unstages");
+    assert_eq!(in_index(&pair, "four.txt"), "1\n2\n3\n4\n");
+}
+
+#[test]
+fn discarding_lines_puts_them_back_as_the_index_has_them_and_leaves_the_rest() {
+    let pair = Pair::new();
+    let repo = one_block(&pair);
+    let status = repo.status().expect("status");
+    let file = modified(&status, "four.txt");
+    let hunk = repo.diff(file).expect("diff").hunks[0];
+    let first = Picked {
+        hunk,
+        removed: vec![1],
+        added: vec![1],
+    };
+    repo.discard_lines(file, &[first]).expect("discards");
+    assert_eq!(
+        std::fs::read_to_string(pair.work().join("four.txt")).expect("reads"),
+        "1\n2\nTHREE\n4\n"
+    );
+    assert_eq!(
+        in_index(&pair, "four.txt"),
+        "1\n2\n3\n4\n",
+        "the index is not touched"
+    );
+
+    // A hunk the file has moved away from is refused, and the file stays.
+    pair.write("four.txt", "0\n1\n2\nTHREE\n4\n");
+    assert!(matches!(
+        repo.discard_lines(file, &[Picked::whole(hunk)]),
+        Err(Error::Moved { .. })
+    ));
+    assert_eq!(
+        std::fs::read_to_string(pair.work().join("four.txt")).expect("reads"),
+        "0\n1\n2\nTHREE\n4\n"
+    );
+}
+
+/// Discarding goes through the same conversion as a checkout: `\r\n` on disk
+/// stays `\r\n` under autocrlf, and a line put back has one too.
+#[test]
+fn discarding_lines_keeps_the_endings_the_file_has_on_disk() {
+    let pair = Pair::new();
+    git(&pair.work(), &["config", "core.autocrlf", "true"]);
+    let lines = |two: &str, nine: &str| format!("1\n{two}\n3\n4\n5\n6\n7\n8\n{nine}\n10\n");
+    pair.write("ten.txt", &lines("2", "9"));
+    git(&pair.work(), &["add", "--", "ten.txt"]);
+    git(
+        &pair.work(),
+        &["commit", "--quiet", "-m", "chore: ten lines"],
+    );
+    pair.write("ten.txt", &lines("TWO", "NINE").replace('\n', "\r\n"));
+
+    let repo = pair.open();
+    let status = repo.status().expect("status");
+    let file = modified(&status, "ten.txt");
+    let diff = repo.diff(file).expect("diff");
+    assert_eq!(diff.hunks.len(), 2, "{diff:#?}");
+    repo.discard_lines(file, &[Picked::whole(diff.hunks[0])])
+        .expect("discards");
+    assert_eq!(
+        std::fs::read_to_string(pair.work().join("ten.txt")).expect("reads"),
+        lines("2", "NINE").replace('\n', "\r\n")
+    );
+}
+
+#[test]
+fn discarding_files_restores_the_tracked_and_deletes_the_untracked_as_named() {
+    let pair = Pair::new();
+    let repo = two_hunks(&pair, "ten.txt");
+    pair.write("[a].txt", "untracked\n");
+    pair.write("a.txt", "untracked too\n");
+    std::fs::create_dir_all(pair.work().join("deep/er")).expect("dirs");
+    pair.write("deep/er/x.txt", "x\n");
+
+    repo.git().restore(&["ten.txt"]).expect("restores");
+    assert_eq!(
+        std::fs::read_to_string(pair.work().join("ten.txt")).expect("reads"),
+        "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n"
+    );
+    // A name with a pattern in it is that file, and no other.
+    repo.git()
+        .clean(&["[a].txt", "deep/er/x.txt"])
+        .expect("cleans");
+    assert!(!pair.work().join("[a].txt").exists());
+    assert!(!pair.work().join("deep/er/x.txt").exists());
+    assert!(pair.work().join("a.txt").exists());
+
+    pair.write("README.md", "changed\n");
+    repo.git().restore_all().expect("restores all");
+    repo.git().clean_all().expect("cleans all");
+    let status = pair.open().status().expect("status");
+    assert!(status.unstaged.is_empty(), "{status:#?}");
+    assert!(status.untracked.is_empty(), "{status:#?}");
+}
+
+#[test]
+fn a_stash_puts_everything_away_and_gives_it_back() {
+    let pair = Pair::new();
+    let repo = two_hunks(&pair, "ten.txt");
+    git(&pair.work(), &["add", "--", "ten.txt"]);
+    pair.write("README.md", "changed\n");
+    pair.write("new.txt", "untracked\n");
+
+    let stash = repo
+        .git()
+        .stash(Some("  half done  "))
+        .expect("stashes")
+        .expect("there was something to put away");
+    assert_eq!(stash.index, 0);
+    assert_eq!(stash.message, "On main: half done");
+    let status = pair.open().status().expect("status");
+    assert!(
+        status.staged.is_empty() && status.unstaged.is_empty() && status.untracked.is_empty(),
+        "{status:#?}"
+    );
+
+    // What it holds: the tracked changes, and the untracked file as added.
+    let held = repo.changes(&stash.commit).expect("changes");
+    let paths: Vec<&str> = held.files.iter().map(|file| file.path.as_str()).collect();
+    assert_eq!(paths, ["README.md", "new.txt", "ten.txt"]);
+    let new = &held.files[1];
+    assert_eq!(new.status, furca_core::FileStatus::Added);
+    assert_eq!(
+        repo.diff(new).expect("diff").after.as_deref(),
+        Some("untracked\n")
+    );
+
+    // Nothing left to put away is no entry, and no error.
+    assert_eq!(repo.git().stash(None).expect("asks"), None);
+
+    // Applied, it is there still; popped, it is gone.
+    repo.git().stash_apply(&stash).expect("applies");
+    assert_eq!(repo.stashes().expect("stashes").len(), 1);
+    assert!(pair.work().join("new.txt").exists());
+    repo.git().restore_all().expect("restores");
+    repo.git().clean_all().expect("cleans");
+    repo.git().stash_pop(&stash).expect("pops");
+    assert!(repo.stashes().expect("stashes").is_empty());
+    assert_eq!(
+        std::fs::read_to_string(pair.work().join("README.md")).expect("reads"),
+        "changed\n"
+    );
+    assert!(pair.work().join("new.txt").exists());
+}
+
+#[test]
+fn a_stash_entry_that_moved_is_not_the_one_dropped() {
+    let pair = Pair::new();
+    let repo = pair.open();
+    pair.write("README.md", "first\n");
+    let first = repo.git().stash(None).expect("stashes").expect("made");
+    pair.write("README.md", "second\n");
+    repo.git().stash(None).expect("stashes").expect("made");
+
+    // `first` was stash@{0}; it is stash@{1} now, and stash@{0} is another.
+    assert!(matches!(
+        repo.git().stash_drop(&first),
+        Err(Error::Moved { .. })
+    ));
+    assert_eq!(repo.stashes().expect("stashes").len(), 2);
+    let now = repo.stashes().expect("stashes").remove(1);
+    assert_eq!(now.commit, first.commit);
+    repo.git().stash_drop(&now).expect("drops");
+    let left = repo.stashes().expect("stashes");
+    assert_eq!(left.len(), 1);
+    assert_ne!(left[0].commit, first.commit);
+}
+
+#[test]
+fn a_stash_that_meets_a_conflict_says_where() {
+    let pair = Pair::new();
+    let repo = pair.open();
+    pair.write("README.md", "stashed\n");
+    let stash = repo.git().stash(None).expect("stashes").expect("made");
+    pair.write("README.md", "committed\n");
+    git(
+        &pair.work(),
+        &["commit", "--quiet", "-am", "chore: meanwhile"],
+    );
+
+    match repo.git().stash_pop(&stash) {
+        Err(Error::Git { stderr, .. }) => assert!(stderr.contains("README.md"), "{stderr}"),
+        other => panic!("{other:?}"),
+    }
+    // A pop that met a conflict keeps the entry, as git does.
+    assert_eq!(repo.stashes().expect("stashes").len(), 1);
+    assert_eq!(
+        pair.open().status().expect("status").conflicted.len(),
+        1,
+        "the conflict is left to be resolved"
+    );
 }

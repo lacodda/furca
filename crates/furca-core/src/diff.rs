@@ -235,7 +235,7 @@ impl Repository {
     /// What the commit `revision` names changed against its first parent:
     /// every file, how it changed, what each side holds and how many lines
     /// moved. A root commit is compared with nothing, so all its files are
-    /// added.
+    /// added. A stash entry holds its untracked files as well, added.
     pub fn changes(&self, revision: &str) -> Result<Changes, Error> {
         let id = self.resolve(revision)?;
         let failed = |source: Source| Error::Changes {
@@ -261,9 +261,25 @@ impl Repository {
             .inner
             .diff_resource_cache_for_tree_diff()
             .map_err(|e| failed(e.into()))?;
-        let changes = self
+        let mut changes = self
             .tree_changes(before.as_ref(), &after, &mut cache)
             .map_err(failed)?;
+        // A stash entry keeps the untracked files it put away in a third
+        // parent: they are part of what it holds, and come in as added.
+        let parents: Vec<gix::ObjectId> = commit.parent_ids().map(|id| id.detach()).collect();
+        if let [_, _, untracked] = parents[..]
+            && self
+                .stashes()?
+                .iter()
+                .any(|stash| stash.commit == id.to_string())
+        {
+            let tree = self
+                .inner
+                .find_commit(untracked)
+                .and_then(|commit| commit.tree())
+                .map_err(|e| failed(e.into()))?;
+            changes.extend(self.tree_changes(None, &tree, &mut cache).map_err(failed)?);
+        }
         let mut files = Vec::with_capacity(changes.len());
         for change in changes {
             let Some(mut file) = file_change(change) else {

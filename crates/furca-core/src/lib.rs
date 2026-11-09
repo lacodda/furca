@@ -74,6 +74,7 @@ pub use log::{Commit, Log, Person, Tips};
 pub use refs::{Branch, Refs, RemoteBranch, Tag};
 pub use remote::Remote;
 pub use repo::{HeadSummary, Repository, Upstream};
+pub use stage::Picked;
 pub use standing::{NearestTag, Operation, Standing, Tracking};
 pub use stash::Stash;
 pub use status::{ConflictKind, Conflicted, Refreshed, Status, StatusCache};

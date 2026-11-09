@@ -1,11 +1,11 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::Repository;
 use crate::error::{Error, wrap};
 use crate::log::moment;
 
 /// One entry of the stash.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Stash {
     /// Its place in the stash, newest first: `0` is `stash@{0}`.

@@ -21,6 +21,7 @@ use serde::Serialize;
 
 use crate::Repository;
 use crate::error::Error;
+use crate::stash::Stash;
 
 /// One run of `git`, as the command log keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -36,7 +37,9 @@ pub struct GitRun {
     /// What it was given on standard input, as words, up to 16 KB of it: the
     /// paths of an `add`, a commit's message, a patch.
     pub input: String,
-    /// What git printed on standard error, up to 16 KB of it.
+    /// What git printed on standard error, up to 16 KB of it; for a run that
+    /// failed and printed nothing there, what it printed on standard output,
+    /// where a stash that met a conflict names the files.
     pub said: String,
 }
 
@@ -50,6 +53,10 @@ impl GitRun {
 /// The most of what went in and came out a run keeps: a console shows the
 /// words, and a hook that prints a build's output is not worth holding on to.
 const MOST_SAID: usize = 16 * 1024;
+
+/// The most bytes of paths one run is given as arguments: Windows takes a
+/// command line of 32 767 characters, and git's own words take some of it.
+const MOST_ARGUMENTS: usize = 24 * 1024;
 
 /// How many times a change to the index is tried when another program holds
 /// its lock, and how long apart. An antivirus scanning `.git` on Windows and a
@@ -137,6 +144,108 @@ impl Git<'_> {
             Some(patch),
         )
         .map(drop)
+    }
+
+    /// Applies `patch` to the files of the working tree and to nothing else,
+    /// through the same filters and line-ending conversion as a checkout. It
+    /// has to fit what the files hold: one written against anything else is
+    /// refused, and the files stay as they were.
+    pub fn apply_to_working_tree(&self, patch: &[u8]) -> Result<(), Error> {
+        self.run_with(&["apply", "--whitespace=nowarn", "-"], Some(patch))
+            .map(drop)
+    }
+
+    /// Puts `paths` back in the working tree as the index has them: whatever
+    /// was not staged of them is gone, and git keeps no copy of it.
+    pub fn restore(&self, paths: &[&str]) -> Result<(), Error> {
+        self.with_paths(&["restore", "--worktree"], paths)
+    }
+
+    /// Puts every file git tracks back in the working tree as the index has
+    /// it. Untracked files stay.
+    pub fn restore_all(&self) -> Result<(), Error> {
+        self.change_index(&["restore", "--worktree", "--", "."], None)
+            .map(drop)
+    }
+
+    /// Deletes the untracked files `paths`, taken as they are; a directory
+    /// they leave empty stays. git has never stored them, so nothing keeps a
+    /// copy. `git clean` reads no list from its input, so a long list is a few
+    /// runs, each short enough for any system's command line.
+    pub fn clean(&self, paths: &[&str]) -> Result<(), Error> {
+        let mut rest = paths;
+        while !rest.is_empty() {
+            let mut length = 0;
+            let take = rest
+                .iter()
+                .take_while(|path| {
+                    length += path.len() + 3;
+                    length <= MOST_ARGUMENTS
+                })
+                .count()
+                .max(1);
+            let (now, later) = rest.split_at(take);
+            let mut args = vec!["--literal-pathspecs", "clean", "--force", "--quiet", "--"];
+            args.extend_from_slice(now);
+            self.run(&args)?;
+            rest = later;
+        }
+        Ok(())
+    }
+
+    /// Deletes every untracked file that is not ignored, and the directories
+    /// that held only those. A repository inside one stays.
+    pub fn clean_all(&self) -> Result<(), Error> {
+        self.run(&["clean", "--force", "--quiet", "-d"]).map(drop)
+    }
+
+    /// Puts every change away in a new stash entry - what is staged, what is
+    /// not, and untracked files - with `message` when there is one, and leaves
+    /// the working tree as `HEAD` has it. The entry made; `None` when there was
+    /// nothing to put away.
+    pub fn stash(&self, message: Option<&str>) -> Result<Option<Stash>, Error> {
+        let before = self.repo.stashes()?.into_iter().next();
+        let mut args = vec!["stash", "push", "--include-untracked"];
+        if let Some(message) = message.map(str::trim).filter(|m| !m.is_empty()) {
+            args.extend(["--message", message]);
+        }
+        self.change_index(&args, None)?;
+        let after = self.repo.stashes()?.into_iter().next();
+        Ok(after.filter(|made| before.as_ref().is_none_or(|was| was.commit != made.commit)))
+    }
+
+    /// Applies the stash entry `stash` to the working tree, and keeps it. A
+    /// change that meets one the working tree has is a conflict, left in the
+    /// files to be resolved, as git leaves it.
+    pub fn stash_apply(&self, stash: &Stash) -> Result<(), Error> {
+        let name = self.still(stash)?;
+        self.change_index(&["stash", "apply", &name], None)
+            .map(drop)
+    }
+
+    /// Applies the stash entry `stash` and drops it; one that met a conflict
+    /// is kept, as git keeps it.
+    pub fn stash_pop(&self, stash: &Stash) -> Result<(), Error> {
+        let name = self.still(stash)?;
+        self.change_index(&["stash", "pop", &name], None).map(drop)
+    }
+
+    /// Drops the stash entry `stash`. Its commit stays in the object store
+    /// until git collects it, but nothing names it any more.
+    pub fn stash_drop(&self, stash: &Stash) -> Result<(), Error> {
+        let name = self.still(stash)?;
+        self.run(&["stash", "drop", "--quiet", &name]).map(drop)
+    }
+
+    /// The name of `stash` - `stash@{2}` - once it is known to be the same
+    /// entry still: one made or dropped since moves every entry after it.
+    fn still(&self, stash: &Stash) -> Result<String, Error> {
+        let name = format!("stash@{{{}}}", stash.index);
+        let now = self.repo.stashes()?;
+        match now.get(stash.index) {
+            Some(entry) if entry.commit == stash.commit => Ok(name),
+            _ => Err(Error::Moved { path: name }),
+        }
     }
 
     /// Commits what is staged with `message` and returns the new commit's id.
@@ -343,13 +452,21 @@ impl Git<'_> {
         if let Some(feeding) = feeding {
             let _ = feeding.join();
         }
+        // A failure that says nothing on standard error says it on standard
+        // output: a stash that met a conflict names the files there.
+        let quiet = output.stderr.trim_ascii().is_empty();
+        let words = if quiet && output.status.code() != Some(0) {
+            &output.stdout
+        } else {
+            &output.stderr
+        };
         let run = GitRun {
             args: args.iter().map(|arg| without_passwords(arg)).collect(),
             code: output.status.code(),
             millis: started.elapsed().as_millis() as u64,
             at,
             input: said(input.unwrap_or_default()).replace('\0', "\n"),
-            said: said(&output.stderr),
+            said: said(words),
         };
         Ok((run, String::from_utf8_lossy(&output.stdout).into_owned()))
     }
