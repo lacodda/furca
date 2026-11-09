@@ -1,6 +1,6 @@
 ---
 title: The window
-description: Open repositories in tabs, save sets of them as sessions, read their history as a graph, search it, see their branches, remotes, tags, stashes and submodules, watch the working copy as files are saved, stage and commit, and see every git command the window runs.
+description: Open repositories in tabs, save sets of them as sessions, read their history as a graph, search it, see their branches, remotes, tags, stashes and submodules, watch the working copy as files are saved, stage and commit, fetch, pull and push, and see every git command the window runs.
 ---
 
 The desktop window is the third door onto the same engine as the CLI: what it
@@ -81,13 +81,13 @@ them are the repository's refs:
 | Section | What it shows |
 | --- | --- |
 | **Branches** | Local branches, in folders by the `/` in their names. The branch `HEAD` is on is in bold with its mark in the accent; `↑2 ↓1` is how far it is from its upstream, and `gone` an upstream deleted on the remote and pruned. |
-| **Remotes** | Each remote with its remote-tracking branches, in folders the same way. Pointing at a remote shows its address, without any password written into it. |
+| **Remotes** | Each remote with its remote-tracking branches, in folders the same way. Pointing at a remote shows its address, without any password written into it; a right click fetches, prunes, edits or removes it - see [Fetching, pulling and pushing](#fetching-pulling-and-pushing). |
 | **Tags** | Newest version first: `v1.10.0` comes before `v1.9.0`. |
 | **Stashes** | The stash, newest first, by the message git wrote. Choosing an entry opens it under the graph, with what can be done to it - see [Stashing](#stashing). |
 | **Submodules** | Each submodule by its path, marked `not checked out` when it is not, and `moved` when what is checked out is not the commit the repository records. |
 
 The distances are against the last fetch: the window reads this machine only
-and asks no remote. The column is one control - <kbd>Tab</kbd> reaches it once,
+and asks no remote until you fetch. The column is one control - <kbd>Tab</kbd> reaches it once,
 the arrows move inside it, <kbd>Right</kbd> and <kbd>Left</kbd> open and close a
 folder. Choosing a branch, a remote branch, a tag or a stash entry takes the
 graph to its commit.
@@ -278,32 +278,7 @@ asks first and says what goes; a click beside the question does nothing, and
 the file through the same filters and line endings as a checkout. See
 [ADR 0020](https://github.com/lacodda/furca/blob/main/docs/adr/0020-lines-a-discard-and-the-stash-go-through-git.md).
 
-## Stashing
-
-**Stash** above the history puts every change away - what is staged, what is not,
-and untracked files - with a message to know it by, and leaves the working tree as
-`HEAD` has it. It is `git stash push --include-untracked`, and off when there is
-nothing to put away.
-
-![A stash entry chosen in the left column: under the graph, its message and parents, a bar with Apply, Pop and Drop, and the file it put away with its change](../../../assets/window-stash.png)
-
-Choosing an entry in **Stashes** opens it under the graph as a commit is opened,
-with what it holds against the commit it was made on: the files that were tracked,
-and the untracked ones it put away as added. Over its files is what can be done to
-it:
-
-| | What it does |
-| --- | --- |
-| **Apply** | Applies it to the working tree and keeps it. |
-| **Pop** | Applies it and drops it. |
-| **Drop** | Drops it without applying it, once you have said so. |
-
-A change that meets one the working tree has is a conflict, left in the file to be
-resolved as git leaves it, and git's own words say where; a pop that met one keeps
-the entry. An entry is named by its place, `stash@{1}`, and checked against the
-commit the window read before anything is done to it: one made or dropped since in
-a terminal moves every entry after it, and the window refuses rather than act on
-another.
+### The commit
 
 Under the lists is the commit to make: its type, scope and description, a body, and
 **Breaking** for the `!` of a Conventional Commit. <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
@@ -330,6 +305,80 @@ press it, and then what is staged goes to your own CLI, under your own session. 
 draft lands in the form to read and change, and it commits nothing. It is off while
 the form holds something you typed. See
 [ADR 0019](https://github.com/lacodda/furca/blob/main/docs/adr/0019-a-commit-is-made-by-git-and-judged-by-its-hook.md).
+
+## Stashing
+
+**Stash** above the history puts every change away - what is staged, what is not,
+and untracked files - with a message to know it by, and leaves the working tree as
+`HEAD` has it. It is `git stash push --include-untracked`, and off when there is
+nothing to put away. Where the bar is short it is its icon alone.
+
+![A stash entry chosen in the left column: under the graph, its message and parents, a bar with Apply, Pop and Drop, and the file it put away with its change](../../../assets/window-stash.png)
+
+Choosing an entry in **Stashes** opens it under the graph as a commit is opened,
+with what it holds against the commit it was made on: the files that were tracked,
+and the untracked ones it put away as added. Over its files is what can be done to
+it:
+
+| | What it does |
+| --- | --- |
+| **Apply** | Applies it to the working tree and keeps it. |
+| **Pop** | Applies it and drops it. |
+| **Drop** | Drops it without applying it, once you have said so. |
+
+A change that meets one the working tree has is a conflict, left in the file to be
+resolved as git leaves it, and git's own words say where; a pop that met one keeps
+the entry. An entry is named by its place, `stash@{1}`, and checked against the
+commit the window read before anything is done to it: one made or dropped since in
+a terminal moves every entry after it, and the window refuses rather than act on
+another.
+
+## Fetching, pulling and pushing
+
+Above the history, beside **Stash**, are **Fetch**, **Pull** and **Push**, each with
+a menu of the other ways to do it. Each is a run of your own git: its credential
+helper and ssh-agent answer for it, as in a terminal, and furca never asks for a
+password and keeps none. **Pull** says how far the branch is behind its upstream
+(`↓2`), **Push** how far ahead (`↑1`), as of the last fetch. Where the bar is short,
+with the history's search beside them, the buttons go down to their icons and keep
+their names for a pointer and a screen reader.
+
+![The push menu open over the history: Push to every remote, Push to mirror, Push to origin, and Force push with a lease; the left column shows the two remotes, mirror and origin](../../../assets/window-remotes.png)
+
+| Button | What it does | In its menu |
+| --- | --- | --- |
+| **Fetch** | Fetches every remote: their branches and tags as they are now. | Fetch and prune, which also takes away remote-tracking branches whose branch is gone; fetch one remote; **Add remote…**. |
+| **Pull** | Pulls the branch it follows into the current one, as your git is configured to - `pull.rebase`, `pull.ff`. A merge takes git's own message; no editor opens. | Pull, merging; pull, rebasing your commits on top; pull only if it fast-forwards. |
+| **Push** | Pushes the current branch where it goes: its `pushRemote`, `remote.pushDefault` or the remote it follows, or the only remote, or `origin`. A branch that follows nothing follows the one it is pushed to from then on. | Push to every remote, one after another; push to one remote; **Force push with a lease…**. |
+
+The annotated tags on the history a push sends go with it, so a release tag reaches
+a mirror as it reaches the main remote; a plain tag stays. **Force push with a
+lease** asks first and says how many commits there the branch does not have: it
+replaces the remote's branch only if that still holds what the last fetch saw, so
+what someone pushed since makes git refuse, and nothing is lost. There is no force
+without a lease.
+
+While a run goes, the buttons wait for it, and the foot of the window says what it
+is doing in git's own words - `Pushing to origin · Writing objects 45%` - and then
+what came of it. What git refused is shown under the bar, in its words, until you
+put it away or start the next run; every remote that refused a push to every remote
+is said apart, after the ones that took it. Staging goes on while a fetch runs; a
+pull waits for staging, and staging for a pull. While a release runs in the
+repository, a push, a pull and a change to the remotes wait for it - the release
+pushes and tags itself.
+
+A right click on a remote in the left column - or the menu key with the column's
+cursor on it - fetches it, prunes it, edits its name and address, or removes it, once
+you have said so. On **Remotes** itself it fetches them all or adds one; a remote
+added is fetched at once. Renaming moves its remote-tracking branches, and the
+branches that follow it follow it under the new name; removing one leaves the remote
+itself untouched. The address is shown without a password written into it, and one
+kept there stays unless you change the address. See
+[ADR 0021](https://github.com/lacodda/furca/blob/main/docs/adr/0021-a-remote-is-reached-by-git-and-heard-as-it-goes.md).
+
+A key with a passphrase that is not in ssh-agent, or a server ssh has never met,
+cannot be answered from the window: git's words say so, with where to do it once -
+`ssh-add`, or `ssh` to the host in a terminal.
 
 ## The console
 
@@ -377,7 +426,7 @@ checkpoint knows where that was. See
 
 ## What the window writes
 
-Nothing in your history, unless you press **Commit**, **Run** or **Resume**, and nothing in your working tree or your stash unless you stage, discard or stash. One file, in the background: when a repository has no
+Nothing in your history unless you press **Commit**, **Pull**, **Run** or **Resume**; nothing on a remote unless you push, run or resume; nothing in your working tree, your stash or your list of remotes unless you stage, discard, stash, pull or change a remote. A fetch moves only remote-tracking branches and tags. One file, in the background: when a repository has no
 commit-graph file, or one more than a thousand commits behind, the window has
 git write one - `git commit-graph write --reachable --split`, the file `git gc`
 writes on its own - and the status line along the foot says so. Without it the

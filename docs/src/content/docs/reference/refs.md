@@ -23,7 +23,8 @@ $ furca refs
 brackets say how far apart the two are, as `git branch -vv` does: `1 ahead`,
 `2 behind`, both, or `gone` when the upstream was deleted on the remote and
 pruned. Nothing in brackets means up to date. The counts are against the last
-fetch: `furca refs` reads this machine only and asks no remote.
+fetch: `furca refs` reads this machine only and asks no remote;
+[`furca fetch`](/furca/reference/fetch/) brings the remote-tracking branches up to date.
 
 Two things are left out on purpose. Symbolic remote refs such as
 `origin/HEAD` only name another remote branch that is already listed. A ref
