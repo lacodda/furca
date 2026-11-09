@@ -267,11 +267,9 @@ impl Repository {
         // A stash entry keeps the untracked files it put away in a third
         // parent: they are part of what it holds, and come in as added.
         let parents: Vec<gix::ObjectId> = commit.parent_ids().map(|id| id.detach()).collect();
+        let hex = id.to_string();
         if let [_, _, untracked] = parents[..]
-            && self
-                .stashes()?
-                .iter()
-                .any(|stash| stash.commit == id.to_string())
+            && self.stashes()?.iter().any(|stash| stash.commit == hex)
         {
             let tree = self
                 .inner
