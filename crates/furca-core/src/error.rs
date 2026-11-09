@@ -76,6 +76,22 @@ pub enum Error {
         /// What git printed on standard error.
         stderr: String,
     },
+    /// git could not get into a remote: it had no credential for the address,
+    /// the server took none of ssh's keys, or ssh does not know the server's
+    /// key. furca never asks for a password, so `hint` says where git looks.
+    #[error("`{command}` could not get into the remote: {hint}.{}", if stderr.is_empty() { String::new() } else { format!("\n{stderr}") })]
+    Access {
+        command: String,
+        /// What to do about it.
+        hint: &'static str,
+        /// What git printed on standard error.
+        stderr: String,
+    },
+    /// What was asked of a remote has no answer in this repository as it
+    /// stands: `HEAD` on no branch, a branch that follows nothing, a remote
+    /// that is not there.
+    #[error("{0}")]
+    Remote(String),
 }
 
 /// A boxed error from gix, whose concrete type is not part of this API.

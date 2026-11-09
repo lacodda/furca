@@ -9,8 +9,16 @@
 //! Paths go to git on its standard input, taken literally: a file called
 //! `*.txt` is that file and no other, and a list long enough to outgrow a
 //! command line is still one run.
+//!
+//! What talks to a remote - fetch, pull, push, the remotes themselves - is in
+//! `remotes`, and how far such a run has got is read as it runs (`progress`).
 
-use std::io::Write;
+mod progress;
+mod remotes;
+
+pub use progress::Progress;
+
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,6 +30,9 @@ use serde::Serialize;
 use crate::Repository;
 use crate::error::Error;
 use crate::stash::Stash;
+
+/// Who is told how a run that talks to a remote is getting on.
+pub type Hear<'a> = &'a mut dyn FnMut(&Progress);
 
 /// One run of `git`, as the command log keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,9 +48,11 @@ pub struct GitRun {
     /// What it was given on standard input, as words, up to 16 KB of it: the
     /// paths of an `add`, a commit's message, a patch.
     pub input: String,
-    /// What git printed on standard error, up to 16 KB of it; for a run that
-    /// failed and printed nothing there, what it printed on standard output,
-    /// where a stash that met a conflict names the files.
+    /// What git printed on standard error, up to 16 KB of it, each line as a
+    /// terminal would show it once git was done - a line of progress git
+    /// rewrote a hundred times is its last rewrite; for a run that failed and
+    /// printed nothing there, what it printed on standard output, where a
+    /// stash that met a conflict names the files.
     pub said: String,
 }
 
@@ -296,7 +309,7 @@ impl Git<'_> {
             "--",
             shown.as_str(),
         ];
-        let heard = self.spawn(&args, None).map(|(run, _)| run);
+        let heard = self.spawn(&args, None, None).map(|(run, _)| run);
         let _ = std::fs::remove_file(&file);
         let run = heard?;
         Ok(match run.code {
@@ -318,19 +331,13 @@ impl Git<'_> {
             .map(drop)
     }
 
-    /// Pushes `refspecs` to `remote`.
+    /// Pushes exactly `refspecs` to `remote`, and nothing that follows them:
+    /// what a release pushes, a commit and then its tag. A branch is pushed
+    /// as a person pushes it with [`Git::push_branch`].
     pub fn push(&self, remote: &str, refspecs: &[&str]) -> Result<(), Error> {
         let mut args = vec!["push", "--quiet", remote];
         args.extend_from_slice(refspecs);
-        self.run(&args).map(drop)
-    }
-
-    /// Fetches `refspecs` from `remote`; all of its configured ones when
-    /// `refspecs` is empty.
-    pub fn fetch(&self, remote: &str, refspecs: &[&str]) -> Result<(), Error> {
-        let mut args = vec!["fetch", "--quiet", remote];
-        args.extend_from_slice(refspecs);
-        self.run(&args).map(drop)
+        self.reach(&args, None).map(drop)
     }
 
     /// Has git write the commit-graph file for every commit reachable from
@@ -345,7 +352,7 @@ impl Git<'_> {
     /// tag is peeled to what it points at.
     pub fn remote_ref(&self, remote: &str, name: &str) -> Result<Option<String>, Error> {
         let peeled = format!("{name}^{{}}");
-        let out = self.run(&["ls-remote", remote, name, &peeled])?;
+        let out = self.reach(&["ls-remote", remote, name, &peeled], None)?;
         let mut found = None;
         for line in out.lines() {
             let Some((id, reference)) = line.split_once('\t') else {
@@ -399,7 +406,34 @@ impl Git<'_> {
     }
 
     fn run_with(&self, args: &[&str], input: Option<&[u8]>) -> Result<String, Error> {
-        let (run, stdout) = self.spawn(args, input)?;
+        self.run_heard(args, input, None)
+    }
+
+    /// Runs `git args` that talks to a remote, telling `hear` how it is
+    /// getting on when there is one to tell. A remote git could not get into
+    /// fails with what furca knows of why: it never asks for a password, so
+    /// the words say where git looks for one.
+    fn reach(&self, args: &[&str], hear: Option<Hear<'_>>) -> Result<String, Error> {
+        self.run_heard(args, None, hear)
+            .map_err(|error| match error {
+                Error::Git {
+                    command, stderr, ..
+                } if access_hint(&stderr).is_some() => Error::Access {
+                    command,
+                    hint: access_hint(&stderr).unwrap_or_default(),
+                    stderr,
+                },
+                other => other,
+            })
+    }
+
+    fn run_heard(
+        &self,
+        args: &[&str],
+        input: Option<&[u8]>,
+        hear: Option<Hear<'_>>,
+    ) -> Result<String, Error> {
+        let (run, stdout) = self.spawn(args, input, hear)?;
         if let Some(hear) = HEARING.get() {
             hear(self.dir(), &run);
         }
@@ -421,7 +455,16 @@ impl Git<'_> {
 
     /// Starts git, feeds it `input`, waits, and gives the run and what it
     /// printed. That git failed is in the run; `Err` is that it never started.
-    fn spawn(&self, args: &[&str], input: Option<&[u8]>) -> Result<(GitRun, String), Error> {
+    ///
+    /// Standard error is read as git writes it, so `hear` is told each line of
+    /// progress as it comes; standard output is read beside it on a thread of
+    /// its own, since git fills either pipe while the other is not read.
+    fn spawn(
+        &self,
+        args: &[&str],
+        input: Option<&[u8]>,
+        mut hear: Option<Hear<'_>>,
+    ) -> Result<(GitRun, String), Error> {
         let at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |since| since.as_millis() as u64);
@@ -446,36 +489,99 @@ impl Git<'_> {
                 let _ = stdin.write_all(&input);
             })
         });
-        let output = child
-            .wait_with_output()
+        let reading = child.stdout.take().map(|mut stdout| {
+            std::thread::spawn(move || {
+                let mut out = Vec::new();
+                let _ = stdout.read_to_end(&mut out);
+                out
+            })
+        });
+        let mut stderr = Vec::new();
+        if let Some(mut pipe) = child.stderr.take() {
+            let mut buffer = [0u8; 4096];
+            // Where the line being written began, which the next `\r` or
+            // `\n` ends.
+            let mut begun = 0;
+            loop {
+                let read = match pipe.read(&mut buffer) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => read,
+                };
+                let scanned = stderr.len();
+                stderr.extend_from_slice(&buffer[..read]);
+                let Some(hear) = hear.as_mut() else {
+                    continue;
+                };
+                for at in scanned..stderr.len() {
+                    if matches!(stderr[at], b'\r' | b'\n') {
+                        let line = String::from_utf8_lossy(&stderr[begun..at]);
+                        if let Some(progress) = progress::progress(&line) {
+                            hear(&progress);
+                        }
+                        begun = at + 1;
+                    }
+                }
+            }
+        }
+        let status = child
+            .wait()
             .map_err(|source| Error::GitMissing { source })?;
+        let stdout = reading
+            .and_then(|reading| reading.join().ok())
+            .unwrap_or_default();
         if let Some(feeding) = feeding {
             let _ = feeding.join();
         }
         // A failure that says nothing on standard error says it on standard
         // output: a stash that met a conflict names the files there.
-        let quiet = output.stderr.trim_ascii().is_empty();
-        let words = if quiet && output.status.code() != Some(0) {
-            &output.stdout
+        let quiet = stderr.trim_ascii().is_empty();
+        let words = if quiet && status.code() != Some(0) {
+            &stdout
         } else {
-            &output.stderr
+            &stderr
         };
         let run = GitRun {
             args: args.iter().map(|arg| without_passwords(arg)).collect(),
-            code: output.status.code(),
+            code: status.code(),
             millis: started.elapsed().as_millis() as u64,
             at,
             input: said(input.unwrap_or_default()).replace('\0', "\n"),
             said: said(words),
         };
-        Ok((run, String::from_utf8_lossy(&output.stdout).into_owned()))
+        Ok((run, String::from_utf8_lossy(&stdout).into_owned()))
     }
 }
 
-/// Bytes as a run keeps them: trimmed, with no password in them, and cut at a
-/// character.
+/// What furca says of a remote git could not get into, by what git said of
+/// it; `None` when git's own words are all there is to say. Read in git's
+/// English and ssh's: a git that speaks another language gets its own words
+/// alone.
+fn access_hint(said: &str) -> Option<&'static str> {
+    if said.contains("terminal prompts disabled") || said.contains("could not read Username") {
+        Some(
+            "git has no credential for this address, and furca never asks for one: \
+             a credential helper keeps it (`git config --global credential.helper`), \
+             or reach the remote over ssh with a key in ssh-agent",
+        )
+    } else if said.contains("Permission denied (publickey") {
+        Some(
+            "the server took none of the keys ssh offered: add yours to ssh-agent \
+             (`ssh-add`), or name it for this host in ~/.ssh/config",
+        )
+    } else if said.contains("Host key verification failed") {
+        Some(
+            "ssh does not know this server's key yet, and furca does not ask: \
+             connect once with `ssh` in a terminal and accept it there",
+        )
+    } else {
+        None
+    }
+}
+
+/// Bytes as a run keeps them: each line as a terminal would show it, trimmed,
+/// with no password in them, and cut at a character.
 fn said(bytes: &[u8]) -> String {
-    let text = String::from_utf8_lossy(bytes);
+    let text = progress::as_shown(&String::from_utf8_lossy(bytes));
     let text = text.trim();
     let mut end = text.len().min(MOST_SAID);
     while !text.is_char_boundary(end) {
@@ -520,7 +626,11 @@ fn for_a_hook(path: &Path) -> String {
 }
 
 /// `git` set up to run unattended in `dir`: a missing credential fails at
-/// once instead of waiting for an answer at a prompt nobody is watching.
+/// once instead of waiting for an answer at a prompt nobody is watching, and
+/// a merge a pull makes takes git's own message rather than opening an editor
+/// nobody would close. Credentials are git's: its credential helper and
+/// ssh-agent are asked as in a terminal, since the environment is passed on
+/// as it is.
 ///
 /// On Windows it also runs without a console window of its own. A program
 /// built for the console, started from one that is not - the desktop app -
@@ -531,6 +641,7 @@ fn git_command(dir: &Path) -> Command {
     command
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_MERGE_AUTOEDIT", "no")
         .stdin(std::process::Stdio::null());
     #[cfg(windows)]
     {
@@ -561,7 +672,28 @@ fn command_line(args: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_line, for_a_hook, said, without_passwords};
+    use super::{access_hint, command_line, for_a_hook, said, without_passwords};
+
+    #[test]
+    fn a_remote_git_could_not_get_into_says_where_a_credential_comes_from() {
+        let https =
+            "fatal: could not read Username for 'https://example.com': terminal prompts disabled";
+        assert!(access_hint(https).is_some_and(|hint| hint.contains("credential helper")));
+        let key = "git@example.com: Permission denied (publickey).\r\nfatal: Could not read from remote repository.";
+        assert!(access_hint(key).is_some_and(|hint| hint.contains("ssh-agent")));
+        let host = "Host key verification failed.\nfatal: Could not read from remote repository.";
+        assert!(access_hint(host).is_some_and(|hint| hint.contains("ssh")));
+        let elsewhere = "fatal: unable to access 'https://example.com/x.git/': Could not resolve host: example.com";
+        assert_eq!(access_hint(elsewhere), None);
+    }
+
+    #[test]
+    fn a_line_git_rewrote_is_kept_as_it_was_left() {
+        assert_eq!(
+            said(b"Receiving objects:  50% (1/2)\rReceiving objects: 100% (2/2), done.\r\nTo origin\n"),
+            "Receiving objects: 100% (2/2), done.\nTo origin"
+        );
+    }
 
     #[test]
     fn a_command_reads_as_it_would_be_typed() {
