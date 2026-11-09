@@ -2,17 +2,27 @@ import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Archive, Box, Boxes, Folder, GitBranch, Globe, Tag as TagIcon } from 'lucide-react'
 import { Alert } from '@/components/ui/alert'
+import {
+  ContextMenu,
+  ContextMenuItem,
+  ContextMenuPopup,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { TreeView } from '@/components/ui/tree-view'
 import type { TreeNode } from '@/components/ui/tree-rows'
 import type { Branch } from '@/lib/generated/Branch'
+import type { Remote } from '@/lib/generated/Remote'
 import type { RemoteBranch } from '@/lib/generated/RemoteBranch'
 import type { Sidebar as SidebarData } from '@/lib/generated/Sidebar'
 import { commitOfColumnRow } from '@/lib/graph-labels'
 import { aheadBehind, byVersionDescending, nameTree, type NameNode } from '@/lib/names'
+import { fetchFrom, pruneRemote, useReach } from '@/lib/remote'
 import { useSidebar } from '@/lib/repos'
 import { cn } from 'dowel-ui'
+import { RemoteDialog, RemoveRemote } from './Reach'
 
 /** The sections open when a repository is first shown: what a person looks
  * at most. Tags and stashes can be hundreds of rows, and open on asking. */
@@ -56,23 +66,117 @@ export function Sidebar({ path, onJump }: { path: string; onJump?: (commit: stri
 
   return (
     <ScrollArea label={t('column.label')} orientation="vertical" className="h-full">
-      <TreeView
-        label={t('column.label')}
-        nodes={sections(read.value, t)}
-        open={open}
-        onOpenChange={(next) => {
-          openByRepository.set(path, next)
-          setOpen(next)
-        }}
-        selected={chosen}
-        onSelect={(id) => {
-          setChosen(id)
-          const commit = commitOfColumnRow(read.value, id)
-          if (commit !== null) onJump?.(commit)
-        }}
-        className="p-1.5"
-      />
+      <RowMenu path={path} remotes={read.value.remotes}>
+        <TreeView
+          label={t('column.label')}
+          nodes={sections(read.value, t)}
+          open={open}
+          onOpenChange={(next) => {
+            openByRepository.set(path, next)
+            setOpen(next)
+          }}
+          selected={chosen}
+          onSelect={(id) => {
+            setChosen(id)
+            const commit = commitOfColumnRow(read.value, id)
+            if (commit !== null) onJump?.(commit)
+          }}
+          className="p-1.5"
+        />
+      </RowMenu>
     </ScrollArea>
+  )
+}
+
+/** The row of the column a context menu was asked for over: the one under the
+ * pointer, or - from the keyboard, where the event comes from the tree itself
+ * - the one the tree's cursor is on. */
+function rowOf(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) return null
+  const row = target.closest('[role=treeitem]') ?? (target.matches('[role=tree]') ? target : target.closest('[role=tree]'))
+  const id = row?.getAttribute('role') === 'tree' ? row.getAttribute('aria-activedescendant') : row?.id
+  return id?.startsWith('tree-') ? id.slice('tree-'.length) : null
+}
+
+/**
+ * What can be done to a row of the column, on a right click or the menu key:
+ * to the Remotes section, add one or fetch them all; to a remote, fetch it,
+ * prune it, change it or remove it. Rows with nothing to do open no menu.
+ */
+function RowMenu({ path, remotes, children }: { path: string; remotes: Remote[]; children: ReactNode }) {
+  const { t } = useTranslation()
+  const [row, setRow] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<Remote | null>(null)
+  const [removing, setRemoving] = useState<string | null>(null)
+  const busy = useReach(path).run !== null
+  const remote = row?.startsWith('r:') ? remotes.find((each) => each.name === row.slice(2)) : undefined
+
+  return (
+    <>
+      <ContextMenu
+        open={open}
+        onOpenChange={(next, details) => {
+          if (!next) {
+            setOpen(false)
+            return
+          }
+          const at = rowOf(details.event?.target ?? null)
+          // Only the rows something can be done to have a menu yet.
+          if (at === 'remotes' || at?.startsWith('r:') === true) {
+            setRow(at)
+            setOpen(true)
+          }
+        }}
+      >
+        <ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
+        <ContextMenuPopup size="lg">
+          {remote ? (
+            <>
+              <ContextMenuItem disabled={busy} onClick={() => void fetchFrom(path, { to: 'named', name: remote.name })}>
+                {t('remote.fetch', { name: remote.name })}
+              </ContextMenuItem>
+              <ContextMenuItem disabled={busy} onClick={() => void pruneRemote(path, remote.name)}>
+                {t('remote.prune', { name: remote.name })}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem disabled={busy} onClick={() => setEditing(remote)}>
+                {t('remote.edit')}
+              </ContextMenuItem>
+              <ContextMenuItem tone="danger" disabled={busy} onClick={() => setRemoving(remote.name)}>
+                {t('remote.removeMenu')}
+              </ContextMenuItem>
+            </>
+          ) : (
+            <>
+              <ContextMenuItem disabled={busy || remotes.length === 0} onClick={() => void fetchFrom(path, { to: 'all' })}>
+                {t('reach.fetchAll')}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem onClick={() => setAdding(true)}>{t('remote.add')}</ContextMenuItem>
+            </>
+          )}
+        </ContextMenuPopup>
+      </ContextMenu>
+      <RemoteDialog path={path} open={adding} onOpenChange={setAdding} />
+      <RemoteDialog
+        path={path}
+        remote={editing ?? undefined}
+        open={editing !== null}
+        onOpenChange={(next) => {
+          if (!next) setEditing(null)
+        }}
+      />
+      <RemoveRemote
+        path={path}
+        name={removing ?? ''}
+        open={removing !== null}
+        onOpenChange={(next) => {
+          if (!next) setRemoving(null)
+        }}
+      />
+    </>
   )
 }
 

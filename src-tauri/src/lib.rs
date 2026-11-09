@@ -13,6 +13,7 @@ pub mod maintenance;
 pub mod measure;
 mod nooma;
 pub mod release;
+pub mod remote;
 pub mod stash;
 pub mod state;
 pub mod working;
@@ -186,6 +187,13 @@ pub fn run() {
             commit::discard_list,
             stash::stash_push,
             stash::stash_act,
+            remote::fetch,
+            remote::pull,
+            remote::push,
+            remote::remote_add,
+            remote::remote_edit,
+            remote::remote_remove,
+            remote::remote_prune,
             commit::commit_types,
             commit::check_message,
             commit::commit,

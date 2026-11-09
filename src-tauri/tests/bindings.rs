@@ -29,9 +29,9 @@ fn generated_dir() -> PathBuf {
 }
 
 /// Hands every root type to `$each`: what the commands in `src/commands.rs`,
-/// `src/graph.rs`, `src/details.rs`, `src/commit.rs`, `src/stash.rs` and
-/// `src/release.rs` take and return, what a search sends down its
-/// channel, and the payloads of the maintenance, graph, working copy and release events. What they depend on is
+/// `src/graph.rs`, `src/details.rs`, `src/commit.rs`, `src/stash.rs`,
+/// `src/remote.rs` and `src/release.rs` take and return, what a search and
+/// a run on a remote send down their channels, and the payloads of the maintenance, graph, working copy and release events. What they depend on is
 /// followed from them.
 macro_rules! for_each_root {
     ($each:ident) => {
@@ -56,6 +56,12 @@ macro_rules! for_each_root {
             furca_core::Picked,
             furca_core::Stash,
             furca_desktop_lib::stash::StashAction,
+            furca_core::Remotes,
+            furca_core::Reconcile,
+            furca_core::Fetched,
+            furca_core::Pulled,
+            furca_desktop_lib::remote::Pushes,
+            furca_desktop_lib::remote::Reaching,
             furca_desktop_lib::working::RefsMoved,
             furca_release::Plan,
             furca_desktop_lib::release::ReleaseState,
@@ -216,6 +222,7 @@ fn every_type_a_command_names_is_generated() {
         "graph.rs",
         "measure.rs",
         "release.rs",
+        "remote.rs",
         "stash.rs",
     ] {
         let text = std::fs::read_to_string(src.join(file)).expect("the source reads");

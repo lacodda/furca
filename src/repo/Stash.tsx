@@ -34,7 +34,7 @@ import { ConfirmDiscard } from './ConfirmDiscard'
  * with a message to know it by, and leaves the working tree as `HEAD` has it.
  * It asks for the message first, and says how much goes.
  */
-export function StashButton({ path }: { path: string }) {
+export function StashButton({ path, labelClass }: { path: string; labelClass?: string }) {
   const { t } = useTranslation()
   const copy = useWorkingCopy(path)
   const [open, setOpen] = useState(false)
@@ -82,7 +82,7 @@ export function StashButton({ path }: { path: string }) {
         onClick={() => setOpen(true)}
       >
         <Archive aria-hidden />
-        {t('stash.stash')}
+        <span className={labelClass}>{t('stash.stash')}</span>
       </Button>
       <DialogPopup size="sm">
         <form onSubmit={submit}>

@@ -1,5 +1,6 @@
 import { invoke, type Channel } from '@tauri-apps/api/core'
 import type { Details } from './generated/Details'
+import type { Fetched } from './generated/Fetched'
 import type { FileChange } from './generated/FileChange'
 import type { FileDiff } from './generated/FileDiff'
 import type { Finder } from './generated/Finder'
@@ -16,7 +17,12 @@ import type { Opened } from './generated/Opened'
 import type { Parts } from './generated/Parts'
 import type { Picked } from './generated/Picked'
 import type { Plan } from './generated/Plan'
+import type { Pulled } from './generated/Pulled'
+import type { Pushes } from './generated/Pushes'
+import type { Reaching } from './generated/Reaching'
+import type { Reconcile } from './generated/Reconcile'
 import type { ReleaseState } from './generated/ReleaseState'
+import type { Remotes } from './generated/Remotes'
 import type { Sidebar } from './generated/Sidebar'
 import type { Standing } from './generated/Standing'
 import type { Stash } from './generated/Stash'
@@ -98,6 +104,23 @@ export const api = {
   stashPush: (path: string, message: string | null) => invoke<Stash | null>('stash_push', { path, message }),
   /** Applies, pops or drops a stash entry, if it is the same one still. */
   stashAct: (path: string, stash: Stash, action: StashAction) => invoke<null>('stash_act', { path, stash, action }),
+  /** Fetches from the remotes `from` names; how far it has got arrives on
+   * `heard`. */
+  fetch: (path: string, from: Remotes, prune: boolean, heard: Channel<Reaching>) =>
+    invoke<Fetched>('fetch', { path, from, prune, heard }),
+  /** Pulls into the current branch from the branch it follows. */
+  pull: (path: string, how: Reconcile, heard: Channel<Reaching>) => invoke<Pulled>('pull', { path, how, heard }),
+  /** Pushes the current branch to the remotes `to` names, with a lease when
+   * `force`; a remote that refuses does not stop the others. */
+  push: (path: string, to: Remotes, force: boolean, heard: Channel<Reaching>) =>
+    invoke<Pushes>('push', { path, to, force, heard }),
+  remoteAdd: (path: string, name: string, url: string) => invoke<null>('remote_add', { path, name, url }),
+  /** Renames the remote `name` to `rename` and points it at `url`, whichever
+   * of the two changed. */
+  remoteEdit: (path: string, name: string, rename: string, url: string) =>
+    invoke<null>('remote_edit', { path, name, rename, url }),
+  remoteRemove: (path: string, name: string) => invoke<null>('remote_remove', { path, name }),
+  remotePrune: (path: string, name: string) => invoke<Fetched>('remote_prune', { path, name }),
   /** The types of the convention, as the core keeps them. */
   commitTypes: () => invoke<string[]>('commit_types'),
   /** Reads `message`, and asks the repository's own `commit-msg` hook of it. */

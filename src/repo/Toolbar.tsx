@@ -12,6 +12,7 @@ import { matchNumber } from '@/lib/graph-labels'
 import { aheadBehind } from '@/lib/names'
 import { useStanding } from '@/lib/repos'
 import { counted, useWorkingCopy } from '@/lib/working'
+import { ReachButtons } from './Reach'
 import { StashButton } from './Stash'
 
 /** How long typing pauses before the search starts. */
@@ -63,16 +64,20 @@ export function Toolbar({ path, sidebar, branch, onBranch, query, onQuery, searc
   }
 
   return (
-    <div className="flex h-10 shrink-0 items-center gap-3 border-b border-line bg-raise px-3">
+    <div className="@container flex h-10 shrink-0 items-center gap-3 border-b border-line bg-raise px-3">
       <Where path={path} />
-      <StashButton path={path} />
+      {/* The history's search takes the right of the bar: there, the buttons
+          go down to their icons where the bar is short, and say their names
+          in their titles and to a screen reader still. */}
+      <ReachButtons path={path} sidebar={sidebar} labelClass={history ? '@max-[60rem]:sr-only' : '@max-[36rem]:sr-only'} />
+      <StashButton path={path} labelClass={history ? '@max-[72rem]:sr-only' : undefined} />
       <div className={history ? 'ml-auto flex items-center gap-2' : 'hidden'}>
         {sidebar && (
           <Select
             value={branch ?? EVERYTHING}
             onValueChange={(value) => onBranch(value === EVERYTHING || value === null ? null : String(value))}
           >
-            <SelectTrigger size="sm" aria-label={t('graph.branch')} className="w-48">
+            <SelectTrigger size="sm" aria-label={t('graph.branch')} className="w-48 @max-[72rem]:w-40">
               <SelectValue>
                 {(value: unknown) => (value === EVERYTHING ? t('graph.allBranches') : shortRef(String(value)))}
               </SelectValue>
@@ -108,7 +113,7 @@ export function Toolbar({ path, sidebar, branch, onBranch, query, onQuery, searc
           placeholder={t('graph.searchPlaceholder')}
           aria-label={t('graph.search')}
           shortcut={{ id: 'graph.search', label: t('graph.search'), keys: 'Mod+F', whileTyping: true }}
-          className="w-64"
+          className="w-64 @max-[72rem]:w-48"
         />
         <Matches search={search} selected={selected} />
         <Button
@@ -192,7 +197,7 @@ function Where({ path }: { path: string }) {
 
   return (
     <div className="flex min-w-0 items-baseline gap-2 text-sm">
-      <span className="truncate font-semibold" title={standing.upstream?.name}>
+      <span className="max-w-48 shrink-0 truncate font-semibold" title={standing.upstream?.name}>
         {standing.branch ?? t('standing.detached')}
       </span>
       {parts.length > 0 && <span className="truncate text-xs text-dim">{parts.join(' · ')}</span>}

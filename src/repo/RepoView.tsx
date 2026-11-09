@@ -13,11 +13,13 @@ import { positionOf, rowAt, searchGraph, showBranch, useGraph } from '@/lib/grap
 import { labelsByCommit, nextMatch, type Label } from '@/lib/graph-labels'
 import { readState, useRelease } from '@/lib/release'
 import { failed, useConsole } from '@/lib/console'
+import { progressWords, summary, useReach } from '@/lib/remote'
 import { useMaintenance, useSidebar } from '@/lib/repos'
 import { counted, useWorkingCopy } from '@/lib/working'
 import { ConsolePanel } from './ConsolePanel'
 import { Details } from './Details'
 import { GraphView } from './GraphView'
+import { ReachFailure } from './Reach'
 import { ReleasePanel } from './ReleasePanel'
 import { Sidebar } from './Sidebar'
 import { Toolbar } from './Toolbar'
@@ -243,6 +245,7 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
             onStep={step}
             history={view === 'history'}
           />
+          <ReachFailure path={path} />
           {view === 'changes' && (
             <div className="min-h-0 flex-1">
               <WorkingCopyView path={path} layout={layout} onLayout={onLayout} />
@@ -304,6 +307,18 @@ function StatusLine({ tab, consoleOpen, onConsole }: { tab: Tab; consoleOpen: bo
   const step = useMaintenance(tab.path)
   const copy = useWorkingCopy(tab.path)
   const unwatched = copy.state === 'read' ? copy.unwatched : null
+  const reach = useReach(tab.path)
+  const run = reach.run
+  const said = reach.outcome?.ok ? summary(reach.outcome) : null
+  const reaching =
+    run !== null
+      ? [
+          run.remote === null ? t(`reach.doing.${run.doing}`) : t(`reach.doingAt.${run.doing}`, { remote: run.remote }),
+          run.progress && progressWords(run.progress),
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : said && t(said.key, said.values)
 
   const work =
     step === undefined
@@ -322,8 +337,11 @@ function StatusLine({ tab, consoleOpen, onConsole }: { tab: Tab; consoleOpen: bo
           {t('status.unwatched')}
         </span>
       )}
+      <span role="status" className="ml-auto min-w-0 truncate">
+        {reaching}
+      </span>
       {work !== null && (
-        <span role="status" className={step?.state === 'failed' ? 'ml-auto text-bad' : 'ml-auto'}>
+        <span role="status" className={step?.state === 'failed' ? 'shrink-0 text-bad' : 'shrink-0'}>
           {work}
         </span>
       )}
@@ -333,7 +351,7 @@ function StatusLine({ tab, consoleOpen, onConsole }: { tab: Tab; consoleOpen: bo
         aria-pressed={consoleOpen}
         aria-keyshortcuts={ariaKeyShortcuts('Mod+J')}
         title={t('console.toggle')}
-        className={cn('h-5 shrink-0', work === null && 'ml-auto', last !== undefined && failed(last) && 'text-bad')}
+        className={cn('h-5 shrink-0', last !== undefined && failed(last) && 'text-bad')}
         onClick={onConsole}
       >
         <SquareTerminal aria-hidden />

@@ -22,8 +22,10 @@ at: number,
  */
 input: string, 
 /**
- * What git printed on standard error, up to 16 KB of it; for a run that
- * failed and printed nothing there, what it printed on standard output,
- * where a stash that met a conflict names the files.
+ * What git printed on standard error, up to 16 KB of it, each line as a
+ * terminal would show it once git was done - a line of progress git
+ * rewrote a hundred times is its last rewrite; for a run that failed and
+ * printed nothing there, what it printed on standard output, where a
+ * stash that met a conflict names the files.
  */
 said: string, };
