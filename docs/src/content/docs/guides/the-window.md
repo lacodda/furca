@@ -83,7 +83,7 @@ them are the repository's refs:
 | **Branches** | Local branches, in folders by the `/` in their names. The branch `HEAD` is on is in bold with its mark in the accent; `↑2 ↓1` is how far it is from its upstream, and `gone` an upstream deleted on the remote and pruned. |
 | **Remotes** | Each remote with its remote-tracking branches, in folders the same way. Pointing at a remote shows its address, without any password written into it. |
 | **Tags** | Newest version first: `v1.10.0` comes before `v1.9.0`. |
-| **Stashes** | The stash, newest first, by the message git wrote. |
+| **Stashes** | The stash, newest first, by the message git wrote. Choosing an entry opens it under the graph, with what can be done to it - see [Stashing](#stashing). |
 | **Submodules** | Each submodule by its path, marked `not checked out` when it is not, and `moved` when what is checked out is not the commit the repository records. |
 
 The distances are against the last fetch: the window reads this machine only
@@ -197,7 +197,7 @@ back to the history) shows what differs from `HEAD`, kept up to date as files ar
 saved. Nothing needs refreshing: save a file in your editor and its row and its
 open change follow in a moment.
 
-![Local changes: the lists of the working copy on the left, a binary named with its size, and under them the commit to make, with a warning about a large file; on the right the change of the file chosen, side by side, with a bar and a button above each hunk](../../../assets/window-changes.png)
+![Local changes: the lists of the working copy on the left, and under them the commit to make; on the right the change of the file chosen, side by side, with Stage hunk and Discard hunk above each hunk, and two lines picked by their numbers - one removed, one added - with Stage lines and Discard lines in the header](../../../assets/window-changes.png)
 
 | List | What it holds |
 | --- | --- |
@@ -246,6 +246,64 @@ A file changed in place has a bar above each change, with **Stage hunk**, or
 file's encoding and line endings. If the file has moved on since it was drawn, git
 refuses the patch and nothing changes: the change on the screen is read again and
 you press again. Added and deleted files are one hunk, which their row moves.
+
+### Lines
+
+Less than a hunk is a few of its lines. Click a changed line's number to pick it,
+drag over the numbers to pick a run of them, and <kbd>Shift</kbd>+click to pick
+from the last one pressed; clicking a picked line lets it go. In **Inline** a
+removed line has no number of its own, and is picked by clicking the line itself.
+A picked line carries the accent from its number across its text, and the header
+says how many are picked, with **Stage lines** (**Unstage lines** in **Staged**),
+**Discard lines** and a button that lets them all go.
+
+Each line goes where it stood: picking the removal of one line and the addition
+that replaced it changes that line and leaves the rest of the hunk as it was. A
+removed line left out stays; an added line left out is not added. The lines go
+through `git apply` as a hunk does, so a file that moved on since is refused, and
+picks the file no longer has are let go when it is read again.
+
+### Discarding
+
+**Discard hunk**, **Discard lines**, and the button beside a row's
+**Stage** put a change back as the index has it, so what is staged stays. In
+**Untracked** the same button deletes the file. A folder discards what is under it
+in that list, and a list's own row discards all of it. <kbd>Delete</kbd> does the
+same with the keyboard on a row.
+
+Nothing keeps a change that was never staged, committed or stashed, so the window
+asks first and says what goes; a click beside the question does nothing, and
+<kbd>Esc</kbd> keeps it. The work is git's: `git restore --worktree` for a file,
+`git clean` for an untracked one and `git apply` for lines, which reads and writes
+the file through the same filters and line endings as a checkout. See
+[ADR 0020](https://github.com/lacodda/furca/blob/main/docs/adr/0020-lines-a-discard-and-the-stash-go-through-git.md).
+
+## Stashing
+
+**Stash** above the history puts every change away - what is staged, what is not,
+and untracked files - with a message to know it by, and leaves the working tree as
+`HEAD` has it. It is `git stash push --include-untracked`, and off when there is
+nothing to put away.
+
+![A stash entry chosen in the left column: under the graph, its message and parents, a bar with Apply, Pop and Drop, and the file it put away with its change](../../../assets/window-stash.png)
+
+Choosing an entry in **Stashes** opens it under the graph as a commit is opened,
+with what it holds against the commit it was made on: the files that were tracked,
+and the untracked ones it put away as added. Over its files is what can be done to
+it:
+
+| | What it does |
+| --- | --- |
+| **Apply** | Applies it to the working tree and keeps it. |
+| **Pop** | Applies it and drops it. |
+| **Drop** | Drops it without applying it, once you have said so. |
+
+A change that meets one the working tree has is a conflict, left in the file to be
+resolved as git leaves it, and git's own words say where; a pop that met one keeps
+the entry. An entry is named by its place, `stash@{1}`, and checked against the
+commit the window read before anything is done to it: one made or dropped since in
+a terminal moves every entry after it, and the window refuses rather than act on
+another.
 
 Under the lists is the commit to make: its type, scope and description, a body, and
 **Breaking** for the `!` of a Conventional Commit. <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
@@ -319,7 +377,7 @@ checkpoint knows where that was. See
 
 ## What the window writes
 
-Nothing in your history, unless you press **Commit**, **Run** or **Resume**. One file, in the background: when a repository has no
+Nothing in your history, unless you press **Commit**, **Run** or **Resume**, and nothing in your working tree or your stash unless you stage, discard or stash. One file, in the background: when a repository has no
 commit-graph file, or one more than a thousand commits behind, the window has
 git write one - `git commit-graph write --reachable --split`, the file `git gc`
 writes on its own - and the status line along the foot says so. Without it the

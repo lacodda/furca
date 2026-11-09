@@ -9,7 +9,8 @@ furca show [REVISION] [-C PATH] [--json]
 
 Prints a commit - `HEAD` unless a revision names another: an id, a branch, a
 tag - with its whole message and a line for every file it changed: how it
-changed, its path, and how many lines it added and removed.
+changed, its path, and how many lines it added and removed. A stash entry,
+`stash@{0}`, lists the untracked files it put away as added, with the rest.
 
 ```console
 $ furca show
