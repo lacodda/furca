@@ -39,6 +39,7 @@ import {
   type SeenStep,
 } from '@/lib/release'
 import { useScrollBox } from './useScrollBox'
+import { GRAB_ON_THE_LIST } from './splitters'
 
 const CHECK_DOT: Record<CheckStatus, Dot> = { pass: 'good', warn: 'warn', fail: 'bad', skip: 'neutral' }
 const STEP_DOT: Record<Exclude<SeenStep['status'], 'running'>, Dot> = { done: 'good', skipped: 'neutral', stopped: 'bad', ahead: 'neutral' }
@@ -178,7 +179,7 @@ function Opened({ path, state, layout, onLayout }: ReleasePanelProps & { state: 
             </div>
           </ScrollArea>
         </SplitterPane>
-        <SplitterHandle label={t('details.resizeFiles')} />
+        <SplitterHandle label={t('details.resizeFiles')} className={GRAB_ON_THE_LIST} />
         <SplitterPane min={30}>
           {shown?.kind === 'check' ? (
             <CheckPane check={checks.find((check) => check.name === shown.name)} />

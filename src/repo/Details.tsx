@@ -18,6 +18,7 @@ import { DiffPane } from './DiffPane'
 import { FileTree } from './FileTree'
 import { fileNodes } from './Files'
 import { StashBar, useStashEntry } from './Stash'
+import { GRAB_ON_THE_LIST } from './splitters'
 
 export interface DetailsProps {
   path: string
@@ -117,7 +118,7 @@ function Opened({
           <SplitterPane min={15} max={60}>
             <ChangedFiles files={files} chosen={file?.path} onChoose={choose} />
           </SplitterPane>
-          <SplitterHandle label={t('details.resizeFiles')} />
+          <SplitterHandle label={t('details.resizeFiles')} className={GRAB_ON_THE_LIST} />
           <SplitterPane min={30}>
             {file !== null && (
               <DiffPane

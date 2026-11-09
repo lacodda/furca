@@ -22,6 +22,7 @@ import { ConfirmDiscard } from './ConfirmDiscard'
 import { DiffPane, type LineActions } from './DiffPane'
 import { FileTree } from './FileTree'
 import { fileNodes } from './Files'
+import { GRAB_ON_THE_LIST } from './splitters'
 
 /** Which row of each repository was open, kept while the window is. */
 const openRow = new Map<string, Chosen>()
@@ -161,7 +162,7 @@ function Lists({
           <Composer key={path} path={path} staged={counts.staged} conflicted={status.conflicted.length} warnings={warnings} />
         </div>
       </SplitterPane>
-      <SplitterHandle label={t('details.resizeFiles')} />
+      <SplitterHandle label={t('details.resizeFiles')} className={GRAB_ON_THE_LIST} />
       <SplitterPane min={30}>
         {clean ? (
           <div className="flex h-full items-center justify-center p-6 text-center">
