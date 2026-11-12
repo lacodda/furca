@@ -71,3 +71,9 @@ Ids are shortened here to fit; the command prints them in full.
 | --- | --- |
 | `-C, --repo <PATH>` | A path inside the repository. Defaults to `.`. |
 | `--json` | Print JSON instead of text. |
+
+## Related
+
+- [branch](/furca/reference/branch/) - makes, renames and deletes branches, and sets what they follow.
+- [checkout](/furca/reference/checkout/) - moves `HEAD` to a branch, or to a commit on no branch.
+- [tag](/furca/reference/tag/) - makes, deletes and pushes tags.

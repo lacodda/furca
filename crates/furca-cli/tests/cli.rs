@@ -865,3 +865,133 @@ fn log_after_a_double_dash_is_the_history_of_one_file_through_a_rename() {
     assert_eq!(value["commits"][0]["status"], "renamed");
     assert_eq!(value["commits"][1]["path"], "old.md");
 }
+
+/// What `furca` said on standard error, for a run that refused.
+fn refusal(output: &Output) -> String {
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "furca did not refuse: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn branches_are_made_checked_out_renamed_set_to_follow_and_deleted() {
+    let dir = repo_with(&["first"]);
+    let path = dir.path();
+    let first = rev(path, "HEAD");
+
+    let made = json(&furca(path, &["branch", "create", "topic", "--json"]));
+    assert_eq!(made["name"], "topic");
+    assert_eq!(made["target"], first.as_str());
+    assert_eq!(made["head"], false, "HEAD stays where it is");
+
+    let switched = stdout(&furca(path, &["checkout", "topic"]));
+    assert_eq!(
+        switched.trim(),
+        format!("Checked out topic at {}.", &first[..7])
+    );
+    git(path, &["commit", "--quiet", "--allow-empty", "-m", "topic"]);
+    stdout(&furca(path, &["checkout", "main"]));
+
+    let error = refusal(&furca(path, &["branch", "delete", "topic"]));
+    assert!(error.contains("topic holds 1 commit"), "{error}");
+    let deleted = json(&furca(
+        path,
+        &["branch", "delete", "topic", "--force", "--json"],
+    ));
+    assert_eq!(deleted["lost"], 1);
+
+    let renamed = stdout(&furca(path, &["branch", "rename", "main", "trunk"]));
+    assert_eq!(renamed.trim(), "Renamed main to trunk.");
+    let listed = stdout(&furca(path, &["branch"]));
+    assert_eq!(listed.trim(), format!("* {} trunk", &first[..7]));
+
+    let origin = bare_repo();
+    let url = origin.path().to_str().expect("utf-8");
+    git(path, &["remote", "add", "origin", url]);
+    git(path, &["push", "--quiet", "origin", "trunk:main"]);
+    let following = json(&furca(
+        path,
+        &["branch", "follow", "trunk", "origin/main", "--json"],
+    ));
+    assert_eq!(following["upstream"]["name"], "origin/main");
+    let alone = json(&furca(path, &["branch", "unfollow", "trunk", "--json"]));
+    assert!(alone["upstream"].is_null(), "{alone}");
+}
+
+#[test]
+fn a_remote_branch_is_checked_out_as_a_local_one_and_a_tag_only_on_no_branch() {
+    let dir = repo_with(&["first"]);
+    let path = dir.path();
+    let origin = bare_repo();
+    let url = origin.path().to_str().expect("utf-8");
+    git(path, &["remote", "add", "origin", url]);
+    git(path, &["push", "--quiet", "origin", "main:feature"]);
+    git(path, &["fetch", "--quiet", "origin"]);
+    git(path, &["tag", "v1"]);
+
+    let switched = json(&furca(path, &["checkout", "origin/feature", "--json"]));
+    assert_eq!(switched["branch"], "feature");
+    assert_eq!(switched["created"], true);
+    assert_eq!(switched["upstream"], "origin/feature");
+
+    let error = refusal(&furca(path, &["checkout", "v1"]));
+    assert!(error.contains("v1 is no branch here"), "{error}");
+    let detached = json(&furca(path, &["checkout", "--detach", "v1", "--json"]));
+    assert!(detached["branch"].is_null(), "{detached}");
+    assert_eq!(detached["commit"], rev(path, "v1").as_str());
+}
+
+#[test]
+fn tags_are_made_listed_pushed_and_taken_away_here_and_there() {
+    let dir = repo_with(&["first"]);
+    let path = dir.path();
+    // furca's own git reads the machine's configuration, and an annotated tag
+    // needs a tagger: a CI runner has none.
+    git(path, &["config", "user.name", "Ada Author"]);
+    git(path, &["config", "user.email", "ada@example.com"]);
+    let head = rev(path, "HEAD");
+
+    let annotated = json(&furca(
+        path,
+        &["tag", "create", "v1.0.0", "-m", "Release 1.0.0", "--json"],
+    ));
+    assert_eq!(annotated["name"], "v1.0.0");
+    assert_eq!(annotated["annotated"], true);
+    assert_eq!(annotated["target"], head.as_str());
+    let plain = stdout(&furca(path, &["tag", "create", "bookmark"]));
+    assert_eq!(plain.trim(), format!("Tagged {} bookmark.", &head[..7]));
+    let listed = stdout(&furca(path, &["tag"]));
+    let short = &head[..7];
+    assert_eq!(
+        listed.trim(),
+        format!("{short} bookmark\n{short} v1.0.0 (annotated)")
+    );
+
+    let origin = bare_repo();
+    let url = origin.path().to_str().expect("utf-8");
+    git(path, &["remote", "add", "origin", url]);
+    let pushed = json(&furca(path, &["tag", "push", "v1.0.0", "--json"]));
+    assert_eq!(pushed["pushed"][0]["remote"], "origin");
+    assert_eq!(rev(origin.path(), "v1.0.0^{commit}"), head);
+
+    let gone = json(&furca(
+        path,
+        &["tag", "delete", "v1.0.0", "--remote", "origin", "--json"],
+    ));
+    assert_eq!(gone["deleted"]["name"], "v1.0.0");
+    assert_eq!(gone["remotes"][0]["deleted"], true);
+    assert_eq!(
+        rev(origin.path(), "v1.0.0"),
+        "v1.0.0",
+        "origin has it no more"
+    );
+    let deleted = stdout(&furca(path, &["tag", "delete", "bookmark"]));
+    assert_eq!(
+        deleted.trim(),
+        format!("Deleted bookmark, which was at {short}.")
+    );
+}

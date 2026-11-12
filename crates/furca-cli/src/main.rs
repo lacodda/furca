@@ -11,6 +11,7 @@
 
 mod line;
 mod reach;
+mod refs;
 mod show;
 
 use std::io::Write;
@@ -100,6 +101,37 @@ enum Command {
     Message {
         #[command(subcommand)]
         command: MessageCommand,
+    },
+    /// List the local branches, or make, rename or delete one, or set what it follows.
+    #[command(args_conflicts_with_subcommands = true)]
+    Branch {
+        #[command(subcommand)]
+        command: Option<BranchCommand>,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Check out a branch - a remote one as a local branch that follows it - or, with --detach, a commit on no branch.
+    Checkout {
+        #[command(flatten)]
+        common: Common,
+        /// The branch: a local one, or a remote-tracking one such as origin/feature.
+        #[arg(
+            value_name = "BRANCH",
+            required_unless_present = "detach",
+            conflicts_with = "detach"
+        )]
+        branch: Option<String>,
+        /// Check out this commit, tag or branch tip on no branch.
+        #[arg(long, value_name = "REVISION")]
+        detach: Option<String>,
+    },
+    /// List the tags, or make, delete or push one.
+    #[command(args_conflicts_with_subcommands = true)]
+    Tag {
+        #[command(subcommand)]
+        command: Option<TagCommand>,
+        #[command(flatten)]
+        common: Common,
     },
     /// Fetch from the remote the current branch follows, from one remote, or from every one.
     Fetch {
@@ -224,6 +256,92 @@ enum RemoteCommand {
         #[command(flatten)]
         common: Common,
         name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum BranchCommand {
+    /// Make a branch at a commit, a tag or another branch. HEAD stays where it is unless --checkout.
+    Create {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+        /// Where it starts: a commit, a tag, a branch. Defaults to HEAD.
+        #[arg(default_value = "HEAD")]
+        from: String,
+        /// Check it out once it is made.
+        #[arg(long)]
+        checkout: bool,
+    },
+    /// Rename a branch: what it follows goes with it.
+    Rename {
+        #[command(flatten)]
+        common: Common,
+        from: String,
+        to: String,
+    },
+    /// Delete a branch. One holding commits no other branch or tag has is refused unless --force.
+    Delete {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+        /// Delete it even though commits only it holds go with it.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Have a branch follow another, such as origin/main: what pull pulls and push pushes to.
+    Follow {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+        /// The branch to follow: a remote-tracking one, such as origin/main, or a local one.
+        upstream: String,
+    },
+    /// Have a branch follow nothing.
+    Unfollow {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TagCommand {
+    /// Make a tag: an annotated one with a message, a plain one without.
+    Create {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+        /// What it tags: a commit, a branch, another tag. Defaults to HEAD.
+        #[arg(default_value = "HEAD")]
+        target: String,
+        /// The message of an annotated tag, which a push of its branch takes along.
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+    },
+    /// Delete a tag here, and with --remote or --all-remotes there too.
+    Delete {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+        /// Also take it away from this remote.
+        #[arg(long, value_name = "NAME", conflicts_with = "all_remotes")]
+        remote: Option<String>,
+        /// Also take it away from every remote.
+        #[arg(long)]
+        all_remotes: bool,
+    },
+    /// Push a tag where the current branch is pushed, to one remote, or to every one.
+    Push {
+        #[command(flatten)]
+        common: Common,
+        name: String,
+        /// The remote to push it to. Defaults to where the current branch is pushed, or `origin`.
+        #[arg(long, value_name = "NAME", conflicts_with = "all_remotes")]
+        remote: Option<String>,
+        /// Push it to every remote, one after another.
+        #[arg(long)]
+        all_remotes: bool,
     },
 }
 
@@ -379,6 +497,13 @@ fn run(command: Command) -> Result<Answer, String> {
                 Answer::Yes
             })
         }
+        Command::Branch { command, common } => refs::branch(command, &common),
+        Command::Checkout {
+            common,
+            branch,
+            detach,
+        } => refs::checkout(&common, branch, detach),
+        Command::Tag { command, common } => refs::tag(command, &common),
         Command::Fetch {
             common,
             remote,
@@ -792,32 +917,18 @@ fn short(id: &str) -> &str {
 }
 
 fn refs_text(refs: &Refs) -> String {
-    let mut lines = Vec::new();
-    for branch in &refs.branches {
-        let mark = if branch.head { '*' } else { ' ' };
-        let upstream = match &branch.upstream {
-            None => String::new(),
-            Some(tracking) => match line::sync(tracking).as_str() {
-                "up to date" => format!(" -> {}", tracking.name),
-                sync => format!(" -> {} ({sync})", tracking.name),
-            },
-        };
-        lines.push(format!(
-            "{mark} {} {}{upstream}",
-            short(&branch.target),
-            branch.name
-        ));
-    }
+    let mut lines: Vec<String> = refs.branches.iter().map(refs::branch_line).collect();
     for remote in &refs.remote_branches {
         lines.push(format!("  {} {}", short(&remote.target), remote.name));
     }
-    for tag in &refs.tags {
-        lines.push(format!("  {} tag: {}", short(&tag.target), tag.name));
-    }
+    lines.extend(refs.tags.iter().map(refs::tag_line));
     if lines.is_empty() {
         return "No refs yet".to_owned();
     }
-    lines.join("\n")
+    lines.join(
+        "
+",
+    )
 }
 
 fn log_text(log: &Log) -> String {

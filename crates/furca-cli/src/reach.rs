@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// A run's progress, on one line of standard error rewritten as it goes.
-struct Ticker {
+pub(crate) struct Ticker {
     step: &'static str,
     on: bool,
     /// How wide the last line was, which the next one covers.
@@ -27,7 +27,7 @@ struct Ticker {
 }
 
 impl Ticker {
-    fn new(step: &'static str) -> Ticker {
+    pub(crate) fn new(step: &'static str) -> Ticker {
         Ticker {
             step,
             on: std::io::stderr().is_terminal(),
@@ -35,7 +35,7 @@ impl Ticker {
         }
     }
 
-    fn hear(&mut self, remote: &str, progress: &Progress) {
+    pub(crate) fn hear(&mut self, remote: &str, progress: &Progress) {
         if !self.on {
             return;
         }
@@ -57,7 +57,7 @@ impl Ticker {
     }
 
     /// Takes the line away, for what is said after it.
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         if self.wide > 0 {
             let wide = self.wide;
             let mut err = std::io::stderr().lock();
@@ -114,10 +114,10 @@ struct Pushes {
 }
 
 #[derive(Serialize)]
-struct NotPushed {
-    remote: String,
-    to: String,
-    error: String,
+pub(crate) struct NotPushed {
+    pub(crate) remote: String,
+    pub(crate) to: String,
+    pub(crate) error: String,
 }
 
 pub(crate) fn push(
