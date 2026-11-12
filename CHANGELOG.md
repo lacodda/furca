@@ -8,6 +8,20 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.15.0] - 2026-11-12
+
+### Bug Fixes
+- Name what a new branch follows, and a lone lost commit in the singular
+
+### Features
+- Check out, make, rename and delete branches and tags
+- Branch, checkout and tag
+- Branches and tags from the column and the graph
+
+### Breaking Changes
+- Git::tag takes (name, target, message: Option<&str>)
+in place of (name, message, target), and makes a plain tag without one.
+
 ## [0.14.0] - 2026-11-09
 
 ### Bug Fixes
