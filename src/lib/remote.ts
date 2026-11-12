@@ -8,20 +8,36 @@ import type { Pushes } from './generated/Pushes'
 import type { Reaching } from './generated/Reaching'
 import type { Reconcile } from './generated/Reconcile'
 import type { Remotes } from './generated/Remotes'
+import type { Deleted } from './generated/Deleted'
+import type { Switched } from './generated/Switched'
+import type { TagDeletes } from './generated/TagDeletes'
+import type { TagPushes } from './generated/TagPushes'
 
 /*
- * The runs on a remote the window makes - fetch, pull, push, prune - one
+ * The runs the window makes on a repository's remotes and refs - fetch, pull,
+ * push, prune; a checkout, a branch or a tag deleted, a tag pushed - one
  * repository at a time, kept per repository while the window is: the toolbar
  * draws which one is going and how far it has got, the foot of the window says
  * it in words, and what came of the last one stays until the next, or, when
  * it went well, for a few seconds.
  *
- * furca-desktop runs one of them at a time (src-tauri/src/remote.rs); the
- * window holds the buttons back while one goes, so a second click is not
- * queued behind the first without a word.
+ * furca-desktop runs one of each kind at a time (src-tauri/src/remote.rs,
+ * src-tauri/src/refs.rs); the window holds the buttons back while one goes, so
+ * a second click is not queued behind the first without a word. What is made
+ * in a dialog - a branch, a tag, a rename - says how it went in the dialog.
  */
 
-export type Doing = 'fetch' | 'pull' | 'push' | 'prune' | 'remove'
+export type Doing =
+  | 'fetch'
+  | 'pull'
+  | 'push'
+  | 'prune'
+  | 'remove'
+  | 'checkout'
+  | 'delete-branch'
+  | 'unfollow'
+  | 'push-tag'
+  | 'delete-tag'
 
 /** A run going now. */
 export interface Run {
@@ -38,7 +54,13 @@ export type Outcome =
   | { ok: true; doing: 'pull'; pulled: Pulled }
   | { ok: true; doing: 'push'; pushes: Pushes }
   | { ok: true; doing: 'remove'; remote: string }
-  | { ok: false; doing: Doing; reason: string; pushes?: Pushes }
+  | { ok: true; doing: 'checkout'; switched: Switched }
+  | { ok: true; doing: 'delete-branch'; deleted: Deleted }
+  | { ok: true; doing: 'unfollow'; branch: string }
+  | { ok: true; doing: 'push-tag'; tag: string; pushes: TagPushes }
+  | { ok: true; doing: 'delete-tag'; tag: string; deletes: TagDeletes }
+  /** `reached` are the remotes that took it, when some did and some did not. */
+  | { ok: false; doing: Doing; reason: string; reached?: string[] }
 
 export interface Reach {
   run: Run | null
@@ -127,7 +149,7 @@ export function pushTo(path: string, to: Remotes, force = false): Promise<Outcom
     (heard) =>
       api.push(path, to, force, heard).then((pushes): Outcome => {
         if (pushes.failed.length === 0) return { ok: true, doing: 'push', pushes }
-        return { ok: false, doing: 'push', reason: refusals(pushes), pushes }
+        return { ok: false, doing: 'push', reason: refusals(pushes), reached: pushes.pushed.map((each) => each.remote) }
       }),
     remote,
   )
@@ -142,9 +164,64 @@ export function removeRemote(path: string, name: string): Promise<Outcome> {
   return go(path, 'remove', () => api.remoteRemove(path, name).then((): Outcome => ({ ok: true, doing: 'remove', remote: name })), name)
 }
 
+/** Checks out the branch `name`: a local one, or a remote-tracking one as the
+ * local branch that follows it. */
+export function checkoutBranch(path: string, name: string): Promise<Outcome> {
+  return go(path, 'checkout', () => api.checkout(path, name).then((switched): Outcome => ({ ok: true, doing: 'checkout', switched })))
+}
+
+/** Checks out the commit `revision` names, on no branch. */
+export function checkoutCommit(path: string, revision: string): Promise<Outcome> {
+  return go(path, 'checkout', () =>
+    api.checkoutDetached(path, revision).then((switched): Outcome => ({ ok: true, doing: 'checkout', switched })),
+  )
+}
+
+/** Deletes the branch `name`, which the window said holds `lost` commits
+ * nothing else has. */
+export function deleteBranch(path: string, name: string, lost: number): Promise<Outcome> {
+  return go(path, 'delete-branch', () =>
+    api.branchDelete(path, name, lost).then((deleted): Outcome => ({ ok: true, doing: 'delete-branch', deleted })),
+  )
+}
+
+/** Has the branch `name` follow nothing. */
+export function unfollow(path: string, name: string): Promise<Outcome> {
+  return go(path, 'unfollow', () => api.branchFollow(path, name, null).then((): Outcome => ({ ok: true, doing: 'unfollow', branch: name })))
+}
+
+/** Pushes the tag `name` to the remotes `to` names. */
+export function pushTag(path: string, name: string, to: Remotes): Promise<Outcome> {
+  return go(
+    path,
+    'push-tag',
+    (heard) =>
+      api.tagPush(path, name, to, heard).then((pushes): Outcome => {
+        if (pushes.failed.length === 0) return { ok: true, doing: 'push-tag', tag: name, pushes }
+        return { ok: false, doing: 'push-tag', reason: refusals(pushes), reached: pushes.pushed.map((each) => each.remote) }
+      }),
+    to.to === 'named' ? to.name : null,
+  )
+}
+
+/** Deletes the tag `name` here, and takes it away from `remotes` first; the
+ * window has asked. */
+export function deleteTag(path: string, name: string, remotes: string[]): Promise<Outcome> {
+  return go(
+    path,
+    'delete-tag',
+    (heard) =>
+      api.tagDelete(path, name, remotes, heard).then((deletes): Outcome => {
+        if (deletes.failed.length === 0) return { ok: true, doing: 'delete-tag', tag: name, deletes }
+        return { ok: false, doing: 'delete-tag', reason: refusals(deletes), reached: deletes.remotes.map((each) => each.remote) }
+      }),
+    remotes.length === 1 ? (remotes[0] ?? null) : null,
+  )
+}
+
 /** What each remote that refused a push said, a remote at a time; git's own
  * words, as the console has them. */
-export function refusals(pushes: Pushes): string {
+export function refusals(pushes: { failed: { remote: string; error: string }[] }): string {
   return pushes.failed.map((failed) => `${failed.remote}: ${failed.error}`).join('\n\n')
 }
 
@@ -183,6 +260,26 @@ export function summary(outcome: Outcome & { ok: true }): Said {
     }
     case 'remove':
       return { key: 'reach.removed', values: { remote: outcome.remote } }
+    case 'checkout': {
+      const { branch, commit, created, upstream } = outcome.switched
+      if (branch === null) return { key: 'refs.checkedOutDetached', values: { at: commit === null ? '' : commit.slice(0, 7) } }
+      if (created && upstream !== null) return { key: 'refs.checkedOutFollowing', values: { branch, upstream } }
+      return { key: 'refs.checkedOut', values: { branch } }
+    }
+    case 'delete-branch': {
+      const { name, target, lost } = outcome.deleted
+      return { key: 'refs.deletedBranch', values: { name, at: target.slice(0, 7), count: lost } }
+    }
+    case 'unfollow':
+      return { key: 'refs.unfollowed', values: { branch: outcome.branch } }
+    case 'push-tag':
+      return { key: 'refs.pushedTag', values: { tag: outcome.tag, remotes: outcome.pushes.pushed.map((each) => each.remote).join(', ') } }
+    case 'delete-tag': {
+      const remotes = outcome.deletes.remotes.map((each) => each.remote).join(', ')
+      return remotes === ''
+        ? { key: 'refs.deletedTag', values: { tag: outcome.tag } }
+        : { key: 'refs.deletedTagThere', values: { tag: outcome.tag, remotes } }
+    }
     case 'push': {
       const pushed = outcome.pushes.pushed
       const branch = pushed[0]?.branch ?? ''

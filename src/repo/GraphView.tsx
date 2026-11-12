@@ -276,6 +276,7 @@ function GraphLine({
   return (
     <div
       id={id}
+      data-commit={commit?.id}
       role="row"
       aria-rowindex={index + 2}
       aria-selected={selected}

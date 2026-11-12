@@ -53,7 +53,7 @@ pub struct NotPushed {
 /// Runs `work` on the repository at `path` off the thread that draws, one at
 /// a time, refused while a release runs here unless `beside_a_release`, and
 /// says that refs moved afterwards, whichever way it went.
-async fn reaching<T: Send + 'static>(
+pub(crate) async fn reaching<T: Send + 'static>(
     app: &AppHandle,
     path: String,
     beside_a_release: bool,

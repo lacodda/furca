@@ -102,14 +102,29 @@ pub(crate) async fn changing<T: Send + 'static>(
     path: String,
     change: impl FnOnce(&Repository) -> Result<T, furca_core::Error> + Send + 'static,
 ) -> Result<T, String> {
+    changing_because(
+        app,
+        path,
+        "a release is running here: whatever is staged goes into its commit",
+        change,
+    )
+    .await
+}
+
+/// [`changing`], refused during a release with `refusal`: what the release
+/// would lose to the change.
+pub(crate) async fn changing_because<T: Send + 'static>(
+    app: &AppHandle,
+    path: String,
+    refusal: &'static str,
+    change: impl FnOnce(&Repository) -> Result<T, furca_core::Error> + Send + 'static,
+) -> Result<T, String> {
     let at = path.clone();
     let done = off_thread(move || {
         let _one_at_a_time = CHANGING.lock().map_err(|_| "a change went wrong")?;
         let repo = Repository::at(&at).map_err(|e| e.to_string())?;
         if furca_release::running(&repo) {
-            return Err(
-                "a release is running here: whatever is staged goes into its commit".to_owned(),
-            );
+            return Err(refusal.to_owned());
         }
         change(&repo).map_err(|e| e.to_string())
     })

@@ -12,6 +12,7 @@ pub mod graph;
 pub mod maintenance;
 pub mod measure;
 mod nooma;
+pub mod refs;
 pub mod release;
 pub mod remote;
 pub mod stash;
@@ -205,6 +206,16 @@ pub fn run() {
             remote::remote_edit,
             remote::remote_remove,
             remote::remote_prune,
+            refs::checkout,
+            refs::checkout_detached,
+            refs::branch_create,
+            refs::branch_rename,
+            refs::branch_lost,
+            refs::branch_delete,
+            refs::branch_follow,
+            refs::tag_create,
+            refs::tag_push,
+            refs::tag_delete,
             commit::commit_types,
             commit::check_message,
             commit::commit,

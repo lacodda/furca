@@ -1,4 +1,5 @@
 import { invoke, type Channel } from '@tauri-apps/api/core'
+import type { Deleted } from './generated/Deleted'
 import type { Details } from './generated/Details'
 import type { Fetched } from './generated/Fetched'
 import type { FileChange } from './generated/FileChange'
@@ -27,6 +28,9 @@ import type { Sidebar } from './generated/Sidebar'
 import type { Standing } from './generated/Standing'
 import type { Stash } from './generated/Stash'
 import type { StashAction } from './generated/StashAction'
+import type { Switched } from './generated/Switched'
+import type { TagDeletes } from './generated/TagDeletes'
+import type { TagPushes } from './generated/TagPushes'
 import type { WindowState } from './generated/WindowState'
 
 /*
@@ -121,6 +125,32 @@ export const api = {
     invoke<null>('remote_edit', { path, name, rename, url }),
   remoteRemove: (path: string, name: string) => invoke<null>('remote_remove', { path, name }),
   remotePrune: (path: string, name: string) => invoke<Fetched>('remote_prune', { path, name }),
+  /** Checks out the branch `name`: a local one, or a remote-tracking one as
+   * the local branch that follows it. */
+  checkout: (path: string, name: string) => invoke<Switched>('checkout', { path, name }),
+  /** Checks out the commit `revision` names, on no branch. */
+  checkoutDetached: (path: string, revision: string) => invoke<Switched>('checkout_detached', { path, revision }),
+  /** Makes the branch `name` at `from`, and checks it out when `checkout`. */
+  branchCreate: (path: string, name: string, from: string, checkout: boolean) =>
+    invoke<null>('branch_create', { path, name, from, checkout }),
+  branchRename: (path: string, from: string, to: string) => invoke<null>('branch_rename', { path, from, to }),
+  /** How many commits only the branch `name` holds, which deleting it loses. */
+  branchLost: (path: string, name: string) => invoke<number>('branch_lost', { path, name }),
+  /** Deletes the branch `name`, which was said to hold `lost` commits nothing
+   * else has; one that holds more by now is refused. */
+  branchDelete: (path: string, name: string, lost: number) => invoke<Deleted>('branch_delete', { path, name, lost }),
+  /** Has the branch `name` follow `upstream`, or nothing for `null`. */
+  branchFollow: (path: string, name: string, upstream: string | null) =>
+    invoke<null>('branch_follow', { path, name, upstream }),
+  /** Tags `target`: annotated with `message`, a plain tag without one. */
+  tagCreate: (path: string, name: string, target: string, message: string | null) =>
+    invoke<null>('tag_create', { path, name, target, message }),
+  /** Pushes the tag `name` to the remotes `to` names, one after another. */
+  tagPush: (path: string, name: string, to: Remotes, heard: Channel<Reaching>) =>
+    invoke<TagPushes>('tag_push', { path, name, to, heard }),
+  /** Deletes the tag `name` here, taking it away from `remotes` first. */
+  tagDelete: (path: string, name: string, remotes: string[], heard: Channel<Reaching>) =>
+    invoke<TagDeletes>('tag_delete', { path, name, remotes, heard }),
   /** The types of the convention, as the core keeps them. */
   commitTypes: () => invoke<string[]>('commit_types'),
   /** Reads `message`, and asks the repository's own `commit-msg` hook of it. */

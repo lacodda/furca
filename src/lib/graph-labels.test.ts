@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Sidebar } from './generated/Sidebar'
-import { commitOfColumnRow, labelsByCommit, markedPieces, matchNumber, nextMatch } from './graph-labels'
+import { columnRow, commitOfColumnRow, labelsByCommit, markedPieces, matchNumber, nextMatch } from './graph-labels'
 
 const sidebar = (over: Partial<Sidebar> = {}): Sidebar => ({
   head: { branch: 'main', commit: 'c1', detached: false, upstream: 'origin/main' },
@@ -110,5 +110,30 @@ describe('markedPieces', () => {
 
   it('marks a match at the very start and the very end', () => {
     expect(markedPieces('abcab', 'ab').map((piece) => piece.marked)).toEqual([true, false, true])
+  })
+})
+
+describe('columnRow', () => {
+  const remotes = ['origin', 'team/mirror']
+
+  it('reads a section, a branch and a tag', () => {
+    expect(columnRow('branches', remotes)).toEqual({ kind: 'section', section: 'branches' })
+    expect(columnRow('b:feature/login', remotes)).toEqual({ kind: 'branch', name: 'feature/login' })
+    expect(columnRow('t:v1.0.0', remotes)).toEqual({ kind: 'tag', name: 'v1.0.0' })
+  })
+
+  it('tells a remote from a folder of its branches, and gives a remote branch its whole name', () => {
+    expect(columnRow('r:origin', remotes)).toEqual({ kind: 'remote', remote: 'origin' })
+    expect(columnRow('r:team/mirror', remotes)).toEqual({ kind: 'remote', remote: 'team/mirror' })
+    expect(columnRow('r:origin/feature', remotes)).toEqual({ kind: 'other' })
+    expect(columnRow('r:origin:feature/login', remotes)).toEqual({
+      kind: 'remote-branch',
+      remote: 'origin',
+      name: 'origin/feature/login',
+    })
+  })
+
+  it('has nothing to say of a folder, a stash or a submodule', () => {
+    for (const id of ['b/feature', 's:0', 'm:vendor/lib']) expect(columnRow(id, remotes)).toEqual({ kind: 'other' })
   })
 })

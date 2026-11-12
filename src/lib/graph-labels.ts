@@ -101,6 +101,37 @@ export function commitOfColumnRow(sidebar: Sidebar, id: string): string | null {
   return null
 }
 
+/** What a row of the left column is, read from the id the column gave it. */
+export type ColumnRow =
+  | { kind: 'section'; section: 'branches' | 'remotes' | 'tags' | 'stashes' | 'submodules' }
+  | { kind: 'branch'; name: string }
+  | { kind: 'remote'; remote: string }
+  /** `name` is the remote-tracking branch's whole name, `origin/feature/x`. */
+  | { kind: 'remote-branch'; remote: string; name: string }
+  | { kind: 'tag'; name: string }
+  | { kind: 'other' }
+
+const SECTIONS = new Set(['branches', 'remotes', 'tags', 'stashes', 'submodules'])
+
+/** The row of the left column `id` names. A remote's row and a folder of its
+ * branches are both `r:` and a name, so `remotes` - the configured ones -
+ * tells them apart. */
+export function columnRow(id: string, remotes: readonly string[]): ColumnRow {
+  if (SECTIONS.has(id)) return { kind: 'section', section: id as 'branches' }
+  if (id.startsWith('b:')) return { kind: 'branch', name: id.slice(2) }
+  if (id.startsWith('t:')) return { kind: 'tag', name: id.slice(2) }
+  if (id.startsWith('r:')) {
+    const rest = id.slice(2)
+    const colon = rest.indexOf(':')
+    if (colon >= 0) {
+      const remote = rest.slice(0, colon)
+      return { kind: 'remote-branch', remote, name: `${remote}/${rest.slice(colon + 1)}` }
+    }
+    if (remotes.includes(rest)) return { kind: 'remote', remote: rest }
+  }
+  return { kind: 'other' }
+}
+
 /** A piece of text, and whether it is a place the search found. */
 export interface Piece {
   text: string

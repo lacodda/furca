@@ -19,6 +19,7 @@ import { counted, useWorkingCopy } from '@/lib/working'
 import { ConsolePanel } from './ConsolePanel'
 import { Details } from './Details'
 import { GraphView } from './GraphView'
+import { CommitMenu } from './Refs'
 import { ReachFailure } from './Reach'
 import { ReleasePanel } from './ReleasePanel'
 import { Sidebar } from './Sidebar'
@@ -265,6 +266,7 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
             className={view === 'history' ? 'min-h-0 flex-1' : 'hidden'}
           >
             <SplitterPane min={20}>
+              <CommitMenu path={path} sidebar={data}>
               <GraphView
                 path={path}
                 graph={graph}
@@ -276,6 +278,7 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
                 found={found}
                 inMessage={search?.inMessage ?? NO_ROWS}
               />
+              </CommitMenu>
             </SplitterPane>
             <SplitterHandle label={t('details.resizeDetails')} />
             <SplitterPane min={15} className="border-t border-line">

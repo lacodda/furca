@@ -213,7 +213,7 @@ export function ReachFailure({ path }: { path: string }) {
   const reach = useReach(path)
   const outcome = reach.outcome
   if (outcome === null || outcome.ok) return null
-  const took = outcome.pushes?.pushed.map((pushed) => pushed.remote) ?? []
+  const took = outcome.reached ?? []
   return (
     <div className="shrink-0 border-b border-line bg-raise px-3 py-2">
       <Alert

@@ -80,9 +80,9 @@ them are the repository's refs:
 
 | Section | What it shows |
 | --- | --- |
-| **Branches** | Local branches, in folders by the `/` in their names. The branch `HEAD` is on is in bold with its mark in the accent; `↑2 ↓1` is how far it is from its upstream, and `gone` an upstream deleted on the remote and pruned. |
+| **Branches** | Local branches, in folders by the `/` in their names. The branch `HEAD` is on is in bold with its mark in the accent; `↑2 ↓1` is how far it is from its upstream, and `gone` an upstream deleted on the remote and pruned. A right click checks one out, branches from it, renames it, sets what it follows or deletes it - see [Branches and tags](#branches-and-tags). |
 | **Remotes** | Each remote with its remote-tracking branches, in folders the same way. Pointing at a remote shows its address, without any password written into it; a right click fetches, prunes, edits or removes it - see [Fetching, pulling and pushing](#fetching-pulling-and-pushing). |
-| **Tags** | Newest version first: `v1.10.0` comes before `v1.9.0`. |
+| **Tags** | Newest version first: `v1.10.0` comes before `v1.9.0`. A right click checks one out on no branch, pushes it or deletes it. |
 | **Stashes** | The stash, newest first, by the message git wrote. Choosing an entry opens it under the graph, with what can be done to it - see [Stashing](#stashing). |
 | **Submodules** | Each submodule by its path, marked `not checked out` when it is not, and `moved` when what is checked out is not the commit the repository records. |
 
@@ -379,6 +379,45 @@ kept there stays unless you change the address. See
 A key with a passphrase that is not in ssh-agent, or a server ssh has never met,
 cannot be answered from the window: git's words say so, with where to do it once -
 `ssh-add`, or `ssh` to the host in a terminal.
+
+## Branches and tags
+
+A right click on a branch, a remote branch or a tag in the left column - or the
+menu key with the column's cursor on it - says what can be done to it, and so does
+a right click on a commit of the graph. Each is a run of your own git, so a
+`post-checkout` hook runs as in a terminal.
+
+![The menu of a branch in the left column: Check out, New branch from it, New tag on it, Rename, Follow a remote branch, Stop following origin/feature/orbit-view, and Delete](../../../assets/window-branches.png)
+
+| Over | In its menu |
+| --- | --- |
+| **A branch** | Check it out; a new branch or a new tag on it; rename it; have it follow a remote branch, or stop following one; delete it. |
+| **A remote branch** | Check it out as the local branch of its name - made to follow it when there is none, the one there when it follows it already; a new branch from it. |
+| **A tag** | Check it out on no branch; a new branch from it; push it to a remote, or to every one; delete it. |
+| **A commit of the graph** | Check out a branch that is on it; check the commit out on no branch; a new branch or a new tag on it. |
+| **Branches**, **Tags** | A new branch, or a new tag, on the commit `HEAD` is on. |
+
+A new branch is checked out once it is made, unless you clear the box. It follows
+nothing until its first push, and then its own name on the remote it went to - only
+one made from a remote branch under that branch's own name follows it from the
+start, whatever `branch.autoSetupMerge` says. A checkout carries your changes along
+where they do not meet the files it checks out; where they do, git refuses in its
+own words under the bar, and nothing moves. A commit or a tag is checked out on no
+branch only when the menu says so; the bar then says **Detached HEAD**, and the graph
+marks the commit `HEAD`.
+
+Deleting a branch counts first what only it holds: the commits no other branch,
+remote branch or tag has. The question says how many go with it and where it was,
+and the foot of the window says it again once it is gone - which is what it takes to
+make it again. The branch `HEAD` is on cannot be deleted.
+
+A new tag with a message is an annotated tag: a push of its branch takes it along.
+Without one it is a bookmark that stays on this machine until it is pushed by name -
+from its menu, or from the box under the message as it is made. Deleting a tag asks
+which remotes to take it away from too, since a remote that keeps it gives it back
+on the next fetch. Pushing a tag and taking it away from a remote are runs on a
+remote like a push: the foot of the window says how far they have got. See
+[ADR 0022](https://github.com/lacodda/furca/blob/main/docs/adr/0022-a-checkout-is-decided-by-the-core-and-made-by-git.md).
 
 ## The console
 
