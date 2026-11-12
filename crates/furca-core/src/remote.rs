@@ -114,6 +114,17 @@ pub struct Pushed {
     pub upstream_set: bool,
 }
 
+/// What a push of a tag did on one remote: put it there, or took it away.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct TagPushed {
+    pub remote: String,
+    /// The tag's short name, such as `v1.0.0`.
+    pub tag: String,
+    /// It was taken away from the remote rather than put there.
+    pub deleted: bool,
+}
+
 /// A configured remote.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -215,13 +226,7 @@ impl Repository {
             ));
         }
         let upstream = self.upstream()?;
-        // `pushRemote`, then `remote.pushDefault`, then the remote it follows.
-        let pushed_to = self
-            .inner
-            .branch_remote_name(short, gix::remote::Direction::Push)
-            .map(|name| name.as_bstr().to_string())
-            .filter(|name| names.contains(name));
-        let default = pushed_to.or_else(|| only_or_origin(&names));
+        let default = self.default_push_remote(&names);
         let chosen = match to {
             Remotes::All => names.clone(),
             Remotes::Named(name) => vec![known(name, &names)?],
@@ -262,6 +267,55 @@ impl Repository {
             .collect())
     }
 
+    /// The remotes `to` names for a push of something other than the current
+    /// branch - a tag: the remote the current branch is pushed to, for
+    /// [`Remotes::Default`], as [`Repository::destinations`] picks it; with
+    /// `HEAD` on no branch, `remote.pushDefault`, the only remote, or
+    /// `origin`.
+    pub fn push_remotes(&self, to: &Remotes) -> Result<Vec<String>, Error> {
+        let names = self.remote_names();
+        if names.is_empty() {
+            return Err(Error::Remote(
+                "there is no remote to push to: add one first".to_owned(),
+            ));
+        }
+        match to {
+            Remotes::All => Ok(names),
+            Remotes::Named(name) => Ok(vec![known(name, &names)?]),
+            Remotes::Default => self
+                .default_push_remote(&names)
+                .map(|name| vec![name])
+                .ok_or_else(|| {
+                    Error::Remote(format!(
+                        "there are {} remotes and none is the one to push to: name it",
+                        names.len()
+                    ))
+                }),
+        }
+    }
+
+    /// Where a push goes when no remote is named: the current branch's
+    /// `pushRemote`, then `remote.pushDefault`, then the remote the branch
+    /// follows - or, when none of those is one of `names`, the only remote
+    /// there is, or `origin`.
+    fn default_push_remote(&self, names: &[String]) -> Option<String> {
+        let head = self.inner.head().ok()?;
+        let configured = match head.referent_name() {
+            Some(full) => self
+                .inner
+                .branch_remote_name(full.shorten(), gix::remote::Direction::Push)
+                .map(|name| name.as_bstr().to_string()),
+            None => self
+                .inner
+                .config_snapshot()
+                .string("remote.pushDefault")
+                .map(|name| name.to_string()),
+        };
+        configured
+            .filter(|name| names.contains(name))
+            .or_else(|| only_or_origin(names))
+    }
+
     /// The address `remote` is pushed to, without its password.
     fn push_url(&self, remote: &str) -> Option<String> {
         self.inner
@@ -289,8 +343,12 @@ impl Repository {
         Ok(refs)
     }
 
-    /// The object the ref `name` names, if there is such a ref.
+    /// The object the ref `name` names, if there is such a ref; a name no ref
+    /// could have names nothing.
     pub(crate) fn ref_target(&self, name: &str) -> Result<Option<String>, Error> {
+        if gix::refs::FullName::try_from(name).is_err() {
+            return Ok(None);
+        }
         Ok(self
             .inner
             .try_find_reference(name)

@@ -1,8 +1,8 @@
 //! furca-core: a plain library over gitoxide, with no Tauri or terminal
 //! knowledge of its own. See `docs/adr/0002-one-core-three-doors.md`.
 //!
-//! Reads happen in-process through gitoxide. Mutations - commits, tags,
-//! pushes - run the system `git` CLI, all of them through
+//! Reads happen in-process through gitoxide. Mutations - commits, branches,
+//! tags, pushes - run the system `git` CLI, all of them through
 //! [`Repository::git`], which logs every run (ADR 0001).
 //!
 //! ```no_run
@@ -35,6 +35,7 @@
 //! # Ok::<(), furca_core::Error>(())
 //! ```
 
+mod branch;
 mod commit_graph;
 mod diff;
 mod doctor;
@@ -58,6 +59,7 @@ mod walk;
 mod watch;
 mod worktree;
 
+pub use branch::{Checkout, Deleted, Switched};
 pub use commit_graph::CommitGraph;
 pub use diff::{
     Changes, Content, Details, Endings, FileChange, FileDiff, FileMode, FileStatus, Hunk,
@@ -72,7 +74,9 @@ pub use graph::{COLORS, Graph, Query, Row, Segment, SegmentKind};
 pub use history::History;
 pub use log::{Commit, Log, Person, Tips};
 pub use refs::{Branch, Refs, RemoteBranch, Tag};
-pub use remote::{Destination, Fetched, Moved, Pulled, Pushed, Reconcile, Remote, Remotes};
+pub use remote::{
+    Destination, Fetched, Moved, Pulled, Pushed, Reconcile, Remote, Remotes, TagPushed,
+};
 pub use repo::{HeadSummary, Repository, Upstream};
 pub use stage::Picked;
 pub use standing::{NearestTag, Operation, Standing, Tracking};

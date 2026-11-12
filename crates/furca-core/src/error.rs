@@ -92,6 +92,15 @@ pub enum Error {
     /// that is not there.
     #[error("{0}")]
     Remote(String),
+    /// What was asked of a branch or a tag has no answer in this repository
+    /// as it stands: a name that is not here, a branch `HEAD` is on, a name
+    /// taken by a branch that follows something else.
+    #[error("{0}")]
+    Ref(String),
+    /// Deleting `branch` would leave `commits` commits that nothing else
+    /// names - no other branch, remote-tracking branch or tag, nor `HEAD`.
+    #[error("{branch} holds {} that no other branch or tag has: deleting it anyway loses them", if *commits == 1 { "1 commit".to_owned() } else { format!("{commits} commits") })]
+    Unmerged { branch: String, commits: usize },
 }
 
 /// A boxed error from gix, whose concrete type is not part of this API.

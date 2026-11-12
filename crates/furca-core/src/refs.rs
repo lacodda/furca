@@ -151,7 +151,7 @@ impl Repository {
 ///
 /// Remote names may themselves contain slashes, so `a/b/main` belongs to
 /// `a/b` when both `a` and `a/b` are remotes: the longest match wins.
-fn remote_of(branch: &str, remotes: &[String]) -> Option<String> {
+pub(crate) fn remote_of(branch: &str, remotes: &[String]) -> Option<String> {
     remotes
         .iter()
         .filter(|remote| {

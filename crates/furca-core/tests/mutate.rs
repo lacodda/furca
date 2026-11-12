@@ -183,7 +183,7 @@ fn a_commit_a_tag_and_a_push_go_through_git_and_into_the_log() {
         "only what was added went in; other.txt is untracked"
     );
 
-    repo.git().tag("v0.2.0", "v0.2.0", &id).expect("tags");
+    repo.git().tag("v0.2.0", &id, Some("v0.2.0")).expect("tags");
     let tags = repo.refs().expect("refs").tags;
     assert_eq!(tags.len(), 1);
     assert!(tags[0].annotated);
@@ -208,7 +208,7 @@ fn a_commit_a_tag_and_a_push_go_through_git_and_into_the_log() {
     );
 
     let log: Vec<String> = repo.git_log().iter().map(|run| run.command()).collect();
-    let tag = format!("git tag --annotate v0.2.0 --message v0.2.0 {id}");
+    let tag = format!("git tag --annotate --file=- -- v0.2.0 {id}");
     assert_eq!(
         log,
         [

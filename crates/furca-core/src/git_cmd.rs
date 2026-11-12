@@ -12,8 +12,11 @@
 //!
 //! What talks to a remote - fetch, pull, push, the remotes themselves - is in
 //! `remotes`, and how far such a run has got is read as it runs (`progress`).
+//! Checking out, and making, moving and deleting branches and tags, is in
+//! `refs`.
 
 mod progress;
+mod refs;
 mod remotes;
 
 pub use progress::Progress;
@@ -323,12 +326,6 @@ impl Git<'_> {
             )),
             _ => Some(run.said),
         })
-    }
-
-    /// Makes the annotated tag `name` on `target` with `message`.
-    pub fn tag(&self, name: &str, message: &str, target: &str) -> Result<(), Error> {
-        self.run(&["tag", "--annotate", name, "--message", message, target])
-            .map(drop)
     }
 
     /// Pushes exactly `refspecs` to `remote`, and nothing that follows them:

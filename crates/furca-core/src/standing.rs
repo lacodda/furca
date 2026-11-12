@@ -229,7 +229,11 @@ impl Repository {
     }
 
     /// How many commits `tips` reach that `hidden` do not.
-    fn count(&self, tips: Vec<gix::ObjectId>, hidden: Vec<gix::ObjectId>) -> Result<usize, Error> {
+    pub(crate) fn count(
+        &self,
+        tips: Vec<gix::ObjectId>,
+        hidden: Vec<gix::ObjectId>,
+    ) -> Result<usize, Error> {
         if tips.is_empty() {
             return Ok(0);
         }

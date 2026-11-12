@@ -1386,7 +1386,7 @@ impl Release {
             }
         }
         if local.is_none() {
-            self.repo.git().tag(&tag, &tag, &green)?;
+            self.repo.git().tag(&tag, &green, Some(&tag))?;
         }
         if remote.is_none() {
             self.repo.git().push(&state.remote, &[&name])?;
