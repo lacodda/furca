@@ -99,8 +99,17 @@ pub enum Error {
     Ref(String),
     /// Deleting `branch` would leave `commits` commits that nothing else
     /// names - no other branch, remote-tracking branch or tag, nor `HEAD`.
-    #[error("{branch} holds {} that no other branch or tag has: deleting it anyway loses them", if *commits == 1 { "1 commit".to_owned() } else { format!("{commits} commits") })]
+    #[error("{branch} holds {}", only_it_holds(*commits))]
     Unmerged { branch: String, commits: usize },
+}
+
+/// What a branch alone holds, as [`Error::Unmerged`] says it.
+fn only_it_holds(commits: usize) -> String {
+    if commits == 1 {
+        "1 commit that no other branch or tag has: deleting it anyway loses it".to_owned()
+    } else {
+        format!("{commits} commits that no other branch or tag has: deleting it anyway loses them")
+    }
 }
 
 /// A boxed error from gix, whose concrete type is not part of this API.

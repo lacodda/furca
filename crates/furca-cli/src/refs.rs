@@ -37,8 +37,17 @@ pub(crate) fn branch(command: Option<BranchCommand>, common: &Common) -> Result<
                 repo.git()
                     .branch_create(&name, &from)
                     .map_err(|e| e.to_string())?;
-                let at = repo.commit(&from).map_err(|e| e.to_string())?.id;
-                format!("Made {name} at {}.", short(&at))
+                // Read afresh: what it follows is configuration, which a
+                // handle reads when it is opened.
+                let made = branch_named(&open(&common.repo)?, &name)?;
+                match made.upstream {
+                    Some(upstream) => format!(
+                        "Made {name} at {}, following {}.",
+                        short(&made.target),
+                        upstream.name
+                    ),
+                    None => format!("Made {name} at {}.", short(&made.target)),
+                }
             };
             (common, name, said)
         }

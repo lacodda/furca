@@ -61,7 +61,7 @@ With some, it is refused and says how many:
 
 ```console
 $ furca branch delete topic
-furca: topic holds 1 commit that no other branch or tag has: deleting it anyway loses them
+furca: topic holds 1 commit that no other branch or tag has: deleting it anyway loses it
 
 $ furca branch delete topic --force
 Deleted topic, which was at 7f29a8e; the 1 commit only it held went with it, and git's reflog keeps it a while.
