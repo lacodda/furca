@@ -1,6 +1,7 @@
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { cn } from 'dowel-ui'
 import { isBranch, visibleRows, type TreeNode } from './tree-rows'
+import { scrollToShow, windowFor } from './virtual-list'
 
 /*
  * A tree: folders that open, one tab stop, arrows to move.
@@ -30,8 +31,15 @@ import { isBranch, visibleRows, type TreeNode } from './tree-rows'
  * per node, a request per open, an error state inside a row). This one is
  * handed everything and decides what to show.
  *
- * Which rows are visible is next door in `tree-rows`, with no React in it - a
- * product windowing a large tree imports that and never this.
+ * Which rows are visible is next door in `tree-rows`, with no React in it.
+ *
+ * A tree of tens of thousands - the changed files of a large commit - is given
+ * `rowHeight`, and then draws only the rows in view, scrolling in its own box
+ * (give it a height). furca drew such a tree of its own until this could: the
+ * same keyboard, the same cursor, a screenful in the document. Each row says
+ * where it stands among its folder's nodes, because a reader can no longer
+ * count rows that are not there, and the cursor scrolls into view as the
+ * arrows move it, because the row a reader is told about has to exist.
  */
 
 export interface TreeViewProps {
@@ -52,6 +60,13 @@ export interface TreeViewProps {
   /** What a screen reader calls the tree. Required: a bare tree announces
    * "tree" and nothing else, and the word belongs to the product. */
   label: string
+  /** How tall a row is, in pixels. Given, the tree draws only the rows in
+   * view and scrolls in its own box, so give it a height; rows are held to
+   * this height. Left out, every row is drawn and the tree is as tall as
+   * they are. */
+  rowHeight?: number
+  /** How many rows to draw beyond each edge of the view, when windowed. */
+  overscan?: number
   className?: string
 }
 
@@ -62,8 +77,35 @@ export function TreeView({
   selected,
   onSelect,
   label,
+  rowHeight,
+  overscan = 8,
   className,
 }: TreeViewProps) {
+  const base = useId()
+  // An id per row that holds whatever a node's id holds: a path has spaces,
+  // and `aria-activedescendant` takes a list of ids split at whitespace.
+  const rowId = (id: string) => `${base}-${encodeURIComponent(id)}`
+  const windowed = rowHeight !== undefined
+
+  /* The box a windowed tree scrolls in, and how much of it shows. */
+  const box = useRef<HTMLDivElement>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  const measure = useCallback(() => {
+    const element = box.current
+    if (element === null) return
+    setViewportHeight(element.clientHeight)
+    setScrollTop(element.scrollTop)
+  }, [])
+  useEffect(() => {
+    const element = box.current
+    if (!windowed || element === null) return
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [windowed, measure])
   const [openState, setOpenState] = useState<ReadonlySet<string>>(() => new Set())
   const open = openProp ?? openState
 
@@ -84,9 +126,23 @@ export function TreeView({
 
   const index = rows.findIndex((row) => row.node.id === active)
 
+  /* Bring a row into view before the reader is told about it: the row
+   * `aria-activedescendant` names has to be in the document. */
+  const reveal = (to: number) => {
+    const element = box.current
+    if (rowHeight === undefined || element === null) return
+    const next = scrollToShow({ index: to, rowHeight, scrollTop: element.scrollTop, viewportHeight: element.clientHeight })
+    if (next === element.scrollTop) return
+    element.scrollTop = next
+    setScrollTop(next)
+  }
+
   const move = (to: number) => {
-    const row = rows[Math.min(Math.max(0, to), rows.length - 1)]
-    if (row) setCursor(row.node.id)
+    const at = Math.min(Math.max(0, to), rows.length - 1)
+    const row = rows[at]
+    if (!row) return
+    setCursor(row.node.id)
+    reveal(at)
   }
 
   const toggle = (id: string, next: boolean) => {
@@ -130,7 +186,7 @@ export function TreeView({
         // deep folder, and the part hand-rolled trees leave out: without it
         // the only way back to the parent is through every sibling below.
         const parent = current.parent
-        if (parent) setCursor(parent)
+        if (parent) move(rows.findIndex((row) => row.node.id === parent))
         break
       }
       case 'Home':
@@ -152,61 +208,87 @@ export function TreeView({
     }
   }
 
+  const { start, end, totalHeight, offsetTop } =
+    rowHeight === undefined
+      ? { start: 0, end: rows.length, totalHeight: 0, offsetTop: 0 }
+      : windowFor({ count: rows.length, rowHeight, viewportHeight, scrollTop, overscan })
+
+  const drawn = rows.slice(start, end).map(({ node, depth, position, siblings }) => {
+    const branch = isBranch(node)
+    const isOpen = open.has(node.id)
+    return (
+      <div
+        key={node.id}
+        id={rowId(node.id)}
+        role="treeitem"
+        // Only on folders. On a leaf it would announce "collapsed" for
+        // something that never opens.
+        aria-expanded={branch ? isOpen : undefined}
+        aria-selected={node.id === selected || undefined}
+        // One-based, and the level a reader is told - the indent is the
+        // sighted half of the same fact.
+        aria-level={depth + 1}
+        aria-posinset={position + 1}
+        aria-setsize={siblings}
+        onClick={() => {
+          setCursor(node.id)
+          if (branch) toggle(node.id, !isOpen)
+          else onSelect?.(node.id)
+        }}
+        className={cn(
+          'flex cursor-pointer items-center gap-1 rounded-sm pr-2 transition-colors',
+          !windowed && 'py-1',
+          node.id === selected ? 'bg-accent-soft text-text' : 'hover:bg-soft',
+          node.id === active && node.id !== selected && 'bg-softer',
+        )}
+        // Indent by depth. A padding rather than a nested box, because the
+        // rows are one flat list - which is what lets the keyboard treat
+        // Down as "the next row" without knowing about nesting.
+        style={{ paddingLeft: `${depth * 16 + 8}px`, height: rowHeight }}
+      >
+        <span aria-hidden className={cn('w-3 shrink-0 text-2xs text-dim', !branch && 'opacity-0')}>
+          {isOpen ? '▾' : '▸'}
+        </span>
+        {/* The label takes the room and truncates, so the meta stands at the
+          * right edge at its own width - a count, a size - whatever the name. */}
+        <span className="min-w-0 flex-1 truncate">{node.label}</span>
+        {node.meta !== undefined && <span className="ml-auto shrink-0 text-xs text-dim tabular-nums">{node.meta}</span>}
+      </div>
+    )
+  })
+
   return (
     <div
+      ref={box}
       role="tree"
       aria-label={label}
       // One stop for the whole tree. A `tabIndex` per node is how a sidebar of
       // four hundred files becomes four hundred stops before the editor.
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onScroll={windowed ? (event) => setScrollTop(event.currentTarget.scrollTop) : undefined}
       // The cursor is published rather than only drawn: this is what a screen
       // reader follows, and what makes the tree one control instead of a
       // collection of rows.
-      aria-activedescendant={active ? `tree-${active}` : undefined}
+      aria-activedescendant={active ? rowId(active) : undefined}
       className={cn(
         'text-sm',
+        windowed && 'relative overflow-y-auto',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
         className,
       )}
     >
-      {rows.map(({ node, depth }) => {
-        const branch = isBranch(node)
-        const isOpen = open.has(node.id)
-        return (
-          <div
-            key={node.id}
-            id={`tree-${node.id}`}
-            role="treeitem"
-            // Only on folders. On a leaf it would announce "collapsed" for
-            // something that never opens.
-            aria-expanded={branch ? isOpen : undefined}
-            aria-selected={node.id === selected || undefined}
-            // One-based, and the level a reader is told - the indent is the
-            // sighted half of the same fact.
-            aria-level={depth + 1}
-            onClick={() => {
-              setCursor(node.id)
-              if (branch) toggle(node.id, !isOpen)
-              else onSelect?.(node.id)
-            }}
-            className={cn(
-              'flex cursor-pointer items-center gap-1 rounded-sm py-1 pr-2 transition-colors',
-              node.id === selected ? 'bg-accent-soft text-text' : 'hover:bg-soft',
-              node.id === active && node.id !== selected && 'bg-softer',
-            )}
-            // Indent by depth. A padding rather than a nested box, because the
-            // rows are one flat list - which is what lets the keyboard treat
-            // Down as "the next row" without knowing about nesting.
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
-          >
-            <span aria-hidden className={cn('w-3 shrink-0 text-2xs text-dim', !branch && 'opacity-0')}>
-              {isOpen ? '▾' : '▸'}
-            </span>
-            <span className="truncate">{node.label}</span>
+      {windowed ? (
+        // The spacer is what the scrollbar measures; the rows in view ride on
+        // it, translated rather than positioned, as VirtualList's do.
+        <div style={{ height: totalHeight }} className="relative">
+          <div style={{ transform: `translateY(${offsetTop}px)` }} className="absolute inset-x-0 top-0">
+            {drawn}
           </div>
-        )
-      })}
+        </div>
+      ) : (
+        drawn
+      )}
     </div>
   )
 }

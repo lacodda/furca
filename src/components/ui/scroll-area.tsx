@@ -93,9 +93,16 @@ export const scrollAreaViewportVariants = cva(
 /* The track is the grab zone and the thumb sits at its outer edge. Hidden at
  * rest; shown while the pointer is over the area or it scrolls, and held
  * while the thumb is being dragged, since the pointer may leave the area
- * mid-drag. */
+ * mid-drag.
+ *
+ * On the sticky layer, and after the content: a table that pins a column
+ * (`sticky right-0 z-2`) or its heading (`--z-sticky`) used to cover the
+ * thumb, which was then neither seen nor taken, and a press at the edge
+ * opened the row under it - kilna's catalogue, measured with
+ * `elementFromPoint`. Equal to the heading's layer, the bar still wins it:
+ * it comes later in the tree. */
 const scrollbar = cn(
-  'group/bar flex p-0.5 opacity-0 print:hidden [transition:opacity_var(--duration-slow)_var(--ease-out)]',
+  'group/bar flex p-0.5 opacity-0 print:hidden [transition:opacity_var(--duration-slow)_var(--ease-out)] [z-index:var(--z-sticky)]',
   'data-[hovering]:opacity-100 data-[scrolling]:opacity-100 active:opacity-100',
   'data-[orientation=vertical]:w-2.5 data-[orientation=vertical]:justify-end',
   'data-[orientation=horizontal]:h-2.5 data-[orientation=horizontal]:flex-col data-[orientation=horizontal]:justify-end',

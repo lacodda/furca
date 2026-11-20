@@ -21,6 +21,10 @@ export interface TreeNode {
   children?: TreeNode[]
   /** An empty folder: opens, and shows nothing. */
   empty?: boolean
+  /** What stands at the end of the row: a count, a size, a badge - "+12 -3",
+   * "2.4 MB". Kept to its own width at the right edge while the label
+   * truncates. */
+  meta?: ReactNode
 }
 
 /** One visible row: the node, how deep it sits, and the branch it belongs to. */
@@ -30,6 +34,11 @@ export interface TreeRow {
   /** The id of the folder this row is inside, if any. What Left uses to get
    * out of a deep branch in one press. */
   parent?: string
+  /** Where it stands among the nodes of its folder, from 0, and how many
+   * there are: a reader's "3 of 12". A tree that draws only the rows in view
+   * cannot leave a reader to count them. */
+  position: number
+  siblings: number
 }
 
 /** The rows a tree shows, in the order the eye and the keyboard travel.
@@ -48,10 +57,25 @@ export function visibleRows(
   parent?: string,
 ): TreeRow[] {
   const rows: TreeRow[] = []
-  for (const node of nodes) {
-    rows.push({ node, depth, parent })
+  // A walk with a stack of its own, not a call per folder whose rows are
+  // spread into the parent's: `push(...rows)` passes every row as an
+  // argument, and a folder of a couple of hundred thousand files ran out of
+  // stack (furca, 200 000 files). The order is the same - a folder, then
+  // what is in it, then its next sibling.
+  const levels: { nodes: readonly TreeNode[]; next: number; depth: number; parent?: string }[] = [
+    { nodes, next: 0, depth, parent },
+  ]
+  while (levels.length > 0) {
+    const level = levels[levels.length - 1]!
+    const node = level.nodes[level.next]
+    if (node === undefined) {
+      levels.pop()
+      continue
+    }
+    rows.push({ node, depth: level.depth, parent: level.parent, position: level.next, siblings: level.nodes.length })
+    level.next += 1
     if (node.children?.length && open.has(node.id)) {
-      rows.push(...visibleRows(node.children, open, depth + 1, node.id))
+      levels.push({ nodes: node.children, next: 0, depth: level.depth + 1, parent: node.id })
     }
   }
   return rows
