@@ -101,6 +101,34 @@ pub enum Error {
     /// names - no other branch, remote-tracking branch or tag, nor `HEAD`.
     #[error("{branch} holds {}", only_it_holds(*commits))]
     Unmerged { branch: String, commits: usize },
+    /// An operation is halfway here - a merge, a rebase, a cherry-pick -
+    /// and another cannot begin until it is continued or aborted.
+    #[error("{} is halfway here: continue or abort it first", operation.words())]
+    Halfway {
+        operation: crate::standing::Operation,
+    },
+    /// What was asked of an operation, or of a conflict, has no answer as
+    /// the repository stands: nothing halfway, a merge asked to skip, a path
+    /// that is not in conflict.
+    #[error("{0}")]
+    Operation(String),
+    /// An operation cannot go on while paths are still in conflict.
+    #[error("{}", still_in_conflict(*paths))]
+    Unresolved { paths: usize },
+    /// A file taken as it is still holds the markers git wrote into it.
+    #[error(
+        "{path} still holds conflict markers, from line {line}: resolve them, or take it as it is anyway"
+    )]
+    Markers { path: String, line: usize },
+}
+
+/// How many paths are left to resolve, as [`Error::Unresolved`] says it.
+fn still_in_conflict(paths: usize) -> String {
+    if paths == 1 {
+        "1 path is still in conflict: resolve it first".to_owned()
+    } else {
+        format!("{paths} paths are still in conflict: resolve them first")
+    }
 }
 
 /// What a branch alone holds, as [`Error::Unmerged`] says it.

@@ -566,14 +566,14 @@ impl Repository {
 /// Both sides of a change once read, and the lines between them when both
 /// are text.
 pub(crate) struct Compared {
-    before: Option<Side>,
-    after: Option<Side>,
+    pub(crate) before: Option<Side>,
+    pub(crate) after: Option<Side>,
     lines: Option<LineCount>,
     /// How much of the old text the new one kept, in percent, when both are
     /// text.
     similarity: Option<u8>,
     pub(crate) hunks: Vec<Hunk>,
-    texts: Option<(Option<String>, Option<String>)>,
+    pub(crate) texts: Option<(Option<String>, Option<String>)>,
     /// The two sides as they are, when they were asked for and both are text.
     pub(crate) bytes: Option<(Vec<u8>, Vec<u8>)>,
 }
@@ -801,7 +801,7 @@ fn lfs_pointer(buf: &[u8]) -> Option<(String, u64)> {
 }
 
 /// How the lines of `buf` end.
-fn endings(buf: &[u8]) -> Endings {
+pub(crate) fn endings(buf: &[u8]) -> Endings {
     let (mut lf, mut crlf) = (false, false);
     for at in buf.find_iter(b"\n") {
         if at > 0 && buf[at - 1] == b'\r' {
@@ -858,7 +858,7 @@ fn range(lines: std::ops::Range<u32>) -> LineRange {
 /// the line, so a line that only changed its ending is a changed line, as
 /// git shows it.
 #[derive(Clone, Copy)]
-struct LineSplit<'a>(&'a [u8]);
+pub(crate) struct LineSplit<'a>(pub(crate) &'a [u8]);
 
 impl<'a> Iterator for LineSplit<'a> {
     type Item = &'a [u8];

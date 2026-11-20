@@ -13,8 +13,10 @@
 //! What talks to a remote - fetch, pull, push, the remotes themselves - is in
 //! `remotes`, and how far such a run has got is read as it runs (`progress`).
 //! Checking out, and making, moving and deleting branches and tags, is in
-//! `refs`.
+//! `refs`; merging, picking and reverting, and the operations they leave
+//! halfway, in `operation`.
 
+mod operation;
 mod progress;
 mod refs;
 mod remotes;
@@ -625,7 +627,9 @@ fn for_a_hook(path: &Path) -> String {
 /// `git` set up to run unattended in `dir`: a missing credential fails at
 /// once instead of waiting for an answer at a prompt nobody is watching, and
 /// a merge a pull makes takes git's own message rather than opening an editor
-/// nobody would close. Credentials are git's: its credential helper and
+/// nobody would close - as does every commit a continued pick, revert or
+/// rebase makes: an editor of `:` is git's own word for none, on every
+/// system, whatever `core.editor` says. Credentials are git's: its credential helper and
 /// ssh-agent are asked as in a terminal, since the environment is passed on
 /// as it is.
 ///
@@ -639,6 +643,7 @@ fn git_command(dir: &Path) -> Command {
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_MERGE_AUTOEDIT", "no")
+        .env("GIT_EDITOR", ":")
         .stdin(std::process::Stdio::null());
     #[cfg(windows)]
     {

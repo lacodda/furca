@@ -449,7 +449,7 @@ fn submodule_around<'a>(index: &gix::index::File, path: &'a str) -> Option<&'a s
     })
 }
 
-fn file_mode(mode: Mode) -> FileMode {
+pub(crate) fn file_mode(mode: Mode) -> FileMode {
     if mode == Mode::FILE_EXECUTABLE {
         FileMode::Executable
     } else if mode == Mode::SYMLINK {

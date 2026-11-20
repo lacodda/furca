@@ -315,7 +315,7 @@ enum Kind {
     RemoteBranches,
 }
 
-fn operation(state: gix::state::InProgress) -> Operation {
+pub(crate) fn operation(state: gix::state::InProgress) -> Operation {
     use gix::state::InProgress;
     match state {
         InProgress::Merge => Operation::Merge,

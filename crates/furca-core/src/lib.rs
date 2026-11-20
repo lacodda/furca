@@ -2,7 +2,7 @@
 //! knowledge of its own. See `docs/adr/0002-one-core-three-doors.md`.
 //!
 //! Reads happen in-process through gitoxide. Mutations - commits, branches,
-//! tags, pushes - run the system `git` CLI, all of them through
+//! tags, merges, pushes - run the system `git` CLI, all of them through
 //! [`Repository::git`], which logs every run (ADR 0001).
 //!
 //! ```no_run
@@ -37,6 +37,7 @@
 
 mod branch;
 mod commit_graph;
+mod conflict;
 mod diff;
 mod doctor;
 mod error;
@@ -46,6 +47,7 @@ mod git_cmd;
 mod graph;
 mod history;
 mod log;
+mod operation;
 mod refs;
 mod remote;
 mod repo;
@@ -61,6 +63,7 @@ mod worktree;
 
 pub use branch::{Checkout, Deleted, Switched};
 pub use commit_graph::CommitGraph;
+pub use conflict::{Block, BlockKind, Conflict, Pick, Resolution, Texts};
 pub use diff::{
     Changes, Content, Details, Endings, FileChange, FileDiff, FileMode, FileStatus, Hunk,
     LineCount, LineKind, LineRange, Patch, PatchHunk, PatchLine, Side,
@@ -73,6 +76,7 @@ pub use git_cmd::{Git, GitRun, Hear, Progress, hear_git_runs};
 pub use graph::{COLORS, Graph, Query, Row, Segment, SegmentKind};
 pub use history::History;
 pub use log::{Commit, Log, Person, Tips};
+pub use operation::{FastForward, Halfway, Proceed, Stepped};
 pub use refs::{Branch, Refs, RemoteBranch, Tag};
 pub use remote::{
     Destination, Fetched, Moved, Pulled, Pushed, Reconcile, Remote, Remotes, TagPushed,
