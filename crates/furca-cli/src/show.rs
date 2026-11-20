@@ -152,7 +152,7 @@ pub fn status_text(copy: &WorkingCopy) -> String {
     out.join("\n")
 }
 
-fn conflict_words(kind: ConflictKind) -> &'static str {
+pub(crate) fn conflict_words(kind: ConflictKind) -> &'static str {
     match kind {
         ConflictKind::BothModified => "both modified",
         ConflictKind::BothAdded => "both added",

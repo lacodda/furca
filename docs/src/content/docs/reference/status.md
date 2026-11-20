@@ -36,7 +36,7 @@ reads `On main, no commits yet`; a detached `HEAD` reads `HEAD detached at
 
 | List | What it holds |
 | --- | --- |
-| **Conflicted** | Paths a merge left unresolved, and how the two sides disagree. |
+| **Conflicted** | Paths a merge left unresolved, and how the two sides disagree; [`furca conflicts`](/furca/reference/conflicts/) shows each one's blocks. |
 | **Staged** | What the next commit would change: `HEAD` against the index. A file moved with `git mv` is one renamed row. |
 | **Not staged** | What the index does not have: the index against the working tree. A file moved by hand is a deletion here and an untracked file below until it is staged, as in `git status`. |
 | **Untracked** | Files git does not track and does not ignore, each on its own, as `git status --untracked-files=all` lists them. Empty when `status.showUntrackedFiles` is `no`. |

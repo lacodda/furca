@@ -10,6 +10,7 @@
 //! not green), 2 when it could not answer at all - the same split as `grep`.
 
 mod line;
+mod merge;
 mod reach;
 mod refs;
 mod show;
@@ -19,7 +20,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use furca_core::{FileChange, Log, Patch, Reconcile, Refs, Remotes, Repository, Tips};
+use furca_core::{
+    FastForward, FileChange, Log, Patch, Proceed, Reconcile, Refs, Remotes, Repository, Tips,
+};
 use furca_release::hosting::{Run, Waited, forge_at as forge};
 use furca_release::{
     Check, Config, Local, Output, Plan, Provider, Release, Report, Runner, Shops, Sources, Status,
@@ -132,6 +135,79 @@ enum Command {
         command: Option<TagCommand>,
         #[command(flatten)]
         common: Common,
+    },
+    /// Merge a branch, a remote branch, a tag or a commit into the current branch.
+    Merge {
+        #[command(flatten)]
+        common: Common,
+        /// What to merge: a branch, a remote-tracking branch such as origin/main, a tag, a commit.
+        name: String,
+        /// Make a merge commit even where moving the branch along would do.
+        #[arg(long, conflicts_with = "ff_only")]
+        no_ff: bool,
+        /// Only move the branch along, and refuse when the two have parted.
+        #[arg(long)]
+        ff_only: bool,
+    },
+    /// Apply the change commits made onto the current branch, each as a new commit.
+    CherryPick {
+        #[command(flatten)]
+        common: Common,
+        /// The commits, in the order to apply them.
+        #[arg(required = true, value_name = "REVISION")]
+        revisions: Vec<String>,
+    },
+    /// Undo the change commits made, each with a new commit that says so.
+    Revert {
+        #[command(flatten)]
+        common: Common,
+        /// The commits, in the order to undo them.
+        #[arg(required = true, value_name = "REVISION")]
+        revisions: Vec<String>,
+    },
+    /// Go on with the merge, cherry-pick, revert or rebase halfway here, once nothing is in conflict.
+    Continue {
+        #[command(flatten)]
+        common: Common,
+        /// Leave out the commit it stopped at instead, and go on with the next.
+        #[arg(long)]
+        skip: bool,
+    },
+    /// Abort the merge, cherry-pick, revert or rebase halfway here, and put everything back as it was.
+    Abort {
+        #[command(flatten)]
+        common: Common,
+    },
+    /// List what is in conflict, or show one file's conflicting blocks.
+    Conflicts {
+        #[command(flatten)]
+        common: Common,
+        /// The file whose conflict to show.
+        #[arg(value_name = "PATH")]
+        path: Option<String>,
+    },
+    /// Resolve a file in conflict and stage it: as the working tree has it, one side whole, or each conflict from one side.
+    Resolve {
+        #[command(flatten)]
+        common: Common,
+        /// The file in conflict.
+        #[arg(value_name = "PATH")]
+        path: String,
+        /// Take every conflicting block from this side, and every change that does not conflict from both.
+        #[arg(long, value_enum, conflicts_with_all = ["ours", "theirs", "delete", "force"])]
+        take: Option<merge::Take>,
+        /// Take our file whole: their changes to it are left out.
+        #[arg(long, conflicts_with_all = ["theirs", "delete", "force"])]
+        ours: bool,
+        /// Take their file whole: our changes to it are left out.
+        #[arg(long, conflicts_with_all = ["delete", "force"])]
+        theirs: bool,
+        /// Resolve it as no file at all.
+        #[arg(long, conflicts_with = "force")]
+        delete: bool,
+        /// Take the working tree's file even though it still holds conflict markers.
+        #[arg(long)]
+        force: bool,
     },
     /// Fetch from the remote the current branch follows, from one remote, or from every one.
     Fetch {
@@ -504,6 +580,51 @@ fn run(command: Command) -> Result<Answer, String> {
             detach,
         } => refs::checkout(&common, branch, detach),
         Command::Tag { command, common } => refs::tag(command, &common),
+        Command::Merge {
+            common,
+            name,
+            no_ff,
+            ff_only,
+        } => {
+            let ff = if no_ff {
+                FastForward::Never
+            } else if ff_only {
+                FastForward::Only
+            } else {
+                FastForward::AsConfigured
+            };
+            merge::merge(&common, &name, ff)
+        }
+        Command::CherryPick { common, revisions } => merge::cherry_pick(&common, &revisions),
+        Command::Revert { common, revisions } => merge::revert(&common, &revisions),
+        Command::Continue { common, skip } => merge::proceed(
+            &common,
+            if skip {
+                Proceed::Skip
+            } else {
+                Proceed::Continue
+            },
+        ),
+        Command::Abort { common } => merge::proceed(&common, Proceed::Abort),
+        Command::Conflicts { common, path } => merge::conflicts(&common, path.as_deref()),
+        Command::Resolve {
+            common,
+            path,
+            take,
+            ours,
+            theirs,
+            delete,
+            force,
+        } => {
+            let asked = match (take, ours, theirs, delete) {
+                (Some(take), ..) => merge::Asked::Each(take),
+                (None, true, _, _) => merge::Asked::Whole { ours: true },
+                (None, _, true, _) => merge::Asked::Whole { ours: false },
+                (None, _, _, true) => merge::Asked::Delete,
+                (None, false, false, false) => merge::Asked::AsIs { force },
+            };
+            merge::resolve(&common, &path, asked)
+        }
         Command::Fetch {
             common,
             remote,

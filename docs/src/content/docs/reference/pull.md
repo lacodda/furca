@@ -28,9 +28,11 @@ main is up to date with origin/main
 ```
 
 A merge never opens an editor: it takes the message git writes. A pull that
-meets a conflict stops with git's words and leaves the conflict in the files,
-as git leaves it. A branch that follows nothing is refused - push it once and
-it will.
+meets a conflict stops with git's words and leaves the merge or the rebase
+halfway, as git leaves it: [`furca conflicts`](/furca/reference/conflicts/) shows
+what is left, [`furca resolve`](/furca/reference/resolve/) settles it, and
+[`furca continue`](/furca/reference/continue/) or [`furca abort`](/furca/reference/abort/)
+finishes it. A branch that follows nothing is refused - push it once and it will.
 
 ## JSON
 

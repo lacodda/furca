@@ -995,3 +995,127 @@ fn tags_are_made_listed_pushed_and_taken_away_here_and_there() {
         format!("Deleted bookmark, which was at {short}.")
     );
 }
+
+/// A repository whose `feature` and `main` rewrite the same line of `f.txt`,
+/// each its own way, with `HEAD` on `main` - configured itself, since the
+/// commits `furca continue` makes are made by its own git.
+fn parted() -> tempfile::TempDir {
+    let dir = repo_with(&[]);
+    let path = dir.path();
+    for (key, value) in [
+        ("user.name", "Ada Author"),
+        ("user.email", "ada@example.com"),
+        ("commit.gpgsign", "false"),
+        ("core.autocrlf", "false"),
+        ("merge.ff", "true"),
+    ] {
+        git(path, &["config", key, value]);
+    }
+    std::fs::write(path.join("f.txt"), "one\ntwo\nthree\n").expect("write");
+    git(path, &["add", "f.txt"]);
+    git(path, &["commit", "--quiet", "-m", "feat: start"]);
+    git(path, &["switch", "--quiet", "--create", "feature"]);
+    std::fs::write(path.join("f.txt"), "one\nTWO\nthree\n").expect("write");
+    git(path, &["commit", "--quiet", "-am", "feat: shout"]);
+    git(path, &["switch", "--quiet", "main"]);
+    std::fs::write(path.join("f.txt"), "one\n2\nthree\n").expect("write");
+    git(path, &["commit", "--quiet", "-am", "feat: number"]);
+    dir
+}
+
+#[test]
+fn a_merge_stopped_halfway_answers_no_and_is_resolved_and_continued() {
+    let dir = parted();
+    let path = dir.path();
+
+    let stopped = furca(path, &["merge", "feature", "--json"]);
+    assert_eq!(
+        stopped.status.code(),
+        Some(1),
+        "a stop is a no, not an error"
+    );
+    let stepped: serde_json::Value = serde_json::from_slice(&stopped.stdout).expect("valid JSON");
+    assert_eq!(stepped["operation"], "merge");
+    assert_eq!(stepped["conflicts"][0]["path"], "f.txt");
+    assert_eq!(stepped["conflicts"][0]["kind"], "both-modified");
+
+    let listed = furca(path, &["conflicts", "--json"]);
+    assert_eq!(listed.status.code(), Some(1), "something is in conflict");
+    let listed: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("JSON");
+    assert_eq!(listed["halfway"]["operation"], "merge");
+    assert_eq!(listed["halfway"]["message"], "Merge branch 'feature'");
+    assert_eq!(listed["halfway"]["can_skip"], false);
+
+    let shown = furca(path, &["conflicts", "f.txt"]);
+    let text = String::from_utf8(shown.stdout).expect("utf-8");
+    assert!(
+        text.contains("<<<<<<< ours\n2\n||||||| base\ntwo\n=======\nTWO\n>>>>>>> theirs"),
+        "{text}"
+    );
+
+    let early = furca(path, &["continue"]);
+    assert_eq!(early.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&early.stderr).contains("still in conflict"));
+    let marked = furca(path, &["resolve", "f.txt"]);
+    assert_eq!(
+        marked.status.code(),
+        Some(2),
+        "git's markers are still there"
+    );
+
+    let resolved = json(&furca(
+        path,
+        &["resolve", "f.txt", "--take", "both", "--json"],
+    ));
+    assert_eq!(resolved["took"], "blocks");
+    assert_eq!(resolved["each"], "both");
+    assert_eq!(resolved["left"].as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        std::fs::read_to_string(path.join("f.txt")).expect("read"),
+        "one\n2\nTWO\nthree\n"
+    );
+    assert_eq!(furca(path, &["conflicts"]).status.code(), Some(0));
+
+    let done = json(&furca(path, &["continue", "--json"]));
+    assert!(done["operation"].is_null());
+    assert_eq!(
+        done["made"], 2,
+        "the merge commit and the commit it brought"
+    );
+    let abort = furca(path, &["abort"]);
+    assert_eq!(abort.status.code(), Some(2), "nothing is halfway any more");
+}
+
+#[test]
+fn a_pick_and_a_revert_make_commits_and_an_abort_puts_a_merge_back() {
+    let dir = parted();
+    let path = dir.path();
+    let main = rev(path, "main");
+
+    let merging = furca(path, &["merge", "feature"]);
+    assert_eq!(merging.status.code(), Some(1));
+    let aborted = stdout(&furca(path, &["abort"]));
+    assert_eq!(
+        aborted.trim(),
+        format!("Aborted: main is at {}, as it was.", &main[..7])
+    );
+
+    std::fs::write(path.join("g.txt"), "g\n").expect("write");
+    git(path, &["switch", "--quiet", "feature"]);
+    git(path, &["add", "g.txt"]);
+    git(path, &["commit", "--quiet", "-m", "feat: add g"]);
+    git(path, &["switch", "--quiet", "main"]);
+    let picked = stdout(&furca(path, &["cherry-pick", "feature"]));
+    assert!(
+        picked.starts_with("Picked 1 commit: main is at "),
+        "{picked}"
+    );
+    assert!(path.join("g.txt").exists());
+
+    let reverted = stdout(&furca(path, &["revert", "HEAD"]));
+    assert!(
+        reverted.starts_with("Reverted with 1 commit: "),
+        "{reverted}"
+    );
+    assert!(!path.join("g.txt").exists());
+}
