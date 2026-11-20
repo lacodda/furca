@@ -31,11 +31,15 @@ describe('styles the CSP would refuse at run time', () => {
   // CodeMirror's rules are made at run time, under class names it makes up,
   // so they cannot move to the bundle. Its `<style>` carries the nonce Tauri
   // gives the page's own inline style instead - which must therefore be
-  // there to take it from.
+  // there to take it from. Every editor takes it from one place: a diff's,
+  // and the resolver's three.
   it("hands CodeMirror the nonce of the page's own style", () => {
-    const diff = read('../repo/CodeDiff.tsx')
-    expect(diff).toMatch(/EditorView\.cspNonce\.of\(nonce\)/)
-    expect(diff).toMatch(/querySelector<HTMLStyleElement>\('style\[nonce\]'\)/)
+    const editor = read('../repo/editor.ts')
+    expect(editor).toMatch(/EditorView\.cspNonce\.of\(nonce\)/)
+    expect(editor).toMatch(/querySelector<HTMLStyleElement>\('style\[nonce\]'\)/)
+    for (const user of ['../repo/CodeDiff.tsx', '../repo/Resolver.tsx']) {
+      expect(read(user)).toMatch(/styleNonce,/)
+    }
     expect(read('../../index.html')).toMatch(/<style>/)
   })
 })
