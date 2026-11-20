@@ -12,13 +12,14 @@ import {
   WidgetType,
   type DecorationSet,
 } from '@codemirror/view'
-import { HighlightStyle, LanguageDescription, syntaxHighlighting } from '@codemirror/language'
-import { languages } from '@codemirror/language-data'
-import { tags } from '@lezer/highlight'
+import { syntaxHighlighting } from '@codemirror/language'
 import type { FileDiff } from '@/lib/generated/FileDiff'
 import type { Hunk } from '@/lib/generated/Hunk'
 import { hunkChanges, refine } from '@/lib/changes'
 import { isChanged, NO_PICKS, setLines, type Picks, type Side } from '@/lib/picks'
+import { baseTheme, furcaHighlight, languageOf, styleNonce } from './editor'
+
+export { prepare } from './editor'
 
 /*
  * A file's change in CodeMirror: two columns kept level, or one with the
@@ -37,37 +38,11 @@ export type Layout = 'split' | 'inline'
 /** Unchanged lines kept around a change before the rest folds away. */
 const CONTEXT = 3
 
-const furcaHighlight = HighlightStyle.define([
-  { tag: [tags.keyword, tags.controlKeyword, tags.modifier, tags.operatorKeyword, tags.definitionKeyword, tags.moduleKeyword], color: 'var(--syntax-keyword)' },
-  { tag: [tags.string, tags.special(tags.string), tags.regexp, tags.character, tags.escape], color: 'var(--syntax-string)' },
-  { tag: [tags.number, tags.bool, tags.null, tags.atom, tags.unit], color: 'var(--syntax-number)' },
-  { tag: [tags.comment, tags.lineComment, tags.blockComment, tags.docComment], color: 'var(--syntax-comment)', fontStyle: 'italic' },
-  { tag: [tags.function(tags.variableName), tags.function(tags.propertyName), tags.definition(tags.variableName), tags.macroName, tags.labelName], color: 'var(--syntax-name)' },
-  { tag: [tags.typeName, tags.className, tags.namespace, tags.tagName, tags.standard(tags.typeName)], color: 'var(--syntax-type)' },
-  { tag: [tags.punctuation, tags.bracket, tags.separator, tags.operator, tags.derefOperator], color: 'var(--syntax-punctuation)' },
-  { tag: [tags.meta, tags.annotation, tags.processingInstruction, tags.attributeName, tags.self], color: 'var(--syntax-meta)' },
-  { tag: tags.heading, color: 'var(--syntax-keyword)', fontWeight: 'var(--font-weight-semibold)' },
-  { tag: tags.link, textDecoration: 'underline' },
-  { tag: tags.emphasis, fontStyle: 'italic' },
-  { tag: tags.strong, fontWeight: 'var(--font-weight-semibold)' },
-])
 
 /* Colour is never the only message: a removed line carries `−` in its gutter
  * and an added one `+`, so the change reads in a screenshot and for the
  * reader who tells the two tints apart by nothing. */
 const furcaTheme = EditorView.theme({
-  '&': {
-    height: '100%',
-    backgroundColor: 'var(--bg)',
-    color: 'var(--text)',
-    fontSize: 'var(--text-xs)',
-  },
-  '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.5' },
-  '.cm-content': { caretColor: 'var(--text)' },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-gutters': { backgroundColor: 'var(--raise)', color: 'var(--faint)', borderRight: '1px solid var(--line)' },
-  '.cm-lineNumbers .cm-gutterElement': { minWidth: '3ch', padding: '0 0.5ch 0 1ch' },
-  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--accent-soft)' },
   '&.cm-merge-a .cm-changedLine, .cm-deletedChunk, &.furca-removed .cm-line': { backgroundColor: 'var(--bad-soft)' },
   '&.cm-merge-b .cm-changedLine, .cm-inlineChangedLine, &.furca-added .cm-line': { backgroundColor: 'var(--good-soft)' },
   '&.cm-merge-a .cm-changedText, .cm-deletedChunk .cm-deletedText': {
@@ -81,13 +56,6 @@ const furcaTheme = EditorView.theme({
   '&.cm-merge-b .cm-changedLineGutter::before, .cm-inlineChangedLineGutter::before': { content: '"+"' },
   '&.furca-removed .cm-lineNumbers .cm-gutterElement::before': { content: '"− "', color: 'var(--bad)' },
   '&.furca-added .cm-lineNumbers .cm-gutterElement::before': { content: '"+ "', color: 'var(--good)' },
-  '.cm-collapsedLines': {
-    color: 'var(--dim)',
-    background: 'var(--soft)',
-    fontFamily: 'var(--font-sans)',
-    fontSize: 'var(--text-2xs)',
-  },
-  '.cm-collapsedLines:hover': { color: 'var(--text)' },
   '.furca-hunk-bar': {
     padding: '1px 0',
     fontFamily: 'var(--font-sans)',
@@ -316,43 +284,21 @@ function lineAtHeight(view: EditorView, side: Side, y: number, hunks: readonly H
   return isChanged(hunks, side, line) ? { side, line } : null
 }
 
-/**
- * The nonce Tauri gave the page's own `<style>` in index.html. CodeMirror
- * styles itself with a `<style>` of its own at run time, and the window's
- * CSP refuses one without the nonce - silently: the element is there, its
- * sheet is null, and every editor draws as bare text. Empty outside Tauri,
- * where there is no CSP to satisfy.
- */
-const nonce = document.querySelector<HTMLStyleElement>('style[nonce]')?.nonce ?? ''
 
 /** What every editor of a diff carries: read-only text with line numbers,
  * a `\r` kept as a mark rather than a line break, and the line's colours. */
 function common(language: Compartment, support: Extension): Extension {
   return [
-    nonce === '' ? [] : EditorView.cspNonce.of(nonce),
+    styleNonce,
     EditorState.readOnly.of(true),
     EditorState.lineSeparator.of('\n'),
     lineNumbers(),
     highlightSpecialChars(),
     syntaxHighlighting(furcaHighlight),
+    baseTheme,
     furcaTheme,
     language.of(support),
   ]
-}
-
-/** The language a file is written in, by its name; `null` for one
- * CodeMirror does not know. */
-function languageOf(path: string): LanguageDescription | null {
-  return LanguageDescription.matchFilename(languages, path)
-}
-
-/** Starts loading the language of the file at `path`, so it is there when
- * the file's change arrives: the two are read side by side, and an editor
- * made with its language parses the text once rather than twice. */
-export function prepare(path: string): void {
-  void languageOf(path)
-    ?.load()
-    .catch(() => undefined)
 }
 
 /** The text a side shows: line ends of `\r\n` lose the `\r`, which the

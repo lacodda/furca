@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Progress } from './generated/Progress'
 import type { Pushed } from './generated/Pushed'
+import type { Stepped } from './generated/Stepped'
 import { progressWords, refusals, summary } from './remote'
 
 const progress = (done: number, total: number | null): Progress => ({
@@ -107,6 +108,48 @@ describe('summary of a checkout, a deletion and a tag', () => {
     expect(summary({ ok: true, doing: 'delete-tag', tag: 'v1', deletes: there })).toEqual({
       key: 'refs.deletedTagThere',
       values: { tag: 'v1', remotes: 'origin' },
+    })
+  })
+})
+
+describe('summary of a step of an operation', () => {
+  const step = (extra: Partial<Stepped>): Stepped => ({
+    operation: null,
+    stopped: null,
+    conflicts: [],
+    branch: 'main',
+    from: '609c33c0',
+    to: 'bde71a40',
+    made: 2,
+    ...extra,
+  })
+
+  it('says a stop by what is left in conflict, and by nothing else', () => {
+    const stopped = step({ operation: 'merge', conflicts: [{ path: 'f.txt', kind: 'both-modified' }], to: '609c33c0', made: 0 })
+    expect(summary({ ok: true, doing: 'merge', stepped: stopped })).toEqual({ key: 'merge.stoppedAt.merge', values: { count: 1 } })
+    const empty = step({ operation: 'cherry-pick', stopped: 'The previous cherry-pick is now empty' })
+    expect(summary({ ok: true, doing: 'continue', stepped: empty })).toEqual({ key: 'merge.stopped.cherry-pick', values: {} })
+  })
+
+  it('tells a merge that brought commits from one that had nothing to bring', () => {
+    expect(summary({ ok: true, doing: 'merge', stepped: step({}) })).toEqual({
+      key: 'merge.merged',
+      values: { branch: 'main', at: 'bde71a4', count: 2 },
+    })
+    expect(summary({ ok: true, doing: 'merge', stepped: step({ to: '609c33c0', made: 0 }) })).toEqual({
+      key: 'merge.upToDate',
+      values: { branch: 'main' },
+    })
+  })
+
+  it('says where an abort left HEAD, and a continue that finished', () => {
+    expect(summary({ ok: true, doing: 'abort', stepped: step({ to: '609c33c0', made: 0 }) })).toEqual({
+      key: 'merge.aborted',
+      values: { branch: 'main', at: '609c33c' },
+    })
+    expect(summary({ ok: true, doing: 'skip', stepped: step({ branch: null }) })).toEqual({
+      key: 'merge.done',
+      values: { branch: 'HEAD', at: 'bde71a4' },
     })
   })
 })

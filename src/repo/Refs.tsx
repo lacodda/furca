@@ -36,9 +36,22 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from '@/c
 import { Textarea } from '@/components/ui/textarea'
 import { api, failure } from '@/lib/api'
 import type { Branch } from '@/lib/generated/Branch'
+import type { Commit } from '@/lib/generated/Commit'
 import type { Sidebar } from '@/lib/generated/Sidebar'
+import { positionOf, rowAt } from '@/lib/graph'
 import { short } from '@/lib/names'
-import { checkoutBranch, checkoutCommit, deleteBranch, deleteTag, pushTag, useReach } from '@/lib/remote'
+import {
+  checkoutBranch,
+  checkoutCommit,
+  cherryPick,
+  deleteBranch,
+  deleteTag,
+  mergeInto,
+  pushTag,
+  revertCommit,
+  useReach,
+} from '@/lib/remote'
+import { useHalfway } from '@/lib/repos'
 import { ConfirmDiscard } from './ConfirmDiscard'
 import { RemoteDialog, RemoveRemote } from './Reach'
 
@@ -47,7 +60,8 @@ import { RemoteDialog, RemoveRemote } from './Reach'
  * them and set what a branch follows, opened from the left column's menu and
  * from the graph's. What each one means - which new branch follows what, what
  * a deletion loses - is furca-core's (ADR 0022); the dialogs say it before it
- * is done, and git's own words when it refuses.
+ * is done, and git's own words when it refuses. Merging one into the current
+ * branch, and picking or reverting a commit, are asked here too (ADR 0023).
  */
 
 /** A question the window is asking about a ref: which dialog is open. */
@@ -63,6 +77,11 @@ export type Asking =
   | { kind: 'add-remote' }
   | { kind: 'edit-remote'; remote: string }
   | { kind: 'remove-remote'; remote: string }
+  /** `name` is what git is told - a branch, a remote branch, a tag, a
+   * commit - and `label` how it is shown; `into` the branch it goes into. */
+  | { kind: 'merge'; name: string; label: string; into: string }
+  | { kind: 'pick'; commit: Commit; into: string }
+  | { kind: 'revert'; commit: Commit; into: string }
 
 /** The dialog `asking` names, over the repository at `path`. */
 export function RefDialogs({
@@ -122,7 +141,88 @@ export function RefDialogs({
         open={kind === 'remove-remote'}
         onOpenChange={shut}
       />
+      <FormDialog open={kind === 'merge'} onOpenChange={shut}>
+        {asking?.kind === 'merge' && <MergeForm path={path} asking={asking} onDone={onDone} />}
+      </FormDialog>
+      <PickOrRevert path={path} asking={asking?.kind === 'pick' || asking?.kind === 'revert' ? asking : null} onOpenChange={shut} />
     </>
+  )
+}
+
+/** A merge of `name` into the current branch, with the one choice git leaves
+ * open: a merge commit even where moving the branch along would do. */
+function MergeForm({ path, asking, onDone }: { path: string; asking: Asking & { kind: 'merge' }; onDone: () => void }) {
+  const { t } = useTranslation()
+  const [always, setAlways] = useState(false)
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    onDone()
+    void mergeInto(path, asking.name, always ? 'never' : 'as-configured')
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <DialogHeader>
+        <DialogTitle className="break-words">{t('merge.mergeTitle', { name: asking.label, into: asking.into })}</DialogTitle>
+        <DialogDescription>{t('merge.mergeBody', { into: asking.into })}</DialogDescription>
+      </DialogHeader>
+      <DialogBody className="flex flex-col gap-3">
+        <Checkbox checked={always} onCheckedChange={setAlways}>
+          {t('merge.noFastForward')}
+        </Checkbox>
+      </DialogBody>
+      <DialogActions>
+        <DialogClose render={<Button variant="ghost" />}>{t('refs.cancel')}</DialogClose>
+        <Button type="submit" variant="primary" autoFocus>
+          {t('merge.merge')}
+        </Button>
+      </DialogActions>
+    </form>
+  )
+}
+
+/** The question before a commit is picked onto the current branch, or
+ * reverted on it: what the new commit will be. */
+function PickOrRevert({
+  path,
+  asking,
+  onOpenChange,
+}: {
+  path: string
+  asking: (Asking & { kind: 'pick' | 'revert' }) | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const commit = asking?.commit
+  const merge = (commit?.parents.length ?? 0) > 1
+  const values = { at: commit === undefined ? '' : short(commit.id), into: asking?.into ?? '', subject: commit?.subject ?? '' }
+  const pick = asking?.kind === 'pick'
+  const body = pick ? (merge ? 'merge.pickMergeBody' : 'merge.pickBody') : merge ? 'merge.revertMergeBody' : 'merge.revertBody'
+  return (
+    <ConfirmDialog open={asking !== null} onOpenChange={onOpenChange}>
+      <ConfirmDialogPopup size="md">
+        <ConfirmDialogHeader>
+          <ConfirmDialogTitle className="break-words">
+            {pick ? t('merge.pickTitle', values) : t('merge.revertTitle', values)}
+          </ConfirmDialogTitle>
+          <ConfirmDialogDescription>{t(body, values)}</ConfirmDialogDescription>
+        </ConfirmDialogHeader>
+        <ConfirmDialogActions>
+          <ConfirmDialogClose render={<Button variant="ghost" />}>{t('refs.cancel')}</ConfirmDialogClose>
+          <Button
+            variant="primary"
+            onClick={() => {
+              if (commit === undefined) return
+              onOpenChange(false)
+              void (pick ? cherryPick(path, commit.id) : revertCommit(path, commit.id))
+            }}
+          >
+            {pick ? t('merge.pick') : t('merge.revert')}
+          </Button>
+        </ConfirmDialogActions>
+      </ConfirmDialogPopup>
+    </ConfirmDialog>
   )
 }
 
@@ -521,16 +621,25 @@ function commitOf(target: EventTarget | null): string | null {
 /**
  * What can be done to a commit of the graph, on a right click or the menu key:
  * check out a branch that is on it, check the commit itself out on no branch,
- * or make a branch or a tag on it.
+ * make a branch or a tag on it, merge it into the current branch, or pick or
+ * revert its change there.
  */
 export function CommitMenu({ path, sidebar, children }: { path: string; sidebar: Sidebar | null; children: ReactNode }) {
   const { t } = useTranslation()
   const [commit, setCommit] = useState<string | null>(null)
+  // The commit itself, once its row is found: what a pick or a revert says.
+  const [read, setRead] = useState<Commit | null>(null)
   const [open, setOpen] = useState(false)
   const [asking, setAsking] = useState<Asking | null>(null)
   const busy = useReach(path).run !== null
+  const halfway = useHalfway(path)
+  const stopped = halfway.state === 'read' && halfway.value !== null
   const onIt = sidebar?.refs.branches.filter((branch) => branch.target === commit && !branch.head) ?? []
   const here = sidebar?.head.detached === true && sidebar.head.commit === commit
+  const atHead = sidebar?.head.commit === commit
+  const into = sidebar?.head.branch ?? 'HEAD'
+  const known = read !== null && read.id === commit ? read : null
+  const first = stopped ? t('merge.halfwayFirst') : undefined
 
   return (
     <>
@@ -545,6 +654,10 @@ export function CommitMenu({ path, sidebar, children }: { path: string; sidebar:
           if (at !== null && sidebar !== null) {
             setCommit(at)
             setOpen(true)
+            void positionOf(path, at).then((row) => {
+              const found = row === null ? undefined : rowAt(path, row)?.commit
+              if (found !== undefined) setRead(found)
+            })
           }
         }}
       >
@@ -568,6 +681,32 @@ export function CommitMenu({ path, sidebar, children }: { path: string; sidebar:
               </ContextMenuItem>
               <ContextMenuItem onClick={() => setAsking({ kind: 'tag', target: commit, at: short(commit) })}>
                 {t('refs.newTagHere')}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                disabled={busy || stopped || atHead}
+                title={first}
+                onClick={() => setAsking({ kind: 'merge', name: commit, label: short(commit), into })}
+              >
+                {t('merge.mergeMenu', { name: short(commit), into })}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={busy || stopped || atHead || known === null}
+                title={first}
+                onClick={() => {
+                  if (known !== null) setAsking({ kind: 'pick', commit: known, into })
+                }}
+              >
+                {t('merge.pickMenu', { at: short(commit), into })}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={busy || stopped || known === null}
+                title={first}
+                onClick={() => {
+                  if (known !== null) setAsking({ kind: 'revert', commit: known, into })
+                }}
+              >
+                {t('merge.revertMenu', { at: short(commit) })}
               </ContextMenuItem>
             </>
           )}

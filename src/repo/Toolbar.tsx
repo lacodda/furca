@@ -201,11 +201,6 @@ function Where({ path }: { path: string }) {
         {standing.branch ?? t('standing.detached')}
       </span>
       {parts.length > 0 && <span className="truncate text-xs text-dim">{parts.join(' · ')}</span>}
-      {standing.operation && (
-        <span className="truncate text-xs text-warn" title={t('standing.operationBody')}>
-          {t(`standing.operation.${standing.operation}`)}
-        </span>
-      )}
     </div>
   )
 }

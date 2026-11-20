@@ -11,6 +11,7 @@ mod draft;
 pub mod graph;
 pub mod maintenance;
 pub mod measure;
+pub mod merge;
 mod nooma;
 pub mod refs;
 pub mod release;
@@ -216,6 +217,13 @@ pub fn run() {
             refs::tag_create,
             refs::tag_push,
             refs::tag_delete,
+            merge::merge,
+            merge::cherry_pick,
+            merge::revert,
+            merge::proceed,
+            merge::halfway,
+            merge::conflict,
+            merge::resolve,
             commit::commit_types,
             commit::check_message,
             commit::commit,

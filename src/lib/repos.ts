@@ -7,6 +7,7 @@ import { forgetWorkingCopy } from './working'
 import type { Maintenance } from './generated/Maintenance'
 import type { RefsMoved } from './generated/RefsMoved'
 import type { Sidebar } from './generated/Sidebar'
+import type { Halfway } from './generated/Halfway'
 import type { Standing } from './generated/Standing'
 import type { Step } from './generated/Step'
 
@@ -87,6 +88,9 @@ class Reads<T> {
 
 export const sidebars = new Reads<Sidebar>(api.sidebar)
 export const standings = new Reads<Standing>(api.standing)
+/** The operation halfway in each repository: read as the refs move, since
+ * git marks one halfway among them (`MERGE_HEAD` and its kin). */
+export const halfways = new Reads<Halfway | null>(api.halfway)
 
 function useRead<T>(reads: Reads<T>, path: string): Read<T> {
   useEffect(() => {
@@ -101,11 +105,15 @@ export const useSidebar = (path: string) => useRead(sidebars, path)
 /** Where the repository at `path` stands. */
 export const useStanding = (path: string) => useRead(standings, path)
 
+/** The operation halfway in the repository at `path`, if any. */
+export const useHalfway = (path: string) => useRead(halfways, path)
+
 /** Reads the repository at `path` again: its column, where it stands, and
  * its graph, which is begun again only if the refs moved. */
 export function refresh(path: string): void {
   void sidebars.refresh(path)
   void standings.refresh(path)
+  void halfways.refresh(path)
   void openGraph(path)
 }
 
@@ -113,6 +121,7 @@ export function refresh(path: string): void {
 export function forget(path: string): void {
   sidebars.forget(path)
   standings.forget(path)
+  halfways.forget(path)
   forgetGraph(path)
   forgetWorkingCopy(path)
   forgetConsole(path)

@@ -30,7 +30,7 @@ fn generated_dir() -> PathBuf {
 
 /// Hands every root type to `$each`: what the commands in `src/commands.rs`,
 /// `src/graph.rs`, `src/details.rs`, `src/commit.rs`, `src/stash.rs`,
-/// `src/remote.rs`, `src/refs.rs` and `src/release.rs` take and return, what a search and
+/// `src/remote.rs`, `src/refs.rs`, `src/merge.rs` and `src/release.rs` take and return, what a search and
 /// a run on a remote send down their channels, and the payloads of the maintenance, graph, working copy and release events. What they depend on is
 /// followed from them.
 macro_rules! for_each_root {
@@ -67,6 +67,12 @@ macro_rules! for_each_root {
             furca_desktop_lib::refs::TagPushes,
             furca_desktop_lib::refs::TagDeletes,
             furca_desktop_lib::working::RefsMoved,
+            furca_core::FastForward,
+            furca_core::Proceed,
+            furca_core::Stepped,
+            furca_core::Halfway,
+            furca_core::Conflict,
+            furca_core::Resolution,
             furca_release::Plan,
             furca_desktop_lib::release::ReleaseState,
             furca_desktop_lib::release::ReleaseHeard,

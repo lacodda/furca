@@ -19,6 +19,7 @@ import type { Warning } from '@/lib/generated/Warning'
 import { actOn, discardOf, readAs, rowToShow, useWorkingCopy, type Area, type Chosen, type Discard } from '@/lib/working'
 import { Composer } from './Composer'
 import { ConfirmDiscard } from './ConfirmDiscard'
+import { ConflictPane } from './ConflictPane'
 import { DiffPane, type LineActions } from './DiffPane'
 import { FileTree } from './FileTree'
 import { fileNodes } from './Files'
@@ -169,7 +170,7 @@ function Lists({
             <EmptyState plain title={t('changes.clean')} body={t('changes.cleanBody')} />
           </div>
         ) : shown?.area === 'conflicted' ? (
-          <ConflictNote conflict={status.conflicted.find((each) => each.path === shown.path)} />
+          <ConflictOf path={path} conflict={status.conflicted.find((each) => each.path === shown.path)} />
         ) : file !== null && file !== undefined && shown !== null ? (
           <DiffPane
             path={path}
@@ -391,16 +392,8 @@ function ConflictRow({ conflict }: { conflict: Conflicted }): ReactNode {
   )
 }
 
-function ConflictNote({ conflict }: { conflict: Conflicted | undefined }) {
-  const { t } = useTranslation()
+/** The conflict chosen, resolved in its own pane; drawn afresh for each file. */
+function ConflictOf({ path, conflict }: { path: string; conflict: Conflicted | undefined }) {
   if (conflict === undefined) return null
-  return (
-    <div className="flex h-full items-center justify-center p-6 text-center">
-      <EmptyState
-        plain
-        title={t('changes.conflictTitle', { kind: t(`changes.conflict.${conflict.kind}`) })}
-        body={t('changes.conflictBody')}
-      />
-    </div>
-  )
+  return <ConflictPane key={conflict.path} path={path} conflicted={conflict} />
 }

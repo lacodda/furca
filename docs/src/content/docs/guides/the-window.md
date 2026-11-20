@@ -201,7 +201,7 @@ open change follow in a moment.
 
 | List | What it holds |
 | --- | --- |
-| **Conflicted** | Paths a merge left unresolved, and how the two sides disagree. |
+| **Conflicted** | Paths a merge, a cherry-pick, a revert, a rebase or a stash left unresolved, and how the two sides disagree. Choosing one opens it [to resolve](#merging-and-conflicts). |
 | **Staged** | What the next commit would change. |
 | **Not staged** | What the index does not have. A file both staged and changed again is in both lists, and each shows its own change. |
 | **Untracked** | Files git does not track and does not ignore, each on its own. |
@@ -391,10 +391,10 @@ a right click on a commit of the graph. Each is a run of your own git, so a
 
 | Over | In its menu |
 | --- | --- |
-| **A branch** | Check it out; a new branch or a new tag on it; rename it; have it follow a remote branch, or stop following one; delete it. |
-| **A remote branch** | Check it out as the local branch of its name - made to follow it when there is none, the one there when it follows it already; a new branch from it. |
-| **A tag** | Check it out on no branch; a new branch from it; push it to a remote, or to every one; delete it. |
-| **A commit of the graph** | Check out a branch that is on it; check the commit out on no branch; a new branch or a new tag on it. |
+| **A branch** | Check it out; a new branch or a new tag on it; merge it into the current branch; rename it; have it follow a remote branch, or stop following one; delete it. |
+| **A remote branch** | Check it out as the local branch of its name - made to follow it when there is none, the one there when it follows it already; a new branch from it; merge it into the current branch. |
+| **A tag** | Check it out on no branch; a new branch from it; merge it into the current branch; push it to a remote, or to every one; delete it. |
+| **A commit of the graph** | Check out a branch that is on it; check the commit out on no branch; a new branch or a new tag on it; merge it into the current branch; cherry-pick it onto the current branch; revert it. |
 | **Branches**, **Tags** | A new branch, or a new tag, on the commit `HEAD` is on. |
 
 A new branch is checked out once it is made, unless you clear the box. It follows
@@ -418,6 +418,54 @@ which remotes to take it away from too, since a remote that keeps it gives it ba
 on the next fetch. Pushing a tag and taking it away from a remote are runs on a
 remote like a push: the foot of the window says how far they have got. See
 [ADR 0022](https://github.com/lacodda/furca/blob/main/docs/adr/0022-a-checkout-is-decided-by-the-core-and-made-by-git.md).
+
+## Merging and conflicts
+
+**Merge … into …** from the menu of a branch, a remote branch, a tag or a commit
+asks first, with the one choice git leaves open: **Always make a merge commit**,
+even where the current branch only has to move along to what it merges. git merges
+with its own message - `Merge branch 'feature/retry'` - and your hooks run.
+**Cherry-pick** puts a commit's change onto the current branch as a new commit with
+its own message; **Revert** makes a new commit that undoes one. A merge commit is
+picked or reverted against its first parent: what it brought into the line it was
+merged into. Each asks first, and says what the new commit will be.
+
+One that meets a conflict has not failed: it stops halfway, and a bar across the top
+says so until it is done - what it is bringing in, how many files are still in
+conflict, and the way on. **Resolve** opens them in Local changes. **Continue**
+makes the commit with the message git wrote, once nothing is left in conflict, and
+goes on with the next commit of a pick or a rebase; **Skip** leaves out the commit it
+stopped at; **Abort** puts everything back as it was before it began, after a
+question. The bar is there for an operation begun anywhere - a merge in a terminal,
+a pull that rebased and stopped - and no other merge, pick or revert begins while it
+is. If your `commit-msg` hook refuses git's message, write one in the commit form
+and commit: that finishes the merge too.
+
+![A merge halfway: the bar says Merging feature/retry into main, 2 files in conflict, with Abort and Continue; Local changes lists the two files, and the resolver shows our file and theirs above, level, with the conflicting line marked in each, and under them the result - the first conflict resolved, the second still written out between git's markers, with Ours, Theirs, Both and Base over it](../../../assets/window-conflicts.png)
+
+A file in conflict opens in three panes. Above, **Ours** - the current branch - and
+**Theirs** - what is being brought in - are kept level, the lines that conflict
+marked in each. Below is the **Result**, the file being written: everything that
+goes in on its own is already in - a change only one side made, a change both made
+alike - and each conflict is written out between git's markers, with the common
+ancestor's lines between them, as a file git left looks. A bar over each conflict
+takes **Ours**, **Theirs**, **Both** - ours, then theirs - or **Base**, the ancestor's
+lines, neither change; the arrows go from one conflict to the next in all three
+panes, and **Every one left** takes a side for all that remain. The result is an
+editor: type into it, and <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back a choice as it does a
+keystroke. A conflict is resolved once no markers are left in it, and
+**Save and stage** writes the file - through your repository's filters and line
+endings - and stages it, and it leaves the list.
+
+The conflicts are read from what git keeps of the three versions, not from the
+markers in the file, so the resolver is the same whatever `merge.conflictStyle`
+says. A file one side deleted, or one that is not text, is taken whole: the pane says
+what each side has, with a button for each - keep this file, or delete it. **Mark
+resolved as it is** stages the file as the working tree has it, edited by hand or in
+another editor; it asks first while git's markers are still in it. A file whose
+markers are already gone says so, since resolving it here would write over what was
+done elsewhere. See
+[ADR 0023](https://github.com/lacodda/furca/blob/main/docs/adr/0023-an-operation-halfway-is-a-state-and-a-conflict-is-read-from-its-stages.md).
 
 ## The console
 
@@ -465,7 +513,7 @@ checkpoint knows where that was. See
 
 ## What the window writes
 
-Nothing in your history unless you press **Commit**, **Pull**, **Run** or **Resume**; nothing on a remote unless you push, run or resume; nothing in your working tree, your stash or your list of remotes unless you stage, discard, stash, pull or change a remote. A fetch moves only remote-tracking branches and tags. One file, in the background: when a repository has no
+Nothing in your history unless you press **Commit**, **Pull**, **Merge**, **Cherry-pick**, **Revert**, **Continue**, **Run** or **Resume**; nothing on a remote unless you push, run or resume; nothing in your working tree, your stash or your list of remotes unless you stage, discard, stash, pull, merge, resolve or change a remote. A fetch moves only remote-tracking branches and tags. One file, in the background: when a repository has no
 commit-graph file, or one more than a thousand commits behind, the window has
 git write one - `git commit-graph write --reachable --split`, the file `git gc`
 writes on its own - and the status line along the foot says so. Without it the

@@ -1,6 +1,8 @@
 import { invoke, type Channel } from '@tauri-apps/api/core'
+import type { Conflict } from './generated/Conflict'
 import type { Deleted } from './generated/Deleted'
 import type { Details } from './generated/Details'
+import type { FastForward } from './generated/FastForward'
 import type { Fetched } from './generated/Fetched'
 import type { FileChange } from './generated/FileChange'
 import type { FileDiff } from './generated/FileDiff'
@@ -9,6 +11,7 @@ import type { GitRun } from './generated/GitRun'
 import type { Found } from './generated/Found'
 import type { GraphAnswer } from './generated/GraphAnswer'
 import type { GraphRow } from './generated/GraphRow'
+import type { Halfway } from './generated/Halfway'
 import type { LastCommit } from './generated/LastCommit'
 import type { Layout } from './generated/Layout'
 import type { Line } from './generated/Line'
@@ -18,16 +21,19 @@ import type { Opened } from './generated/Opened'
 import type { Parts } from './generated/Parts'
 import type { Picked } from './generated/Picked'
 import type { Plan } from './generated/Plan'
+import type { Proceed } from './generated/Proceed'
 import type { Pulled } from './generated/Pulled'
 import type { Pushes } from './generated/Pushes'
 import type { Reaching } from './generated/Reaching'
 import type { Reconcile } from './generated/Reconcile'
 import type { ReleaseState } from './generated/ReleaseState'
 import type { Remotes } from './generated/Remotes'
+import type { Resolution } from './generated/Resolution'
 import type { Sidebar } from './generated/Sidebar'
 import type { Standing } from './generated/Standing'
 import type { Stash } from './generated/Stash'
 import type { StashAction } from './generated/StashAction'
+import type { Stepped } from './generated/Stepped'
 import type { Switched } from './generated/Switched'
 import type { TagDeletes } from './generated/TagDeletes'
 import type { TagPushes } from './generated/TagPushes'
@@ -151,6 +157,21 @@ export const api = {
   /** Deletes the tag `name` here, taking it away from `remotes` first. */
   tagDelete: (path: string, name: string, remotes: string[], heard: Channel<Reaching>) =>
     invoke<TagDeletes>('tag_delete', { path, name, remotes, heard }),
+  /** Merges `name` - a branch, a remote branch, a tag, a commit - into the
+   * branch `HEAD` is on; one that meets a conflict stops halfway. */
+  merge: (path: string, name: string, ff: FastForward) => invoke<Stepped>('merge', { path, name, ff }),
+  /** Applies the change `commit` made onto `HEAD`, as a new commit. */
+  cherryPick: (path: string, commit: string) => invoke<Stepped>('cherry_pick', { path, commit }),
+  /** Undoes the change `commit` made, with a new commit. */
+  revert: (path: string, commit: string) => invoke<Stepped>('revert', { path, commit }),
+  /** Continues, skips or aborts the operation halfway. */
+  proceed: (path: string, how: Proceed) => invoke<Stepped>('proceed', { path, how }),
+  /** The operation halfway here, if any. */
+  halfway: (path: string) => invoke<Halfway | null>('halfway', { path }),
+  /** The conflict at `file`: its three sides, and its lines in blocks. */
+  conflict: (path: string, file: string) => invoke<Conflict>('conflict', { path, file }),
+  /** Resolves the conflict at `file` as `how` says, and stages it. */
+  resolve: (path: string, file: string, how: Resolution) => invoke<null>('resolve', { path, file, how }),
   /** The types of the convention, as the core keeps them. */
   commitTypes: () => invoke<string[]>('commit_types'),
   /** Reads `message`, and asks the repository's own `commit-msg` hook of it. */

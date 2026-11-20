@@ -1,21 +1,25 @@
 import { useSyncExternalStore } from 'react'
 import { Channel } from '@tauri-apps/api/core'
 import { api, failure } from './api'
+import type { FastForward } from './generated/FastForward'
 import type { Fetched } from './generated/Fetched'
 import type { Progress } from './generated/Progress'
+import type { Proceed } from './generated/Proceed'
 import type { Pulled } from './generated/Pulled'
 import type { Pushes } from './generated/Pushes'
 import type { Reaching } from './generated/Reaching'
 import type { Reconcile } from './generated/Reconcile'
 import type { Remotes } from './generated/Remotes'
 import type { Deleted } from './generated/Deleted'
+import type { Stepped } from './generated/Stepped'
 import type { Switched } from './generated/Switched'
 import type { TagDeletes } from './generated/TagDeletes'
 import type { TagPushes } from './generated/TagPushes'
 
 /*
  * The runs the window makes on a repository's remotes and refs - fetch, pull,
- * push, prune; a checkout, a branch or a tag deleted, a tag pushed - one
+ * push, prune; a checkout, a branch or a tag deleted, a tag pushed; a merge,
+ * a pick, a revert and the steps of one halfway - one
  * repository at a time, kept per repository while the window is: the toolbar
  * draws which one is going and how far it has got, the foot of the window says
  * it in words, and what came of the last one stays until the next, or, when
@@ -38,6 +42,10 @@ export type Doing =
   | 'unfollow'
   | 'push-tag'
   | 'delete-tag'
+  | Stepping
+
+/** What brings commits together, and what goes on with it once halfway. */
+export type Stepping = 'merge' | 'cherry-pick' | 'revert' | Proceed
 
 /** A run going now. */
 export interface Run {
@@ -59,6 +67,7 @@ export type Outcome =
   | { ok: true; doing: 'unfollow'; branch: string }
   | { ok: true; doing: 'push-tag'; tag: string; pushes: TagPushes }
   | { ok: true; doing: 'delete-tag'; tag: string; deletes: TagDeletes }
+  | { ok: true; doing: Stepping; stepped: Stepped }
   /** `reached` are the remotes that took it, when some did and some did not. */
   | { ok: false; doing: Doing; reason: string; reached?: string[] }
 
@@ -219,6 +228,29 @@ export function deleteTag(path: string, name: string, remotes: string[]): Promis
   )
 }
 
+/** Merges `name` into the branch `HEAD` is on. A merge that meets a conflict
+ * went well: it stopped halfway, which the window shows. */
+export function mergeInto(path: string, name: string, ff: FastForward): Promise<Outcome> {
+  return go(path, 'merge', () => api.merge(path, name, ff).then((stepped): Outcome => ({ ok: true, doing: 'merge', stepped })))
+}
+
+/** Applies the change `commit` made onto `HEAD`. */
+export function cherryPick(path: string, commit: string): Promise<Outcome> {
+  return go(path, 'cherry-pick', () =>
+    api.cherryPick(path, commit).then((stepped): Outcome => ({ ok: true, doing: 'cherry-pick', stepped })),
+  )
+}
+
+/** Undoes the change `commit` made, with a new commit. */
+export function revertCommit(path: string, commit: string): Promise<Outcome> {
+  return go(path, 'revert', () => api.revert(path, commit).then((stepped): Outcome => ({ ok: true, doing: 'revert', stepped })))
+}
+
+/** Continues, skips or aborts the operation halfway. */
+export function proceed(path: string, how: Proceed): Promise<Outcome> {
+  return go(path, how, () => api.proceed(path, how).then((stepped): Outcome => ({ ok: true, doing: how, stepped })))
+}
+
 /** What each remote that refused a push said, a remote at a time; git's own
  * words, as the console has them. */
 export function refusals(pushes: { failed: { remote: string; error: string }[] }): string {
@@ -280,6 +312,13 @@ export function summary(outcome: Outcome & { ok: true }): Said {
         ? { key: 'refs.deletedTag', values: { tag: outcome.tag } }
         : { key: 'refs.deletedTagThere', values: { tag: outcome.tag, remotes } }
     }
+    case 'merge':
+    case 'cherry-pick':
+    case 'revert':
+    case 'continue':
+    case 'skip':
+    case 'abort':
+      return stepped(outcome.doing, outcome.stepped)
     case 'push': {
       const pushed = outcome.pushes.pushed
       const branch = pushed[0]?.branch ?? ''
@@ -290,4 +329,24 @@ export function summary(outcome: Outcome & { ok: true }): Said {
         : { key: pushed.some((each) => each.forced) ? 'reach.pushedForced' : 'reach.pushed', values: { branch, remotes } }
     }
   }
+}
+
+/** How a step of an operation is said: where it stopped, or where it left
+ * `HEAD`. */
+function stepped(doing: Stepping, step: Stepped): Said {
+  const branch = step.branch ?? 'HEAD'
+  const at = step.to === null ? '' : step.to.slice(0, 7)
+  if (step.operation !== null) {
+    const count = step.conflicts.length
+    return count > 0
+      ? { key: `merge.stoppedAt.${step.operation}`, values: { count } }
+      : { key: `merge.stopped.${step.operation}`, values: {} }
+  }
+  if (doing === 'abort') return { key: 'merge.aborted', values: { branch, at } }
+  if (doing === 'merge') {
+    return step.made === 0 ? { key: 'merge.upToDate', values: { branch } } : { key: 'merge.merged', values: { branch, at, count: step.made } }
+  }
+  if (doing === 'cherry-pick') return { key: 'merge.picked', values: { branch, at } }
+  if (doing === 'revert') return { key: 'merge.reverted', values: { branch, at } }
+  return { key: 'merge.done', values: { branch, at } }
 }

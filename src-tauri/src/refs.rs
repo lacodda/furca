@@ -24,7 +24,7 @@ const RELEASING: &str =
 
 /// Runs `change` as staging runs one, and says that refs moved afterwards,
 /// whichever way it went.
-async fn naming<T: Send + 'static>(
+pub(crate) async fn naming<T: Send + 'static>(
     app: &AppHandle,
     path: String,
     change: impl FnOnce(&Repository) -> Result<T, furca_core::Error> + Send + 'static,

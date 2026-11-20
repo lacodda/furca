@@ -19,6 +19,7 @@ import { counted, useWorkingCopy } from '@/lib/working'
 import { ConsolePanel } from './ConsolePanel'
 import { Details } from './Details'
 import { GraphView } from './GraphView'
+import { HalfwayBar } from './Halfway'
 import { CommitMenu } from './Refs'
 import { ReachFailure } from './Reach'
 import { ReleasePanel } from './ReleasePanel'
@@ -246,6 +247,7 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
             onStep={step}
             history={view === 'history'}
           />
+          <HalfwayBar path={path} inChanges={view === 'changes'} onResolve={() => setView('changes')} />
           <ReachFailure path={path} />
           {view === 'changes' && (
             <div className="min-h-0 flex-1">

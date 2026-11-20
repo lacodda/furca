@@ -19,7 +19,7 @@ import type { Sidebar as SidebarData } from '@/lib/generated/Sidebar'
 import { columnRow, commitOfColumnRow, type ColumnRow } from '@/lib/graph-labels'
 import { aheadBehind, byVersionDescending, nameTree, short, type NameNode } from '@/lib/names'
 import { checkoutBranch, checkoutCommit, fetchFrom, pruneRemote, pushTag, unfollow, useReach } from '@/lib/remote'
-import { useSidebar } from '@/lib/repos'
+import { useHalfway, useSidebar } from '@/lib/repos'
 import { cn } from 'dowel-ui'
 import { RefDialogs, type Asking } from './Refs'
 
@@ -171,8 +171,22 @@ function RowItems({
 }) {
   const { t } = useTranslation()
   const busy = useReach(path).run !== null
+  const halfway = useHalfway(path)
+  const stopped = halfway.state === 'read' && halfway.value !== null
   const remotes = data.remotes
   const head = data.head.commit
+  const into = data.head.branch ?? 'HEAD'
+  // Merging `name` into the current branch, shown as `label`: a dialog asks
+  // first. Not while another operation is halfway.
+  const mergeItem = (name: string, label: string, target: string) => (
+    <ContextMenuItem
+      disabled={busy || stopped || head === null || target === head}
+      title={stopped ? t('merge.halfwayFirst') : undefined}
+      onClick={() => onAsk({ kind: 'merge', name, label, into })}
+    >
+      {t('merge.mergeMenu', { name: label, into })}
+    </ContextMenuItem>
+  )
 
   switch (row.kind) {
     case 'section':
@@ -240,6 +254,12 @@ function RowItems({
           <ContextMenuItem onClick={() => onAsk({ kind: 'tag', target: branch.target, at })}>
             {t('refs.newTagOn', { name: branch.name })}
           </ContextMenuItem>
+          {!branch.head && (
+            <>
+              <ContextMenuSeparator />
+              {mergeItem(`refs/heads/${branch.name}`, branch.name, branch.target)}
+            </>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem disabled={busy} onClick={() => onAsk({ kind: 'rename', branch: branch.name })}>
             {t('refs.renameMenu')}
@@ -282,6 +302,8 @@ function RowItems({
           >
             {t('refs.newBranchFrom', { name: row.name })}
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          {mergeItem(`refs/remotes/${row.name}`, row.name, branch.target)}
         </>
       )
     }
@@ -297,6 +319,7 @@ function RowItems({
           <ContextMenuItem onClick={() => onAsk({ kind: 'branch', from: tag.name, label: tag.name, at: short(tag.target) })}>
             {t('refs.newBranchFrom', { name: tag.name })}
           </ContextMenuItem>
+          {mergeItem(`refs/tags/${tag.name}`, tag.name, tag.target)}
           {remotes.length > 0 && <ContextMenuSeparator />}
           {only !== undefined ? (
             <ContextMenuItem disabled={busy} onClick={() => void pushTag(path, tag.name, { to: 'named', name: only.name })}>
