@@ -8,6 +8,19 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.16.0] - 2026-11-20
+
+### Build
+- Move to dowel-ui 1.0
+
+### Features
+- Merge, cherry-pick and revert, and resolve what they leave
+- Merge, cherry-pick and revert, and resolve their conflicts
+- Resolve conflicts in three panes, merge from the menus
+
+### Testing
+- Look for the editors' CSP nonce where they share it
+
 ## [0.15.0] - 2026-11-12
 
 ### Bug Fixes
