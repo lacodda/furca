@@ -54,6 +54,9 @@ $ furca conflicts --json
     "branch": "main",
     "commit": { "id": "1d24b76…", "subject": "refactor: drop the legacy join", … },
     "message": "Merge branch 'feature/retry'",
+    "text": "Merge branch 'feature/retry'",
+    "step": null,
+    "steps": null,
     "conflicts": 2,
     "can_continue": true,
     "can_skip": false
@@ -64,6 +67,10 @@ $ furca conflicts --json
   ]
 }
 ```
+
+`message` is the first line of the message git wrote for the commit that finishes
+the operation, and `text` that message whole. For a rebase, `step` and `steps` say
+which step it stopped at and how many it has; they are `null` for anything else.
 
 With a path, the conflict whole:
 

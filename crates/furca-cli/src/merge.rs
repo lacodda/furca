@@ -197,7 +197,7 @@ fn opening(operation: Operation) -> String {
         .unwrap_or_default()
 }
 
-fn at(stepped: &Stepped) -> String {
+pub(crate) fn at(stepped: &Stepped) -> String {
     let on = stepped.branch.as_deref().unwrap_or("HEAD");
     match stepped.to.as_deref() {
         Some(to) => format!("{on} is at {}", short(to)),
@@ -205,7 +205,7 @@ fn at(stepped: &Stepped) -> String {
     }
 }
 
-fn commits(count: usize) -> String {
+pub(crate) fn commits(count: usize) -> String {
     if count == 1 {
         "1 commit".to_owned()
     } else {
@@ -215,7 +215,7 @@ fn commits(count: usize) -> String {
 
 /// An operation that stopped halfway: what is in conflict, or what git
 /// said, and what to do next.
-fn stopped_text(stepped: &Stepped, operation: Operation) -> String {
+pub(crate) fn stopped_text(stepped: &Stepped, operation: Operation) -> String {
     let mut out = Vec::new();
     if stepped.conflicts.is_empty() {
         out.push(format!("{} stopped halfway:", opening(operation)));
@@ -294,6 +294,9 @@ fn listed_text(listed: &Listed) -> String {
         let mut line = format!("{} is halfway", opening(halfway.operation));
         if let Some(branch) = &halfway.branch {
             line.push_str(&format!(" on {branch}"));
+        }
+        if let (Some(step), Some(steps)) = (halfway.step, halfway.steps) {
+            line.push_str(&format!(", at step {step} of {steps}"));
         }
         match (&halfway.message, &halfway.commit) {
             (Some(message), _) => line.push_str(&format!(": {message}")),

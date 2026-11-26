@@ -12,6 +12,7 @@
 mod line;
 mod merge;
 mod reach;
+mod rebase;
 mod refs;
 mod show;
 
@@ -164,6 +165,46 @@ enum Command {
         /// The commits, in the order to undo them.
         #[arg(required = true, value_name = "REVISION")]
         revisions: Vec<String>,
+    },
+    /// Replay the current branch's commits on another branch, or by a todo list that reorders, rewords, folds and drops them.
+    Rebase {
+        #[command(flatten)]
+        common: Common,
+        /// Where to land: a branch, a remote-tracking branch such as origin/main, a tag, a commit.
+        #[arg(
+            value_name = "ONTO",
+            required_unless_present = "root",
+            conflicts_with = "root"
+        )]
+        onto: Option<String>,
+        /// Replay the whole history, from its first commit: with --plan or --todo.
+        #[arg(long)]
+        root: bool,
+        /// Say which commits would be replayed, oldest first, and change nothing.
+        #[arg(long, conflicts_with = "todo")]
+        plan: bool,
+        /// Replay them as this JSON todo list says; `-` reads it from standard input.
+        #[arg(long, value_name = "FILE")]
+        todo: Option<PathBuf>,
+    },
+    /// Make one commit of a commit and every commit after it, up to HEAD.
+    Squash {
+        #[command(flatten)]
+        common: Common,
+        /// The oldest commit to squash: it and everything after it become one.
+        #[arg(value_name = "REVISION")]
+        revision: String,
+        /// The message of the one commit. Defaults to their messages, oldest first.
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+    },
+    /// Put what is staged into a commit already made, and replay the commits after it.
+    Absorb {
+        #[command(flatten)]
+        common: Common,
+        /// The commit that takes what is staged.
+        #[arg(value_name = "REVISION")]
+        revision: String,
     },
     /// Go on with the merge, cherry-pick, revert or rebase halfway here, once nothing is in conflict.
     Continue {
@@ -597,6 +638,26 @@ fn run(command: Command) -> Result<Answer, String> {
         }
         Command::CherryPick { common, revisions } => merge::cherry_pick(&common, &revisions),
         Command::Revert { common, revisions } => merge::revert(&common, &revisions),
+        Command::Rebase {
+            common,
+            onto,
+            root: _,
+            plan,
+            todo,
+        } => {
+            let asked = match (&todo, plan) {
+                (Some(file), _) => rebase::Asked::Todo(file),
+                (None, true) => rebase::Asked::Plan,
+                (None, false) => rebase::Asked::Replay,
+            };
+            rebase::rebase(&common, onto.as_deref(), asked)
+        }
+        Command::Squash {
+            common,
+            revision,
+            message,
+        } => rebase::squash(&common, &revision, message.as_deref()),
+        Command::Absorb { common, revision } => rebase::absorb(&common, &revision),
         Command::Continue { common, skip } => merge::proceed(
             &common,
             if skip {

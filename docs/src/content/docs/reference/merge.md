@@ -69,7 +69,8 @@ $ furca merge feature/retry --json
 | `made` | Commits `HEAD` has now that it did not before: what the merge brought in, its merge commit with them. |
 
 [`cherry-pick`](/furca/reference/cherry-pick/), [`revert`](/furca/reference/revert/),
-`continue` and `abort` answer in the same shape.
+[`rebase`](/furca/reference/rebase/), [`squash`](/furca/reference/squash/),
+[`absorb`](/furca/reference/absorb/), `continue` and `abort` answer in the same shape.
 
 ## Exit status
 

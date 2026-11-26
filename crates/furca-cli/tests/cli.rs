@@ -1119,3 +1119,122 @@ fn a_pick_and_a_revert_make_commits_and_an_abort_puts_a_merge_back() {
     );
     assert!(!path.join("g.txt").exists());
 }
+
+#[test]
+fn a_rebase_is_planned_replayed_by_a_todo_list_squashed_and_absorbed_into() {
+    let dir = parted();
+    let path = dir.path();
+    for name in ["a", "b", "c"] {
+        std::fs::write(path.join(format!("{name}.txt")), format!("{name}\n")).expect("write");
+        git(path, &["add", "--all"]);
+        git(
+            path,
+            &["commit", "--quiet", "-m", &format!("feat: add {name}")],
+        );
+    }
+    let (a, b, c) = (rev(path, "HEAD~2"), rev(path, "HEAD~1"), rev(path, "HEAD"));
+
+    let text = stdout(&furca(path, &["rebase", "HEAD~3", "--plan"]));
+    assert!(
+        text.starts_with("3 commits to replay on ") && text.contains("feat: add b"),
+        "{text}"
+    );
+    let plan = json(&furca(path, &["rebase", "HEAD~3", "--plan", "--json"]));
+    assert_eq!(plan["branch"], "main");
+    assert_eq!(plan["steps"][0]["commit"]["id"], a.as_str());
+    assert_eq!(plan["steps"][2]["message"], "feat: add c");
+    assert_eq!(plan["steps"][0]["pushed"], false);
+
+    let lists = tempfile::tempdir().expect("temp dir");
+    let short = lists.path().join("short.json");
+    std::fs::write(
+        &short,
+        format!(r#"[{{"commit": "{a}", "action": "pick"}}]"#),
+    )
+    .expect("write");
+    let left_out = furca(
+        path,
+        &["rebase", "HEAD~3", "--todo", short.to_str().expect("utf-8")],
+    );
+    assert_eq!(left_out.status.code(), Some(2));
+    assert!(refusal(&left_out).contains("leaves out"));
+
+    let todo = lists.path().join("todo.json");
+    std::fs::write(
+        &todo,
+        format!(
+            r#"[
+                {{"commit": "{c}", "action": "reword", "message": "feat: add c before the rest"}},
+                {{"commit": "{a}", "action": "pick"}},
+                {{"commit": "{b}", "action": "fixup"}}
+            ]"#
+        ),
+    )
+    .expect("write");
+    let replayed = json(&furca(
+        path,
+        &[
+            "rebase",
+            "HEAD~3",
+            "--todo",
+            todo.to_str().expect("utf-8"),
+            "--json",
+        ],
+    ));
+    assert!(replayed["operation"].is_null(), "{replayed}");
+    assert_eq!(replayed["made"], 2);
+    assert!(path.join("b.txt").exists());
+
+    std::fs::write(path.join("c.txt"), "c\nand more\n").expect("write");
+    git(path, &["add", "c.txt"]);
+    let absorbed = stdout(&furca(path, &["absorb", "HEAD~1"]));
+    assert!(
+        absorbed.starts_with("Absorbed, and 2 commits rewritten: main is at "),
+        "{absorbed}"
+    );
+    let nothing = furca(path, &["absorb", "HEAD~1"]);
+    assert_eq!(nothing.status.code(), Some(2));
+    assert!(refusal(&nothing).contains("nothing to absorb"));
+
+    let squashed = stdout(&furca(
+        path,
+        &["squash", "HEAD~1", "-m", "feat: add three files"],
+    ));
+    assert!(
+        squashed.starts_with("Squashed into one commit: main is at "),
+        "{squashed}"
+    );
+    let log = json(&furca(path, &["log", "--json"]));
+    assert_eq!(log["commits"][0]["subject"], "feat: add three files");
+    assert_eq!(log["commits"][1]["subject"], "feat: number");
+
+    let whole = furca(path, &["rebase", "--root"]);
+    assert_eq!(whole.status.code(), Some(2));
+    assert!(refusal(&whole).contains("--plan or --todo"));
+}
+
+#[test]
+fn a_rebase_onto_a_branch_stops_at_a_conflict_and_is_aborted() {
+    let dir = parted();
+    let path = dir.path();
+    let main = rev(path, "main");
+
+    let stopped = furca(path, &["rebase", "feature", "--json"]);
+    assert_eq!(stopped.status.code(), Some(1), "a stop is a no");
+    let stepped: serde_json::Value = serde_json::from_slice(&stopped.stdout).expect("valid JSON");
+    assert_eq!(stepped["operation"], "rebase");
+    assert_eq!(stepped["conflicts"][0]["path"], "f.txt");
+
+    let listed = furca(path, &["conflicts"]);
+    let text = String::from_utf8(listed.stdout).expect("utf-8");
+    assert!(
+        text.starts_with("A rebase is halfway on main, at step 1 of 1"),
+        "{text}"
+    );
+
+    let aborted = stdout(&furca(path, &["abort"]));
+    assert_eq!(
+        aborted.trim(),
+        format!("Aborted: main is at {}, as it was.", &main[..7])
+    );
+}
