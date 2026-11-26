@@ -1905,6 +1905,16 @@ fn short(id: &str) -> &str {
     &id[..id.len().min(7)]
 }
 
+/// How many times a lock that is held is asked for again, and how long apart.
+/// A run holds its lock for as long as it goes - seconds at the least - so a
+/// lock still held after this is a run. One that is let go within it was held
+/// by nobody: on Unix the lock belongs to the open file, and a process this
+/// one starts - a `git`, from any thread - carries a copy of every open file
+/// from the moment it is forked until it becomes git. A lock file closed in
+/// that moment stays locked until the child lets go of its copy.
+const HELD_TRIES: u32 = 12;
+const HELD_PAUSE: std::time::Duration = std::time::Duration::from_millis(25);
+
 /// The lock on `path` while the file stays open; `None` when a run holds it. A
 /// file system with no locks is no reason to refuse a release: the lock is there
 /// to stop a mistake, and the checkpoint still says where things stand.
@@ -1918,18 +1928,27 @@ fn hold(path: &Path) -> Result<Option<std::fs::File>, Error> {
             path: path.to_path_buf(),
             source,
         })?;
-    match file.try_lock() {
-        Ok(()) => Ok(Some(file)),
-        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
-        Err(std::fs::TryLockError::Error(source))
-            if source.kind() == std::io::ErrorKind::Unsupported =>
-        {
-            Ok(Some(file))
+    let mut tries = 1;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(Some(file)),
+            Err(std::fs::TryLockError::WouldBlock) if tries < HELD_TRIES => {
+                tries += 1;
+                std::thread::sleep(HELD_PAUSE);
+            }
+            Err(std::fs::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::fs::TryLockError::Error(source))
+                if source.kind() == std::io::ErrorKind::Unsupported =>
+            {
+                return Ok(Some(file));
+            }
+            Err(std::fs::TryLockError::Error(source)) => {
+                return Err(Error::Write {
+                    path: path.to_path_buf(),
+                    source,
+                });
+            }
         }
-        Err(std::fs::TryLockError::Error(source)) => Err(Error::Write {
-            path: path.to_path_buf(),
-            source,
-        }),
     }
 }
 
