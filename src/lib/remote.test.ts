@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Progress } from './generated/Progress'
 import type { Pushed } from './generated/Pushed'
 import type { Stepped } from './generated/Stepped'
-import { progressWords, refusals, summary } from './remote'
+import { movedHead, progressWords, refusals, summary } from './remote'
 
 const progress = (done: number, total: number | null): Progress => ({
   phase: 'Receiving objects',
@@ -151,5 +151,41 @@ describe('summary of a step of an operation', () => {
       key: 'merge.done',
       values: { branch: 'HEAD', at: 'bde71a4' },
     })
+  })
+
+  it('tells a rebase that replayed commits from one that had none to replay', () => {
+    expect(summary({ ok: true, doing: 'rebase', stepped: step({}) })).toEqual({
+      key: 'rebase.rebased',
+      values: { branch: 'main', at: 'bde71a4', count: 2 },
+    })
+    expect(summary({ ok: true, doing: 'rebase', stepped: step({ to: '609c33c0', made: 0 }) })).toEqual({
+      key: 'rebase.nothing',
+      values: { branch: 'main' },
+    })
+    const stopped = step({ operation: 'rebase', conflicts: [{ path: 'f.txt', kind: 'both-modified' }] })
+    expect(summary({ ok: true, doing: 'rebase', stepped: stopped }).key).toBe('merge.stoppedAt.rebase')
+  })
+
+  it('says a squash and an absorb by where they left the branch', () => {
+    expect(summary({ ok: true, doing: 'squash', stepped: step({ made: 1 }) })).toEqual({
+      key: 'rebase.squashed',
+      values: { branch: 'main', at: 'bde71a4' },
+    })
+    expect(summary({ ok: true, doing: 'absorb', stepped: step({ made: 3 }) })).toEqual({
+      key: 'rebase.absorbed',
+      values: { branch: 'main', at: 'bde71a4', count: 3 },
+    })
+  })
+})
+
+describe('where a step left HEAD', () => {
+  const stepped: Stepped = { operation: null, stopped: null, conflicts: [], branch: 'main', from: '609c33c0', to: 'bde71a40', made: 1 }
+
+  it('is the commit to go to when the step moved it, and nothing otherwise', () => {
+    expect(movedHead({ ok: true, doing: 'cherry-pick', stepped })).toBe('bde71a40')
+    expect(movedHead({ ok: true, doing: 'abort', stepped: { ...stepped, to: '609c33c0' } })).toBeNull()
+    expect(movedHead({ ok: false, doing: 'rebase', reason: 'no' })).toBeNull()
+    expect(movedHead({ ok: true, doing: 'unfollow', branch: 'main' })).toBeNull()
+    expect(movedHead(null)).toBeNull()
   })
 })

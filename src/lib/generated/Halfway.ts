@@ -23,6 +23,20 @@ commit: Commit | null,
  */
 message: string | null, 
 /**
+ * That message whole, as git will commit it, its comment lines left
+ * out: what a form offers to a person who wants to change it.
+ */
+text: string | null, 
+/**
+ * How many of a rebase's steps are done, the one it stopped at with
+ * them; `None` for anything but a rebase.
+ */
+step: number | null, 
+/**
+ * How many steps the rebase has in all.
+ */
+steps: number | null, 
+/**
  * Paths still to resolve.
  */
 conflicts: number, 

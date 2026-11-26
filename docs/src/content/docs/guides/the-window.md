@@ -1,6 +1,6 @@
 ---
 title: The window
-description: Open repositories in tabs, save sets of them as sessions, read their history as a graph, search it, see their branches, remotes, tags, stashes and submodules, watch the working copy as files are saved, stage and commit, fetch, pull and push, and see every git command the window runs.
+description: Open repositories in tabs, save sets of them as sessions, read their history as a graph, search it, see their branches, remotes, tags, stashes and submodules, watch the working copy as files are saved, stage and commit, fetch, pull and push, merge and rebase, and see every git command the window runs.
 ---
 
 The desktop window is the third door onto the same engine as the CLI: what it
@@ -255,7 +255,9 @@ from the last one pressed; clicking a picked line lets it go. In **Inline** a
 removed line has no number of its own, and is picked by clicking the line itself.
 A picked line carries the accent from its number across its text, and the header
 says how many are picked, with **Stage lines** (**Unstage lines** in **Staged**),
-**Discard lines** and a button that lets them all go.
+**Discard lines** and a button that lets them all go. **Absorb…**, there and on a
+hunk's bar, puts them into a commit already made instead: see
+[absorbing](#rebasing-squashing-and-absorbing).
 
 Each line goes where it stood: picking the removal of one line and the addition
 that replaced it changes that line and leaves the rest of the hunk as it was. A
@@ -438,8 +440,10 @@ goes on with the next commit of a pick or a rebase; **Skip** leaves out the comm
 stopped at; **Abort** puts everything back as it was before it began, after a
 question. The bar is there for an operation begun anywhere - a merge in a terminal,
 a pull that rebased and stopped - and no other merge, pick or revert begins while it
-is. If your `commit-msg` hook refuses git's message, write one in the commit form
-and commit: that finishes the merge too.
+is. While one is halfway the commit form starts from the message git wrote for it -
+`Merge branch 'feature/retry'`, the message of the commit a rebase stopped at - when
+nothing is typed in it. If your `commit-msg` hook refuses that message, change it
+there and commit: that finishes the merge too.
 
 ![A merge halfway: the bar says Merging feature/retry into main, 2 files in conflict, with Abort and Continue; Local changes lists the two files, and the resolver shows our file and theirs above, level, with the conflicting line marked in each, and under them the result - the first conflict resolved, the second still written out between git's markers, with Ours, Theirs, Both and Base over it](../../../assets/window-conflicts.png)
 
@@ -466,6 +470,62 @@ another editor; it asks first while git's markers are still in it. A file whose
 markers are already gone says so, since resolving it here would write over what was
 done elsewhere. See
 [ADR 0023](https://github.com/lacodda/furca/blob/main/docs/adr/0023-an-operation-halfway-is-a-state-and-a-conflict-is-read-from-its-stages.md).
+
+## Rebasing, squashing and absorbing
+
+**Rebase … onto …** from the menu of a branch, a remote branch, a tag or a commit
+replays the commits the current branch has and the other does not on top of it, one
+by one, and moves the branch there. It asks first. Changes not committed are put
+away and brought back after, by git's own autostash. A rebase that meets a conflict
+stops halfway like a merge: the bar says which step of how many it stopped at, the
+files open in the resolver - where **Ours** is the new base and **Theirs** the commit
+being replayed - and **Continue**, **Skip** and **Abort** go on from there.
+
+**Rebase interactively from …** on a commit of the current branch opens that commit
+and every one after it as a list, oldest first, the way git replays them:
+
+![The rebase dialog: five commits of main as rows, each with a grip to drag it by, what becomes of it - Pick, Reword, Squash, Fixup or Drop - its short id and its subject; one commit has been moved up, one is reworded, with its message open to edit under it, one is dropped and struck through, one is fixed up; the foot says 3 commits will be left of 5, with Cancel and Rebase](../../../assets/window-rebase.png)
+
+| What becomes of a commit | |
+| --- | --- |
+| **Pick** | Replayed as it is. |
+| **Reword** | Replayed under another message, which opens under the row to edit. Your hooks judge it as they judge any commit. |
+| **Squash** | Folded into the commit above it, their two messages one after the other. |
+| **Fixup** | Folded into the commit above it, its own message left out. |
+| **Drop** | Left out. |
+
+Drag a row by its grip to another place, or move it with the up and down arrows
+while the grip has the focus. The foot says how many commits will be left, and
+**Rebase** stays off while the list says nothing new, or while the first commit is
+set to fold into a commit that is not there. Commits the branch's upstream has
+already are marked **pushed**: rewriting them parts the branch from what was pushed,
+and the next push has to force it. A range with a merge in it is not offered a plan
+- a rebase would replay what the merge brought in commit by commit and leave the
+merge out - so rebase the commits after it.
+
+**Squash down to …** makes one commit of the commit you chose and every commit after
+it, in one step: the dialog starts from their messages one after another, to edit.
+Nothing can conflict - the one commit holds exactly what the branch held - and it
+keeps the first commit's author. It waits while something is staged, which would
+otherwise go into the commit unasked.
+
+**Absorb** puts a change into a commit that is already made, as if it had been made
+with it - a typo found two commits later, a line that belongs with an earlier fix:
+
+- on a hunk's bar in [Local changes](#lines), or beside **Stage lines** once lines are
+  picked, **Absorb…** asks which commit. The list is the line of commits the branch
+  came by, newest first, with the ones that **changed this file** marked and the
+  newest of them chosen;
+- **Absorb what is staged into …** in a commit's menu takes everything staged.
+
+Only what you named goes in: other staged changes stay staged, and what is not
+staged stays in the working tree. The commits after it are replayed on the result.
+If the change does not fit that commit, or a later commit does not replay over it,
+nothing is changed and the window says so - an absorb never leaves a rebase halfway.
+
+After any step that moves the branch - a rebase, a squash, an absorb, a cherry-pick,
+a merge - the graph goes to the commit the branch is on now. See
+[ADR 0024](https://github.com/lacodda/furca/blob/main/docs/adr/0024-a-rebase-is-given-its-plan-and-a-rewrite-in-place-happens-whole.md).
 
 ## The console
 

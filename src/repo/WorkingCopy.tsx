@@ -13,6 +13,7 @@ import { fileTree, folderIds } from '@/lib/changes'
 import type { Conflicted } from '@/lib/generated/Conflicted'
 import type { Counts } from '@/lib/generated/Counts'
 import type { FileChange } from '@/lib/generated/FileChange'
+import type { Picked } from '@/lib/generated/Picked'
 import type { Layout } from '@/lib/generated/Layout'
 import type { Status } from '@/lib/generated/Status'
 import type { Warning } from '@/lib/generated/Warning'
@@ -22,6 +23,7 @@ import { ConfirmDiscard } from './ConfirmDiscard'
 import { ConflictPane } from './ConflictPane'
 import { DiffPane, type LineActions } from './DiffPane'
 import { FileTree } from './FileTree'
+import { AbsorbLines } from './Rebase'
 import { fileNodes } from './Files'
 import { GRAB_ON_THE_LIST } from './splitters'
 
@@ -132,12 +134,16 @@ function Lists({
 
   // Only what changed in place has hunks and lines to take apart: a file added
   // or deleted whole is one hunk, which its row already moves.
+  // The lines on their way into a commit already made, with the file they
+  // are of: the dialog that asks which commit is open while they are held.
+  const [absorbing, setAbsorbing] = useState<{ file: FileChange; picks: Picked[] } | null>(null)
   let lines: LineActions | undefined
   if (file?.status === 'modified' && shown?.area === 'unstaged') {
     lines = {
       staged: false,
       move: (picks) => heard(api.stageLines(path, file, picks)),
       discard: (picks) => heard(api.discardLines(path, file, picks)),
+      absorb: (picks) => setAbsorbing({ file, picks }),
     }
   } else if (file?.status === 'modified' && shown?.area === 'staged') {
     lines = { staged: true, move: (picks) => heard(api.unstageLines(path, file, picks)) }
@@ -182,6 +188,14 @@ function Lists({
           />
         ) : null}
       </SplitterPane>
+      <AbsorbLines
+        path={path}
+        file={absorbing?.file ?? null}
+        picks={absorbing?.picks ?? null}
+        onOpenChange={(open) => {
+          if (!open) setAbsorbing(null)
+        }}
+      />
       <ConfirmDiscard
         open={asked !== null}
         onOpenChange={(open) => {

@@ -14,6 +14,7 @@ import { afterCommit, canDraft, compose, EMPTY, fromParts, grouped, shortId, why
 import type { Finding } from '@/lib/generated/Finding'
 import type { MessageCheck } from '@/lib/generated/MessageCheck'
 import type { Warning } from '@/lib/generated/Warning'
+import { useHalfway } from '@/lib/repos'
 
 /** How long typing pauses before the message is read and the hook asked. */
 const PAUSE = 300
@@ -27,6 +28,12 @@ const NAMED = 2
 /** What each repository's form held, kept while the window is: going to the
  * history to look something up does not lose a message half written. */
 const kept = new Map<string, { draft: Draft; amend: boolean; before: Draft | null; pushed: boolean }>()
+
+/** The message git prepared that each repository's form was last offered,
+ * and what the form said once it took it: it is offered once, a person who
+ * cleared it is not given it again, and one left as it was goes with the
+ * operation it was for. */
+const offered = new Map<string, { text: string; message: string | null }>()
 
 /** The types of the convention and whether Claude Code is here, asked once. */
 let types: Promise<string[]> | null = null
@@ -82,6 +89,50 @@ export function Composer({ path, staged, conflicted, warnings }: ComposerProps) 
       current = false
     }
   }, [])
+
+  // An operation halfway has a message git wrote for the commit that
+  // finishes it - `Merge branch 'feature'`, the message of the commit a
+  // rebase stopped at. A form with nothing typed in it starts from that one,
+  // so a hook that refuses it is answered by changing it, not by writing it
+  // again from nothing.
+  const halfway = useHalfway(path)
+  const prepared = halfway.state === 'read' ? (halfway.value?.text ?? null) : null
+  const over = halfway.state === 'read' && prepared === null
+  useEffect(() => {
+    let current = true
+    if (over) {
+      // Continued, aborted or committed: a message nobody changed is not
+      // left behind for the next commit.
+      const was = offered.get(path)
+      offered.delete(path)
+      if (was?.message != null) {
+        void Promise.resolve().then(() => {
+          if (current) setDraft((now) => (compose(now) === was.message ? EMPTY : now))
+        })
+      }
+      return () => {
+        current = false
+      }
+    }
+    if (prepared === null || offered.get(path)?.text === prepared) return
+    void api.preparedMessage(path).then(
+      (parts) => {
+        if (!current || parts === null) return
+        const taken = fromParts(parts)
+        setDraft((now) => {
+          const takes = canDraft(now)
+          offered.set(path, { text: prepared, message: takes ? compose(taken) : null })
+          return takes ? taken : now
+        })
+      },
+      () => {
+        /* nothing to offer: the form stays as it is */
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [path, prepared, over])
 
   const message = compose(draft)
   const empty = draft.description.trim() === ''

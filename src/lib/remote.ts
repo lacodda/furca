@@ -3,11 +3,14 @@ import { Channel } from '@tauri-apps/api/core'
 import { api, failure } from './api'
 import type { FastForward } from './generated/FastForward'
 import type { Fetched } from './generated/Fetched'
+import type { FileChange } from './generated/FileChange'
+import type { Picked } from './generated/Picked'
 import type { Progress } from './generated/Progress'
 import type { Proceed } from './generated/Proceed'
 import type { Pulled } from './generated/Pulled'
 import type { Pushes } from './generated/Pushes'
 import type { Reaching } from './generated/Reaching'
+import type { RebaseTodo } from './generated/RebaseTodo'
 import type { Reconcile } from './generated/Reconcile'
 import type { Remotes } from './generated/Remotes'
 import type { Deleted } from './generated/Deleted'
@@ -19,7 +22,8 @@ import type { TagPushes } from './generated/TagPushes'
 /*
  * The runs the window makes on a repository's remotes and refs - fetch, pull,
  * push, prune; a checkout, a branch or a tag deleted, a tag pushed; a merge,
- * a pick, a revert and the steps of one halfway - one
+ * a pick, a revert, a rebase, a squash, an absorb and the steps of one
+ * halfway - one
  * repository at a time, kept per repository while the window is: the toolbar
  * draws which one is going and how far it has got, the foot of the window says
  * it in words, and what came of the last one stays until the next, or, when
@@ -44,8 +48,9 @@ export type Doing =
   | 'delete-tag'
   | Stepping
 
-/** What brings commits together, and what goes on with it once halfway. */
-export type Stepping = 'merge' | 'cherry-pick' | 'revert' | Proceed
+/** What brings commits together or rewrites them, and what goes on with it
+ * once halfway. */
+export type Stepping = 'merge' | 'cherry-pick' | 'revert' | 'rebase' | 'squash' | 'absorb' | Proceed
 
 /** A run going now. */
 export interface Run {
@@ -246,9 +251,47 @@ export function revertCommit(path: string, commit: string): Promise<Outcome> {
   return go(path, 'revert', () => api.revert(path, commit).then((stepped): Outcome => ({ ok: true, doing: 'revert', stepped })))
 }
 
+/** Replays the current branch's commits on `onto`. One that meets a
+ * conflict went well: it stopped halfway, which the window shows. */
+export function rebaseOnto(path: string, onto: string): Promise<Outcome> {
+  return go(path, 'rebase', () => api.rebase(path, onto).then((stepped): Outcome => ({ ok: true, doing: 'rebase', stepped })))
+}
+
+/** Replays the commits of the plan for `onto` as `todo` says. */
+export function rebaseBy(path: string, onto: string | null, todo: RebaseTodo[]): Promise<Outcome> {
+  return go(path, 'rebase', () =>
+    api.rebaseInteractive(path, onto, todo).then((stepped): Outcome => ({ ok: true, doing: 'rebase', stepped })),
+  )
+}
+
+/** Makes one commit of `commit` and every commit after it. */
+export function squashTo(path: string, commit: string, message: string | null): Promise<Outcome> {
+  return go(path, 'squash', () => api.squash(path, commit, message).then((stepped): Outcome => ({ ok: true, doing: 'squash', stepped })))
+}
+
+/** Puts what is staged into `commit`. */
+export function absorbInto(path: string, commit: string): Promise<Outcome> {
+  return go(path, 'absorb', () => api.absorb(path, commit).then((stepped): Outcome => ({ ok: true, doing: 'absorb', stepped })))
+}
+
+/** Puts lines of a file that is not staged into `commit`. */
+export function absorbLinesInto(path: string, file: FileChange, picks: Picked[], commit: string): Promise<Outcome> {
+  return go(path, 'absorb', () =>
+    api.absorbLines(path, file, picks, commit).then((stepped): Outcome => ({ ok: true, doing: 'absorb', stepped })),
+  )
+}
+
 /** Continues, skips or aborts the operation halfway. */
 export function proceed(path: string, how: Proceed): Promise<Outcome> {
   return go(path, how, () => api.proceed(path, how).then((stepped): Outcome => ({ ok: true, doing: how, stepped })))
+}
+
+/** The commit `HEAD` is on after `outcome`, when it is a step that moved it:
+ * what the graph goes to, so the commit just made is the one on show. */
+export function movedHead(outcome: Outcome | null): string | null {
+  if (outcome === null || !outcome.ok || !('stepped' in outcome)) return null
+  const { from, to } = outcome.stepped
+  return to !== null && to !== from ? to : null
 }
 
 /** What each remote that refused a push said, a remote at a time; git's own
@@ -315,6 +358,9 @@ export function summary(outcome: Outcome & { ok: true }): Said {
     case 'merge':
     case 'cherry-pick':
     case 'revert':
+    case 'rebase':
+    case 'squash':
+    case 'absorb':
     case 'continue':
     case 'skip':
     case 'abort':
@@ -348,5 +394,10 @@ function stepped(doing: Stepping, step: Stepped): Said {
   }
   if (doing === 'cherry-pick') return { key: 'merge.picked', values: { branch, at } }
   if (doing === 'revert') return { key: 'merge.reverted', values: { branch, at } }
+  if (doing === 'rebase') {
+    return step.from === step.to ? { key: 'rebase.nothing', values: { branch } } : { key: 'rebase.rebased', values: { branch, at, count: step.made } }
+  }
+  if (doing === 'squash') return { key: 'rebase.squashed', values: { branch, at } }
+  if (doing === 'absorb') return { key: 'rebase.absorbed', values: { branch, at, count: step.made } }
   return { key: 'merge.done', values: { branch, at } }
 }

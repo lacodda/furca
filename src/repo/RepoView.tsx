@@ -13,7 +13,7 @@ import { positionOf, rowAt, searchGraph, showBranch, useGraph } from '@/lib/grap
 import { labelsByCommit, nextMatch, type Label } from '@/lib/graph-labels'
 import { readState, useRelease } from '@/lib/release'
 import { failed, useConsole } from '@/lib/console'
-import { progressWords, summary, useReach } from '@/lib/remote'
+import { movedHead, progressWords, summary, useReach } from '@/lib/remote'
 import { useMaintenance, useSidebar } from '@/lib/repos'
 import { counted, useWorkingCopy } from '@/lib/working'
 import { ConsolePanel } from './ConsolePanel'
@@ -121,6 +121,22 @@ export function RepoView({ tab, layout, onLayout }: RepoViewProps) {
       current = false
     }
   }, [path, generation, head])
+
+  // A step the window made that moved HEAD - a pick, a revert, a merge, a
+  // rebase - leaves the commit HEAD is on now as the one chosen: the graph
+  // that is begun again for it finds that one, not the row chosen before.
+  const stepped = movedHead(useReach(path).outcome)
+  useEffect(() => {
+    if (stepped === null) return
+    chosen.current = stepped
+    let current = true
+    void positionOf(path, stepped).then((row) => {
+      if (current && row !== null && chosen.current === stepped) setSelected(row)
+    })
+    return () => {
+      current = false
+    }
+  }, [path, stepped])
 
   useEffect(() => {
     kept.set(path, { id: chosen.current, query, view })

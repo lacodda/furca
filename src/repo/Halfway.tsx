@@ -40,6 +40,9 @@ export function HalfwayBar({ path, inChanges, onResolve }: { path: string; inCha
         <span className="truncate font-semibold" title={subject ?? undefined}>
           {t(`merge.halfway.${halfway.operation}`, { what, into })}
         </span>
+        {halfway.step !== null && halfway.steps !== null && (
+          <span className="shrink-0 text-dim">{t('rebase.step', { step: halfway.step, steps: halfway.steps })}</span>
+        )}
         <span className="shrink-0 text-dim">
           {halfway.operation === 'bisect'
             ? t('merge.bisectBody')

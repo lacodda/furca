@@ -1,4 +1,5 @@
 import { invoke, type Channel } from '@tauri-apps/api/core'
+import type { AbsorbTarget } from './generated/AbsorbTarget'
 import type { Conflict } from './generated/Conflict'
 import type { Deleted } from './generated/Deleted'
 import type { Details } from './generated/Details'
@@ -25,6 +26,8 @@ import type { Proceed } from './generated/Proceed'
 import type { Pulled } from './generated/Pulled'
 import type { Pushes } from './generated/Pushes'
 import type { Reaching } from './generated/Reaching'
+import type { RebasePlan } from './generated/RebasePlan'
+import type { RebaseTodo } from './generated/RebaseTodo'
 import type { Reconcile } from './generated/Reconcile'
 import type { ReleaseState } from './generated/ReleaseState'
 import type { Remotes } from './generated/Remotes'
@@ -172,6 +175,29 @@ export const api = {
   conflict: (path: string, file: string) => invoke<Conflict>('conflict', { path, file }),
   /** Resolves the conflict at `file` as `how` says, and stages it. */
   resolve: (path: string, file: string, how: Resolution) => invoke<null>('resolve', { path, file, how }),
+  /** Replays the commits `HEAD` has and `onto` does not on `onto`; one that
+   * meets a conflict stops halfway. */
+  rebase: (path: string, onto: string) => invoke<Stepped>('rebase', { path, onto }),
+  /** The commits a rebase onto `onto` would replay, oldest first; with
+   * `null`, every commit from the first. */
+  rebasePlan: (path: string, onto: string | null) => invoke<RebasePlan>('rebase_plan', { path, onto }),
+  /** Replays the commits of the plan for `onto` as `todo` says: it names
+   * every one of them once. */
+  rebaseInteractive: (path: string, onto: string | null, todo: RebaseTodo[]) =>
+    invoke<Stepped>('rebase_interactive', { path, onto, todo }),
+  /** Makes one commit of `commit` and every commit after it; with `null`,
+   * under their messages one after another. */
+  squash: (path: string, commit: string, message: string | null) => invoke<Stepped>('squash', { path, commit, message }),
+  /** Puts what is staged into `commit`, and replays the commits after it. */
+  absorb: (path: string, commit: string) => invoke<Stepped>('absorb', { path, commit }),
+  /** Puts lines of a file that is not staged into `commit`. */
+  absorbLines: (path: string, file: FileChange, picks: Picked[], commit: string) =>
+    invoke<Stepped>('absorb_lines', { path, file, picks, commit }),
+  /** The commits a change can be absorbed into, newest first; with `file`,
+   * each says whether it changed that file. */
+  absorbTargets: (path: string, file: string | null) => invoke<AbsorbTarget[]>('absorb_targets', { path, file }),
+  /** The message git prepared for the commit that finishes what is halfway. */
+  preparedMessage: (path: string) => invoke<Parts | null>('prepared_message', { path }),
   /** The types of the convention, as the core keeps them. */
   commitTypes: () => invoke<string[]>('commit_types'),
   /** Reads `message`, and asks the repository's own `commit-msg` hook of it. */

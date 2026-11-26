@@ -81,6 +81,8 @@ export interface LineActions {
   staged: boolean
   move: (picks: Picked[]) => void
   discard?: (picks: Picked[]) => void
+  /** Puts them into a commit already made, which the window asks for. */
+  absorb?: (picks: Picked[]) => void
 }
 
 /** The change of one file: what it is, then its lines. `scope` says what the
@@ -135,6 +137,7 @@ export function DiffPane({
       ? undefined
       : [
           { label: lines.staged ? t('changes.unstageHunk') : t('changes.stageHunk'), act: (hunk) => move([wholeHunk(hunk)]) },
+          ...(lines.absorb === undefined ? [] : [{ label: t('rebase.absorbHunk'), act: (hunk: Hunk) => lines.absorb?.([wholeHunk(hunk)]) }]),
           ...(lines.discard === undefined
             ? []
             : [{ label: t('changes.discardHunk'), bad: true, act: (hunk: Hunk) => discard([wholeHunk(hunk)]) }]),
@@ -218,6 +221,11 @@ export function DiffPane({
                 <Button size="xs" variant="soft" onClick={() => move(pickedOf(current, read.hunks))}>
                   {lines.staged ? t('changes.unstageLines') : t('changes.stageLines')}
                 </Button>
+                {lines.absorb !== undefined && (
+                  <Button size="xs" variant="ghost" onClick={() => lines.absorb?.(pickedOf(current, read.hunks))}>
+                    {t('rebase.absorbLines')}
+                  </Button>
+                )}
                 {lines.discard !== undefined && (
                   <Button size="xs" variant="danger" onClick={() => discard(pickedOf(current, read.hunks))}>
                     {t('changes.discardLines')}

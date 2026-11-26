@@ -187,6 +187,16 @@ function RowItems({
       {t('merge.mergeMenu', { name: label, into })}
     </ContextMenuItem>
   )
+  // Replaying the current branch on `name`, asked the same way.
+  const rebaseItem = (name: string, label: string, target: string) => (
+    <ContextMenuItem
+      disabled={busy || stopped || head === null || target === head}
+      title={stopped ? t('merge.halfwayFirst') : undefined}
+      onClick={() => onAsk({ kind: 'rebase', name, label, into })}
+    >
+      {t('rebase.ontoMenu', { name: label, into })}
+    </ContextMenuItem>
+  )
 
   switch (row.kind) {
     case 'section':
@@ -258,6 +268,7 @@ function RowItems({
             <>
               <ContextMenuSeparator />
               {mergeItem(`refs/heads/${branch.name}`, branch.name, branch.target)}
+              {rebaseItem(`refs/heads/${branch.name}`, branch.name, branch.target)}
             </>
           )}
           <ContextMenuSeparator />
@@ -304,6 +315,7 @@ function RowItems({
           </ContextMenuItem>
           <ContextMenuSeparator />
           {mergeItem(`refs/remotes/${row.name}`, row.name, branch.target)}
+          {rebaseItem(`refs/remotes/${row.name}`, row.name, branch.target)}
         </>
       )
     }
@@ -320,6 +332,7 @@ function RowItems({
             {t('refs.newBranchFrom', { name: tag.name })}
           </ContextMenuItem>
           {mergeItem(`refs/tags/${tag.name}`, tag.name, tag.target)}
+          {rebaseItem(`refs/tags/${tag.name}`, tag.name, tag.target)}
           {remotes.length > 0 && <ContextMenuSeparator />}
           {only !== undefined ? (
             <ContextMenuItem disabled={busy} onClick={() => void pushTag(path, tag.name, { to: 'named', name: only.name })}>

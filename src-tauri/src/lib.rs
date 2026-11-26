@@ -13,6 +13,7 @@ pub mod maintenance;
 pub mod measure;
 pub mod merge;
 mod nooma;
+pub mod rebase;
 pub mod refs;
 pub mod release;
 pub mod remote;
@@ -224,6 +225,14 @@ pub fn run() {
             merge::halfway,
             merge::conflict,
             merge::resolve,
+            rebase::rebase,
+            rebase::rebase_plan,
+            rebase::rebase_interactive,
+            rebase::squash,
+            rebase::absorb,
+            rebase::absorb_lines,
+            rebase::absorb_targets,
+            rebase::prepared_message,
             commit::commit_types,
             commit::check_message,
             commit::commit,

@@ -52,8 +52,10 @@ import {
   useReach,
 } from '@/lib/remote'
 import { useHalfway } from '@/lib/repos'
+import { useWorkingCopy } from '@/lib/working'
 import { ConfirmDiscard } from './ConfirmDiscard'
 import { RemoteDialog, RemoveRemote } from './Reach'
+import { RebaseDialogs, type Rewriting } from './Rebase'
 
 /*
  * Branches and tags from the window: the dialogs that make, rename and delete
@@ -61,7 +63,9 @@ import { RemoteDialog, RemoveRemote } from './Reach'
  * from the graph's. What each one means - which new branch follows what, what
  * a deletion loses - is furca-core's (ADR 0022); the dialogs say it before it
  * is done, and git's own words when it refuses. Merging one into the current
- * branch, and picking or reverting a commit, are asked here too (ADR 0023).
+ * branch, and picking or reverting a commit, are asked here too (ADR 0023);
+ * what rewrites commits - a rebase, a squash, an absorb - is asked in
+ * `Rebase.tsx` (ADR 0024).
  */
 
 /** A question the window is asking about a ref: which dialog is open. */
@@ -82,6 +86,7 @@ export type Asking =
   | { kind: 'merge'; name: string; label: string; into: string }
   | { kind: 'pick'; commit: Commit; into: string }
   | { kind: 'revert'; commit: Commit; into: string }
+  | Rewriting
 
 /** The dialog `asking` names, over the repository at `path`. */
 export function RefDialogs({
@@ -145,6 +150,13 @@ export function RefDialogs({
         {asking?.kind === 'merge' && <MergeForm path={path} asking={asking} onDone={onDone} />}
       </FormDialog>
       <PickOrRevert path={path} asking={asking?.kind === 'pick' || asking?.kind === 'revert' ? asking : null} onOpenChange={shut} />
+      <RebaseDialogs
+        path={path}
+        asking={
+          asking?.kind === 'rebase' || asking?.kind === 'plan' || asking?.kind === 'squash' || asking?.kind === 'absorb' ? asking : null
+        }
+        onDone={onDone}
+      />
     </>
   )
 }
@@ -621,8 +633,10 @@ function commitOf(target: EventTarget | null): string | null {
 /**
  * What can be done to a commit of the graph, on a right click or the menu key:
  * check out a branch that is on it, check the commit itself out on no branch,
- * make a branch or a tag on it, merge it into the current branch, or pick or
- * revert its change there.
+ * make a branch or a tag on it, merge it into the current branch, pick or
+ * revert its change there, rebase the current branch onto it - or, for a
+ * commit of the current branch, rewrite from it on: by a plan, squashed into
+ * one, or with what is staged absorbed into it.
  */
 export function CommitMenu({ path, sidebar, children }: { path: string; sidebar: Sidebar | null; children: ReactNode }) {
   const { t } = useTranslation()
@@ -640,6 +654,8 @@ export function CommitMenu({ path, sidebar, children }: { path: string; sidebar:
   const into = sidebar?.head.branch ?? 'HEAD'
   const known = read !== null && read.id === commit ? read : null
   const first = stopped ? t('merge.halfwayFirst') : undefined
+  const copy = useWorkingCopy(path)
+  const staged = copy.state === 'read' ? copy.counts.staged : 0
 
   return (
     <>
@@ -707,6 +723,41 @@ export function CommitMenu({ path, sidebar, children }: { path: string; sidebar:
                 }}
               >
                 {t('merge.revertMenu', { at: short(commit) })}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                disabled={busy || stopped || atHead}
+                title={first}
+                onClick={() => setAsking({ kind: 'rebase', name: commit, label: short(commit), into })}
+              >
+                {t('rebase.ontoMenu', { name: short(commit), into })}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={busy || stopped || known === null}
+                title={first}
+                onClick={() => {
+                  if (known !== null) setAsking({ kind: 'plan', commit: known, into })
+                }}
+              >
+                {t('rebase.planMenu', { at: short(commit) })}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={busy || stopped || atHead || known === null}
+                title={first}
+                onClick={() => {
+                  if (known !== null) setAsking({ kind: 'squash', commit: known, into })
+                }}
+              >
+                {t('rebase.squashMenu', { at: short(commit) })}
+              </ContextMenuItem>
+              <ContextMenuItem
+                disabled={busy || stopped || known === null || staged === 0}
+                title={first ?? (staged === 0 ? t('rebase.nothingStaged') : undefined)}
+                onClick={() => {
+                  if (known !== null) setAsking({ kind: 'absorb', commit: known })
+                }}
+              >
+                {t('rebase.absorbMenu', { at: short(commit) })}
               </ContextMenuItem>
             </>
           )}
