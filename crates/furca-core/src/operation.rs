@@ -62,6 +62,14 @@ pub struct Halfway {
     /// The first line of the message git wrote for the commit that finishes
     /// it, such as `Merge branch 'feature'`; `None` when it wrote none.
     pub message: Option<String>,
+    /// That message whole, as git will commit it, its comment lines left
+    /// out: what a form offers to a person who wants to change it.
+    pub text: Option<String>,
+    /// How many of a rebase's steps are done, the one it stopped at with
+    /// them; `None` for anything but a rebase.
+    pub step: Option<u32>,
+    /// How many steps the rebase has in all.
+    pub steps: Option<u32>,
     /// Paths still to resolve.
     pub conflicts: usize,
     /// Whether it can be continued: anything but a bisect.
@@ -91,6 +99,23 @@ pub struct Stepped {
     /// Commits `HEAD` has now that it did not have before: what a pick or a
     /// revert made, and what a merge brought in, its merge commit with them.
     pub made: usize,
+}
+
+/// A message git prepared, as it will commit it: the lines it wrote for the
+/// person to read - those that begin with `#` - and the blank lines around
+/// the rest left out.
+fn without_comments(text: String) -> String {
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .map(str::trim_end)
+        .collect();
+    kept.join(
+        "
+",
+    )
+    .trim()
+    .to_owned()
 }
 
 impl Operation {
@@ -142,11 +167,30 @@ impl Repository {
                 .filter(|name| name != "detached HEAD"),
             _ => self.head()?.branch,
         };
+        let text = read("MERGE_MSG")
+            .map(without_comments)
+            .filter(|t| !t.is_empty());
+        let number = |name: &str| {
+            ["rebase-merge", "rebase-apply"]
+                .into_iter()
+                .find_map(|dir| read(&format!("{dir}/{name}")))
+                .and_then(|text| text.trim().parse::<u32>().ok())
+        };
+        let (step, steps) = match operation {
+            Operation::Rebase => (
+                number("msgnum").or_else(|| number("next")),
+                number("end").or_else(|| number("last")),
+            ),
+            _ => (None, None),
+        };
         Ok(Some(Halfway {
             operation,
             branch,
             commit,
             message: read("MERGE_MSG").and_then(first_line),
+            text,
+            step,
+            steps,
             conflicts: self.conflicts()?.len(),
             can_continue: operation != Operation::Bisect,
             can_skip: matches!(

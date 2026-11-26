@@ -241,16 +241,35 @@ impl Git<'_> {
     /// A run that failed and left an operation halfway that was not before -
     /// or moved `HEAD`, or changed what is in conflict - stopped there, and
     /// that is its answer; one that moved nothing was refused.
-    fn step(&self, args: &[&str]) -> Result<Stepped, Error> {
+    pub(super) fn step(&self, args: &[&str]) -> Result<Stepped, Error> {
+        self.step_in(args, &[])
+    }
+
+    /// [`Git::step`] with `env` added to git's environment.
+    pub(super) fn step_in(&self, args: &[&str], env: &[(&str, &str)]) -> Result<Stepped, Error> {
+        self.stepping(|| self.change_index_in(args, None, env).map(drop))
+    }
+
+    /// Has `run` make one step - a run of git, or a few that are one step to
+    /// a person - and says where it left the repository, as [`Git::step`]
+    /// does.
+    pub(super) fn stepping(
+        &self,
+        run: impl FnOnce() -> Result<(), Error>,
+    ) -> Result<Stepped, Error> {
         let before = self.repo.head()?;
         let was = self.repo.inner.state().map(operation);
         let conflicts_before = self.repo.conflicts()?;
-        let done = self.change_index(args, None);
+        let done = run();
         let now = self.repo.inner.state().map(operation);
+        if now != Some(Operation::Rebase) {
+            // What a rebase was given to read is of no use once it is over.
+            let _ = std::fs::remove_dir_all(self.repo.git_dir().join(super::rebase::KEPT));
+        }
         let after = self.repo.head()?;
         let conflicts = self.repo.conflicts()?;
         let stopped = match done {
-            Ok(_) => None,
+            Ok(()) => None,
             Err(Error::Git { stderr, .. })
                 if now.is_some()
                     && (was.is_none()
@@ -298,7 +317,7 @@ fn with_crlf(text: &str) -> Vec<u8> {
     out
 }
 
-fn short(id: &gix::ObjectId) -> String {
+pub(super) fn short(id: &gix::ObjectId) -> String {
     id.to_hex_with_len(7).to_string()
 }
 

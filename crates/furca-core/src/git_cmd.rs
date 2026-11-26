@@ -14,10 +14,11 @@
 //! `remotes`, and how far such a run has got is read as it runs (`progress`).
 //! Checking out, and making, moving and deleting branches and tags, is in
 //! `refs`; merging, picking and reverting, and the operations they leave
-//! halfway, in `operation`.
+//! halfway, in `operation`; rebasing, squashing and absorbing in `rebase`.
 
 mod operation;
 mod progress;
+mod rebase;
 mod refs;
 mod remotes;
 
@@ -314,7 +315,7 @@ impl Git<'_> {
             "--",
             shown.as_str(),
         ];
-        let heard = self.spawn(&args, None, None).map(|(run, _)| run);
+        let heard = self.spawn(&args, None, None, &[]).map(|(run, _)| run);
         let _ = std::fs::remove_file(&file);
         let run = heard?;
         Ok(match run.code {
@@ -384,9 +385,20 @@ impl Git<'_> {
     /// Runs what writes the index, trying again while something else holds its
     /// lock. Anything else that goes wrong is said at once.
     fn change_index(&self, args: &[&str], input: Option<&[u8]>) -> Result<String, Error> {
+        self.change_index_in(args, input, &[])
+    }
+
+    /// [`Git::change_index`] with `env` added to git's environment: the
+    /// editor a rebase is given its plan by, an index file of its own.
+    fn change_index_in(
+        &self,
+        args: &[&str],
+        input: Option<&[u8]>,
+        env: &[(&str, &str)],
+    ) -> Result<String, Error> {
         let mut tries = 1;
         loop {
-            match self.run_with(args, input) {
+            match self.run_heard(args, input, None, env) {
                 Err(Error::Git { stderr, .. })
                     if tries < INDEX_TRIES && stderr.contains("index.lock") =>
                 {
@@ -405,7 +417,7 @@ impl Git<'_> {
     }
 
     fn run_with(&self, args: &[&str], input: Option<&[u8]>) -> Result<String, Error> {
-        self.run_heard(args, input, None)
+        self.run_heard(args, input, None, &[])
     }
 
     /// Runs `git args` that talks to a remote, telling `hear` how it is
@@ -413,7 +425,7 @@ impl Git<'_> {
     /// fails with what furca knows of why: it never asks for a password, so
     /// the words say where git looks for one.
     fn reach(&self, args: &[&str], hear: Option<Hear<'_>>) -> Result<String, Error> {
-        self.run_heard(args, None, hear)
+        self.run_heard(args, None, hear, &[])
             .map_err(|error| match error {
                 Error::Git {
                     command, stderr, ..
@@ -431,8 +443,9 @@ impl Git<'_> {
         args: &[&str],
         input: Option<&[u8]>,
         hear: Option<Hear<'_>>,
+        env: &[(&str, &str)],
     ) -> Result<String, Error> {
-        let (run, stdout) = self.spawn(args, input, hear)?;
+        let (run, stdout) = self.spawn(args, input, hear, env)?;
         if let Some(hear) = HEARING.get() {
             hear(self.dir(), &run);
         }
@@ -463,6 +476,7 @@ impl Git<'_> {
         args: &[&str],
         input: Option<&[u8]>,
         mut hear: Option<Hear<'_>>,
+        env: &[(&str, &str)],
     ) -> Result<(GitRun, String), Error> {
         let at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -471,6 +485,7 @@ impl Git<'_> {
         let mut command = git_command(self.dir());
         command
             .args(args)
+            .envs(env.iter().copied())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if input.is_some() {

@@ -48,6 +48,7 @@ mod graph;
 mod history;
 mod log;
 mod operation;
+mod rebase;
 mod refs;
 mod remote;
 mod repo;
@@ -77,6 +78,7 @@ pub use graph::{COLORS, Graph, Query, Row, Segment, SegmentKind};
 pub use history::History;
 pub use log::{Commit, Log, Person, Tips};
 pub use operation::{FastForward, Halfway, Proceed, Stepped};
+pub use rebase::{RebaseAction, RebasePlan, RebaseStep, RebaseTodo};
 pub use refs::{Branch, Refs, RemoteBranch, Tag};
 pub use remote::{
     Destination, Fetched, Moved, Pulled, Pushed, Reconcile, Remote, Remotes, TagPushed,

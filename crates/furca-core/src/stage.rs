@@ -62,12 +62,23 @@ impl Repository {
     /// stays as it was. A hunk or a line the file no longer has is
     /// [`Error::Moved`], and nothing is staged.
     pub fn stage_lines(&self, file: &FileChange, picks: &[Picked]) -> Result<(), Error> {
-        let (index, tree) = self.sides_of(file, picks, Self::working_tree_cache)?;
-        let taken = picks.iter().map(Taken::forward);
-        match patch_of(&file.path, &index, &tree, taken) {
+        match self.lines_patch(file, picks)? {
             Some(patch) => self.git().apply_to_index(&patch),
             None => Ok(()),
         }
+    }
+
+    /// The patch that takes the index's `file` to holding the lines `picks`
+    /// name, of its hunks between the index and the working tree; `None`
+    /// when they name no line.
+    pub(crate) fn lines_patch(
+        &self,
+        file: &FileChange,
+        picks: &[Picked],
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let (index, tree) = self.sides_of(file, picks, Self::working_tree_cache)?;
+        let taken = picks.iter().map(Taken::forward);
+        Ok(patch_of(&file.path, &index, &tree, taken))
     }
 
     /// Takes the lines `picks` name, of the hunks [`Repository::diff`] gives
