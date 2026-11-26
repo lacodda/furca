@@ -8,6 +8,13 @@ last release, which follow [Conventional Commits](https://www.conventionalcommit
 $ git cliff --unreleased --tag vX.Y.Z --prepend CHANGELOG.md
 ```
 
+## [0.17.0] - 2026-11-26
+
+### Features
+- Rebase by a plan, squash and absorb
+- Rebase, squash and absorb
+- Rebase by dragging, squash and absorb from the menus
+
 ## [0.16.0] - 2026-11-20
 
 ### Build
